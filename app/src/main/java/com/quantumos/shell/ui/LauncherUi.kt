@@ -173,7 +173,7 @@ class QuantumViewModel : ViewModel() {
     fun navigate(target: NavigationChannel) = engine.transitionNavigation(target)
 
     // ---------- M3 Vitality-panel wiring (all delegate to the single engine seam) ----------
-    fun toggleVitalityPanel() { _vitalityPanelOpen.update { !it } }
+    fun toggleVitalityPanel() { _vitalityPanelOpen.value = !_vitalityPanelOpen.value }
     fun stowVitalityPanel() { _vitalityPanelOpen.value = false }
 
     fun cyclePhosphor() = engine.cyclePhosphorHue()
