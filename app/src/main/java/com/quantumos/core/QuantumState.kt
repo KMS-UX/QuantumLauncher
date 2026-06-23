@@ -235,6 +235,32 @@ class QuantumStateEngine(
 }
 
 /*
+ * OverlayGeometry — pure, unit-testable placement math for the M4 floating QUARK trigger.
+ * Kept in core (no Android deps) so the edge-snap rule and the default park spot are a single
+ * source of truth, exercised without an emulator, exactly like toggleBeacon's priority rule.
+ * The Service feeds it raw pixel coordinates; it owns none of the WindowManager wiring.
+ */
+object OverlayGeometry {
+    /**
+     * Snap target X for release: the left edge (0) or the right edge, whichever the view's
+     * horizontal centre is nearer. A decisive left/right settle, never a free-floating rest spot.
+     */
+    fun nearestEdgeX(currentX: Int, viewSize: Int, screenWidth: Int): Int {
+        val center = currentX + viewSize / 2
+        return if (center < screenWidth / 2) 0 else (screenWidth - viewSize)
+    }
+
+    /**
+     * Default park (first launch, before the Operator has ever dragged it): right edge, roughly
+     * mid-height — clear of the bottom-centre system gesture area and the top status bar.
+     * NOTE (M4 brief §2): avoiding a future companion app's primary control (e.g. a camera
+     * shutter) is a forward concern — those apps don't exist yet, so it isn't encoded here.
+     */
+    fun defaultPark(viewSize: Int, screenWidth: Int, screenHeight: Int): Pair<Int, Int> =
+        (screenWidth - viewSize) to ((screenHeight - viewSize) / 2)
+}
+
+/*
  * ScriptedLineLibrary — the SEAM that fixes the biggest structural issue:
  * QUARK's lines must come from the banked Scripted-Line Library v1.1 (Bible decision 58),
  * NOT be invented inline in the parser. Replace the placeholder map below by loading the
