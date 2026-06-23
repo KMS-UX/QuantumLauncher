@@ -4,6 +4,10 @@ The code-side companion to the Build Bible. The Bible tracks *design decisions*;
 *code state*, so each Claude Code session resumes exactly where the last stopped. Update the top
 block at the end of every session.
 
+> **Before writing code, run the pre-work pass in [`SESSION-PLAYBOOK.md`](SESSION-PLAYBOOK.md)** —
+> the fixed orient → recon → plan → verify → close ramp distilled from M1–M4. Start there, then read
+> `RESUME HERE` below.
+
 ---
 
 ## ▶ RESUME HERE

@@ -4,6 +4,10 @@
 field multi-tool (launcher + companion apps) with a phosphor-CRT aesthetic. This file keeps the
 build on-spec; default Android/Material styling is **wrong** here.
 
+**Start every milestone session with the pre-work pass in [`SESSION-PLAYBOOK.md`](SESSION-PLAYBOOK.md)** —
+the orient → recon → plan → verify → close ramp (distilled from M1–M4) that gets you oriented against
+the live repo before touching code.
+
 ## Roles
 - **Director** (repo owner, non-coder) — sets direction, approves, judges the look on-device.
 - **Clara** (planning Claude) — owns architecture, the design system, specs, and the Build Bible.
