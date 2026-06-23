@@ -45,6 +45,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
+    // Chakra Petch via Downloadable Fonts (Monofonto substitute, M0 typography).
+    implementation("androidx.compose.ui:ui-text-google-fonts")
+
     // Pure-logic unit tests (no emulator) — runbook Step 4.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation(kotlin("test"))
