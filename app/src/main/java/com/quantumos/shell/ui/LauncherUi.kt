@@ -1,11 +1,18 @@
 package com.quantumos.shell.ui
 
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.BatteryManager
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -29,9 +36,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -63,11 +73,14 @@ import com.quantumos.core.PhosphorHue
 import com.quantumos.core.QuantumLauncherState
 import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
+import com.quantumos.core.SystemReadiness
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 /*
  * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for all logic.
@@ -97,14 +110,27 @@ data class AppInfo(
     val activityName: String
 )
 
+// ---------- connectivity readout (UI layer only; core's VitalityState has no transport field) ----------
+// M2 keeps this deliberately coarse: connected/not + a transport label. Precise signal-strength
+// bars are NOT in scope here (they'd need READ_PHONE_STATE) — see the M2 brief hard stops.
+@Immutable
+data class ConnectivityInfo(
+    val connected: Boolean = false,
+    val transport: String = "OFFLINE"
+)
+
 // ---------- ViewModel ----------
 class QuantumViewModel : ViewModel() {
-    val engine = QuantumStateEngine(viewModelScope, BootPace.SNAPPY) // SNAPPY = dev sim; ship = DELIBERATE
-    val parser = QuarkParser(engine)
-    private var simRan = false
+    val engine = QuantumStateEngine(viewModelScope, BootPace.SNAPPY) // SNAPPY = snappy dev boot; ship = DELIBERATE
+    val parser = QuarkParser(engine) // Scripted-Line seam (used from M5); held here so the brain has one owner.
+    private var telemetryStarted = false
 
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     val installedApps: StateFlow<List<AppInfo>> = _installedApps.asStateFlow()
+
+    // UI-only connectivity label for the STATUS readout (transport type isn't part of core state).
+    private val _connectivity = MutableStateFlow(ConnectivityInfo())
+    val connectivity: StateFlow<ConnectivityInfo> = _connectivity.asStateFlow()
 
     fun boot() = engine.executeColdBootSequence()
 
@@ -114,8 +140,7 @@ class QuantumViewModel : ViewModel() {
 
     fun loadApps(pm: PackageManager) {
         viewModelScope.launch {
-            val intent = android.content.Intent(android.content.Intent.ACTION_MAIN)
-                .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             @Suppress("DEPRECATION")
             val resolved = pm.queryIntentActivities(intent, 0)
             _installedApps.value = resolved
@@ -130,18 +155,64 @@ class QuantumViewModel : ViewModel() {
         }
     }
 
-    // Dev-only harness — DELETE before M7.
-    fun runDevSimulation() {
-        if (simRan) return
-        simRan = true
+    /*
+     * M2 Step 1 — real telemetry poll. One loop on the ViewModel scope (survives fold/rotate),
+     * NOT a per-recomposition read. Feeds the existing engine.incomingTelemetryUpdate(...) seam so
+     * readiness stays a single source of truth; the UI-only transport label rides alongside.
+     * Uses applicationContext so the long-lived coroutine never holds an Activity.
+     */
+    fun startTelemetry(context: Context) {
+        if (telemetryStarted) return
+        telemetryStarted = true
+        val appContext = context.applicationContext
         viewModelScope.launch {
-            delay(1500)
-            engine.incomingTelemetryUpdate(84, false, 500_000L, 3, 31.2f)
-            delay(150); parser.parseInput("who are you")
-            delay(150); parser.parseInput("status")
-            delay(150); parser.parseInput("hue.amber")
-            delay(150); parser.parseInput("sys.lock")
+            while (isActive) {
+                val battery = readBattery(appContext)
+                val conn = readConnectivity(appContext)
+                val uptimeMs = SystemClock.elapsedRealtime()
+                // Coarse signal proxy for the engine's readiness composite: connected -> usable, else 0.
+                val signal = if (conn.connected) 3 else 0
+                engine.incomingTelemetryUpdate(
+                    battery.percent, battery.charging, uptimeMs, signal, battery.tempCelsius
+                )
+                _connectivity.value = conn
+                delay(3000L) // sane interval; status is functional reactive state, not an animation loop
+            }
         }
+    }
+
+    private data class BatteryReading(val percent: Int, val charging: Boolean, val tempCelsius: Float)
+
+    // ACTION_BATTERY_CHANGED sticky broadcast — no permission required.
+    private fun readBattery(context: Context): BatteryReading {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percent = if (level >= 0 && scale > 0) (level * 100) / scale else 0
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+        // EXTRA_TEMPERATURE is tenths of a degree C; benign default if the device omits it.
+        val rawTemp = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val tempCelsius = if (rawTemp > 0) rawTemp / 10f else 25.0f
+        return BatteryReading(percent, charging, tempCelsius)
+    }
+
+    // Basic connected/not + transport via ConnectivityManager. No precise-bars permission (M2 hard stop).
+    private fun readConnectivity(context: Context): ConnectivityInfo {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return ConnectivityInfo(false, "OFFLINE")
+        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
+            ?: return ConnectivityInfo(false, "OFFLINE")
+        val online = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        val transport = when {
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WI-FI"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "CELLULAR"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ETHERNET"
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
+            else -> "UNKNOWN"
+        }
+        return if (online) ConnectivityInfo(true, transport) else ConnectivityInfo(false, "OFFLINE")
     }
 }
 
@@ -152,11 +223,11 @@ class LauncherActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val vm: QuantumViewModel = viewModel()
-            val pm = LocalContext.current.packageManager
+            val context = LocalContext.current
             LaunchedEffect(Unit) {
                 vm.boot()
-                vm.runDevSimulation()
-                vm.loadApps(pm)
+                vm.startTelemetry(context)        // M2: real battery/uptime/connectivity poll
+                vm.loadApps(context.packageManager)
             }
             QuantumOSLayoutShell(forceFixedContainer = false) { constraints ->
                 QuantumAppShell(vm = vm, constraints = constraints)
@@ -289,7 +360,8 @@ fun QuantumAppShell(vm: QuantumViewModel, constraints: TerminalConstraints) {
             when (state.currentNavigation) {
                 NavigationChannel.HOME -> HomeChannelBody(vm = vm, state = state, color = color, font = font, constraints = constraints)
                 NavigationChannel.APPS -> AppsChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
-                else -> OfflineChannelBody(channel = state.currentNavigation.name, color = color, dimColor = dimColor, font = font)
+                NavigationChannel.STATUS -> StatusChannelScreen(vm = vm, state = state, color = color, dimColor = dimColor, font = font)
+                NavigationChannel.LOG -> LogChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
             }
         }
     }
@@ -442,14 +514,16 @@ private fun AppsChannelScreen(
         return
     }
 
+    // M2 Step 0: adaptive columns from a target cell width — column count follows screen width
+    // (more columns on the unfolded Fold 6, fewer when narrow), not a hardcoded count.
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 72.dp),
+        columns = GridCells.Adaptive(minSize = 88.dp),
         contentPadding = PaddingValues(12.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(apps, key = { it.packageName + it.activityName }) { app ->
+        gridItems(apps, key = { it.packageName + it.activityName }) { app ->
             AppCell(
                 app = app,
                 color = color,
@@ -513,14 +587,107 @@ private fun AppCell(
     }
 }
 
-// ---------- offline placeholder for STATUS / LOG (wired in M2) ----------
+// ---------- STATUS channel (M2 Step 1): real vitals readout ----------
 @Composable
-private fun OfflineChannelBody(channel: String, color: Color, dimColor: Color, font: FontFamily) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("// $channel //", color = color, fontFamily = font, fontSize = 14.sp)
-            Spacer(Modifier.height(8.dp))
-            Text("CHANNEL OFFLINE — M2", color = dimColor, fontFamily = font, fontSize = 12.sp)
+private fun StatusChannelScreen(
+    vm: QuantumViewModel,
+    state: QuantumLauncherState,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily
+) {
+    val v = state.vitality
+    val conn by vm.connectivity.collectAsState()
+
+    // Readiness uses --warn ONLY for the genuine alert (CRITICAL), per the design tokens.
+    val readinessColor = when (v.readiness) {
+        SystemReadiness.NOMINAL -> color
+        SystemReadiness.DEGRADED -> dimColor
+        SystemReadiness.CRITICAL -> Phosphor.Warn
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("=== STATUS // FIELD VITALS ===", color = color, fontFamily = font, fontSize = 13.sp)
+        Spacer(Modifier.height(10.dp))
+        ReadoutRow("POWER", "${v.batteryPercentage}%", color, dimColor, font)
+        ReadoutRow("STATE", if (v.isCharging) "CHARGING" else "DISCHARGING", color, dimColor, font)
+        ReadoutRow("CORE TEMP", String.format(Locale.US, "%.1f°C", v.coreTempCelsius), color, dimColor, font)
+        ReadoutRow("UPTIME", formatUptime(v.systemUptimeMs), color, dimColor, font)
+        ReadoutRow("LINK", if (conn.connected) conn.transport else "OFFLINE", color, dimColor, font)
+        Spacer(Modifier.height(4.dp))
+        Text("----------------------------------------", color = dimColor, fontFamily = font, fontSize = 13.sp)
+        ReadoutRow("READINESS", v.readiness.name, readinessColor, dimColor, font)
+    }
+}
+
+// Aligned label/value line in the terminal-readout strip style (monospace, dim label, bright value).
+@Composable
+private fun ReadoutRow(label: String, value: String, valueColor: Color, dimColor: Color, font: FontFamily) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(
+            text = label.padEnd(12),
+            color = dimColor,
+            fontFamily = font,
+            fontSize = 13.sp
+        )
+        Text(
+            text = ": $value",
+            color = valueColor,
+            fontFamily = font,
+            fontSize = 13.sp
+        )
+    }
+}
+
+private fun formatUptime(ms: Long): String {
+    val totalSeconds = ms / 1000
+    val h = totalSeconds / 3600
+    val m = (totalSeconds % 3600) / 60
+    val s = totalSeconds % 60
+    return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
+}
+
+// ---------- LOG channel (M2 Step 2): the console reel ----------
+@Composable
+private fun LogChannelScreen(
+    vm: QuantumViewModel,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily
+) {
+    val logs by vm.engine.systemLogs.collectAsState()
+    // Engine caps storage at 150; render the recent window. Most-recent stays visible (auto-scroll to end).
+    val recent = remember(logs) { logs.takeLast(100) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(recent.size) {
+        if (recent.isNotEmpty()) listState.animateScrollToItem(recent.lastIndex)
+    }
+
+    if (recent.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("LOG REGISTER EMPTY", color = dimColor, fontFamily = font, fontSize = 13.sp)
+        }
+        return
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        items(recent) { entry ->
+            // Strip the raw epoch-millis prefix the engine stamps ("[<millis>] message").
+            Text(
+                text = "> ${entry.substringAfter("] ")}",
+                color = color,
+                fontFamily = font,
+                fontSize = 12.sp
+            )
         }
     }
 }

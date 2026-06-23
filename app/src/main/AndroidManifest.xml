@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- M2 Step 1: basic connectivity check (connected/not + transport) for the STATUS channel.
+         Install-time, non-sensitive, no runtime prompt. Deliberately NOT requesting
+         READ_PHONE_STATE — precise signal-strength bars are out of scope (M2 hard stop). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Step 2: package visibility — required on Android 11+ to list launchable apps.
          Uses the narrowly-scoped query; NOT QUERY_ALL_PACKAGES (Play policy). -->
     <queries>
