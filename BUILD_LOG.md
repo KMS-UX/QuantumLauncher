@@ -7,12 +7,20 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M2 — STATUS + LOG channels — ✅ code complete; **awaiting on-device
-confirmation on the Fold 6** (the Step 0/4 checkpoints — especially the container fill check).
-STATUS shows real battery/charging/uptime/connectivity/temp; LOG shows the live event console;
-the surface fills the screen (no letterbox) and the APPS grid is adaptive.
-**Goal of next session:** Start **M3 — Vitality panel** (atom roll-down; vitals; Phosphor/Stealth/
-Beacon real, Lock cosmetic). Do NOT start M3 until the Director confirms M2 on hardware.
+**Current milestone:** M3 — Vitality panel — ✅ **code complete**; **awaiting on-device
+confirmation on the Fold 6** (the Step 0/3 checkpoints — especially the gauge-accuracy and
+Beacon/Stealth checks). Tap the ⚛ atom mark on HOME → the panel rolls down (stepped) with real
+Readiness %/word, Signal/Power/Core-Temp segmented gauges and a 1s-ticking Uptime; the four quick
+actions (Stealth · Phosphor · Beacon · Lock) are wired — three real, Lock cosmetic.
+**Goal of next session:** Start **M4 — floating QUARK trigger** (overlay; static + draggable with
+edge-snap; PLEASE STANDBY beat). Do NOT start M4 until the Director confirms M3 on hardware.
+
+> **M3 designed interaction rule (logged, not buried):** turning **Beacon ON force-drops Stealth** —
+> active signalling outranks staying low-emission. The rule lives in `QuantumStateEngine.toggleBeacon()`
+> (unit-tested) so it's a single source of truth, not a UI assumption.
+
+> **M2 is still pending Director hardware-sign-off** — M3 was built on top per the brief's note that
+> M1/M2 are closed; if the Fold surfaces an M2 regression, flag it alongside the M3 check.
 
 > **Branch consolidation (2026-06-23):** three divergent branches were merged into `main` — the
 > M1 line (`gracious-thompson`, verified on Fold 6), the docs/skill/font-infra line
@@ -23,7 +31,34 @@ Beacon real, Lock cosmetic). Do NOT start M3 until the Director confirms M2 on h
 
 ## Status
 - [x] First green `gradle assembleDebug`  ← achieved during M1
-- [x] `gradle test` — 4/4 passing
+- [x] `gradle test` — 9/9 passing (4 prior + 5 new M3 core tests; verified in a JVM harness since the
+  cloud session has no Android SDK — CI runs the real `gradle test`/`assembleDebug`)
+
+### M3 — Vitality panel (this session)
+- [x] **Step 0 — atom mark + roll-down:** ⚛ atom mark added to the **HOME channel header only**
+  (per the scope boundary — NOT on APPS/STATUS/LOG). Static at rest; one stepped quarter-turn spin
+  on open. Panel rolls down with **stepped** motion (discrete step count, not a smooth slide).
+  **Two close methods built:** tap the atom mark again, or the `▲ STOW` handle on the open panel
+  (Back also stows it first).
+- [x] **Step 1 — Zone 1 vitals (read-only):** reuses `engine.masterState.vitality` (no second data
+  path). Readiness renders as `NN% WORD`; **CRITICAL is the one warn-red here**. New in-house
+  `SegmentedGauge` (phosphor segments, no Material `LinearProgressIndicator`) drives **Signal**,
+  **Power**, **Core Temp**. Core Temp = battery `EXTRA_TEMPERATURE` (same M2 receiver). Signal =
+  coarse transport tier (wifi=4, cellular=2, offline=0) — no precise-dBm permission. Uptime ticks
+  every 1s **only while the panel is open** (no idle redraw at rest).
+- [x] **Step 2 — Zone 2 four actions (Stealth · Phosphor · Beacon · Lock, decision-36 order):**
+  - **Phosphor** — cycles hue green→amber→cyan→green via the existing env mechanism (no 2nd path).
+  - **Stealth** — hard-dims **this window's** `screenBrightness` (no permission, reversible);
+    saturation untouched (brightness only). SFX-mute is wired as the `isStealthMode` flag (see note).
+  - **Beacon** — real torch via `CameraManager.setTorchMode` (no permission) + a blinking warn-red
+    `⚑ BEACON` field-flag on HOME. **Turning Beacon ON force-drops Stealth** (rule in core, tested).
+  - **Lock** — calls the existing `executeCosmeticLockSequence()`; a new `LockOverlay` plays the
+    PLEASE STANDBY → DEVICE SECURED beat and **tap-to-unseal** calls `unlockDeviceProfile()`.
+    Cosmetic only — no Device Admin / `lockNow()`.
+- [ ] **M3 confirmed on Fold 6** — atom roll-down reads stepped (not smooth); gauges show real
+  numbers and move on plug/unplug + Wi-Fi toggle; Stealth dims without washing out the phosphor and
+  is reversible; Beacon lights the torch + red flag and drops Stealth; Lock plays the securing beat
+  and unseals.  ← **Director action**
 - [x] **M2 Step 0:** container is fill-and-adapt (`forceFixedContainer=false`); APPS grid is
   `GridCells.Adaptive(minSize = 88.dp)` (column count follows screen width) — *Director to judge on Fold*
 - [x] **M2 Step 1:** STATUS channel wired to real vitals via `engine.incomingTelemetryUpdate(...)`
@@ -64,6 +99,21 @@ Beacon real, Lock cosmetic). Do NOT start M3 until the Director confirms M2 on h
 HOME category was confirmed NOT declared before M1 work began (manifest verified clean).
 
 ## Known issues / TODOs
+- **M3 Stealth SFX-mute is a wired flag, not an audible change yet:** the app has no audio *player*
+  yet (the engine only emits `audioCueStream` string tokens; playback lands in M6). Stealth sets
+  `isStealthMode`, which the future player must check before sounding a cue. Honest stand-in, not a
+  silent drop — flagged here so M6 honours it.
+- **M3 Beacon/Stealth — watch on the Fold 6 (common foldable quirks, do NOT silently work around):**
+  (1) `setTorchMode` can throw `CameraAccessException` if the flash camera is momentarily claimed or
+  re-enumerated across a fold/unfold — calls are `runCatching`-wrapped and `onDispose` force-kills
+  the torch, so we fail dark rather than crash or strand the light on; (2) `screenBrightness` override
+  behaviour can differ on the inner vs cover display. Both are Director on-device checks.
+- **M3 Core Temp gauge** maps the battery-temp stand-in across a 25–50°C field range onto 10
+  segments — same locked stand-in as STATUS until kiosk/ROM grants true SoC thermal (spec §7.3).
+- **M3 atom mark / flag are glyphs (`⚛`/`⚑`)**, matching the existing line-glyph working set
+  (`◈`, `⊕`, `▲`); per-app SVG masters arrive at the later identity/polish stage.
+- **M3 Vitality panel is HOME-channel-only by design** (scope boundary) — the "flick from anywhere"
+  system-wide shade is deferred to kiosk mode (Bible decision 56). Not added to APPS/STATUS/LOG.
 - Typography: replace `FontFamily.Monospace` with Chakra Petch (`res/font/chakra_petch.ttf` or
   Downloadable Fonts via the now-present `ui-text-google-fonts` dep + real certs in `font_certs.xml`).
 - CRT: current overlay is the cheap non-shader fallback; real AGSL shader is M6 polish.
@@ -83,7 +133,8 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   has no `android:icon` (now fixed) AND can choke on odd download filenames — keep the artifact
   named `app-debug.apk`.
 - Empty states: APPS grid shows "SCANNING PACKAGE REGISTRY…"; LOG shows "LOG REGISTER EMPTY".
-- Action rail (bottom chrome strip) is not yet rendered — M3 item.
+- Action rail (bottom chrome strip) is not yet rendered — deferred (M3 delivered the Vitality
+  panel; the App-Shell action-rail remains a later chrome item).
 - `loadApps` is called once at launch; no refresh on app install/uninstall (later concern).
 
 ## Decisions pending (Director / Clara — do not lock in code)
@@ -112,3 +163,15 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   Step 0 container/grid resolved (fill-and-adapt + adaptive 88dp grid); removed the dev-sim
   harness; added `ACCESS_NETWORK_STATE` (install-time, no prompt). Builds via CI (no local Android
   SDK in the cloud session). **Pending Director confirmation on the Fold 6** before M2 is closed.
+- **M3 session (2026-06-23):** Vitality panel. Core (`QuantumState.kt`): added
+  `VitalityState.readinessPercent` (composite headline) and three engine actions —
+  `cyclePhosphorHue()`, `toggleStealthMode()`, `toggleBeacon()` (the latter carries the
+  Beacon-drops-Stealth rule) — all reusing the single env mechanism; +5 unit tests (9/9 pass).
+  UI (`LauncherUi.kt`): ⚛ atom mark on HOME with a stepped roll-down `VitalityPanel` (Zone 1
+  Readiness + `SegmentedGauge` Signal/Power/Temp + 1s-ticking Uptime; Zone 2 Stealth·Phosphor·
+  Beacon·Lock), the blinking `⚑ BEACON` flag, and a `LockOverlay` for the cosmetic securing beat.
+  Platform side-effects wired in the Activity: Stealth → this-window `screenBrightness`; Beacon →
+  `CameraManager.setTorchMode` (runCatching-wrapped, torch killed onDispose). Panel open/stow state
+  held in the ViewModel (survives fold/rotate); signal upgraded to a coarse transport tier. No new
+  permissions. Core verified locally in a JVM harness; full APK build is on CI. **Pending Director
+  confirmation on the Fold 6** before M3 is closed.

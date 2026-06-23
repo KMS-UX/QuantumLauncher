@@ -41,10 +41,21 @@ data class VitalityState(
     val batteryPercentage: Int = 100,
     val isCharging: Boolean = false,
     val systemUptimeMs: Long = 0L,
-    val connectivityStrength: Int = 4,
+    val connectivityStrength: Int = 4,   // coarse tier 0..4 (offline=0, cellular≈2, wifi=4)
     val coreTempCelsius: Float = 28.5f,
     val readiness: SystemReadiness = SystemReadiness.NOMINAL
-)
+) {
+    // Composite readiness headline for the M3 Vitality panel (Zone 1). A "% feel" derived from the
+    // same three inputs the readiness word uses — power, signal, thermal headroom — averaged.
+    // Pure/derived so it stays a single source of truth and is unit-testable.
+    val readinessPercent: Int
+        get() {
+            val power = batteryPercentage.coerceIn(0, 100)
+            val signal = connectivityStrength.coerceIn(0, 4) * 25
+            val thermalHeadroom = (((50f - coreTempCelsius) / 25f) * 100f).coerceIn(0f, 100f).toInt()
+            return (power + signal + thermalHeadroom) / 3
+        }
+}
 
 data class EnvironmentProfile(
     val activeHue: PhosphorHue = PhosphorHue.GREEN,
@@ -124,6 +135,45 @@ class QuantumStateEngine(
 
     fun updateEnvironmentProfile(transform: (EnvironmentProfile) -> EnvironmentProfile) {
         _masterState.update { it.copy(environment = transform(it.environment)) }
+    }
+
+    // ---------- M3 Vitality-panel quick actions ----------
+    // All reuse the single hue/environment mechanism above — no second state path.
+
+    // Phosphor: cycle the active hue green → amber → cyan → green, live across the whole UI.
+    fun cyclePhosphorHue() {
+        val next = when (_masterState.value.environment.activeHue) {
+            PhosphorHue.GREEN -> PhosphorHue.AMBER
+            PhosphorHue.AMBER -> PhosphorHue.CYAN
+            PhosphorHue.CYAN -> PhosphorHue.GREEN
+        }
+        updateEnvironmentProfile { it.copy(activeHue = next) }
+        logEvent("ENV: Phosphor line shifted -> $next")
+    }
+
+    // Stealth: hard-dim the emission (screen brightness handled UI-side) + mute the app's own SFX.
+    // Colour saturation is unchanged — only brightness drops. One tap toggles, fully reversible.
+    fun toggleStealthMode() {
+        val on = !_masterState.value.environment.isStealthMode
+        updateEnvironmentProfile { it.copy(isStealthMode = on) }
+        logEvent("ENV: Stealth ${if (on) "ENGAGED — emission dimmed" else "RELEASED"}")
+    }
+
+    // Beacon: toggle the real torch (UI-side) + raise the warn-red field flag on Home.
+    // Designed interaction rule (M3 brief): turning Beacon ON force-drops Stealth — active
+    // signalling outranks staying low-emission. Lives in core so it's unit-tested, not assumed.
+    fun toggleBeacon() {
+        val env = _masterState.value.environment
+        val turningOn = !env.isBeaconActive
+        val droppedStealth = turningOn && env.isStealthMode
+        updateEnvironmentProfile {
+            it.copy(
+                isBeaconActive = turningOn,
+                isStealthMode = if (droppedStealth) false else it.isStealthMode
+            )
+        }
+        logEvent("ENV: Beacon ${if (turningOn) "ACTIVE — field flag raised" else "DARK"}")
+        if (droppedStealth) logEvent("ENV: Stealth auto-released — Beacon takes priority.")
     }
 
     fun incomingTelemetryUpdate(bat: Int, chg: Boolean, upMs: Long, con: Int, temp: Float) {

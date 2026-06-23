@@ -61,4 +61,57 @@ class QuantumStateEngineTest {
         advanceUntilIdle()
         assertEquals(SystemReadiness.CRITICAL, engine.masterState.value.vitality.readiness)
     }
+
+    // ---------- M3 Vitality-panel actions ----------
+
+    @Test
+    fun phosphorAction_cyclesHue_greenAmberCyanGreen() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        assertEquals(PhosphorHue.GREEN, engine.masterState.value.environment.activeHue)
+        engine.cyclePhosphorHue()
+        assertEquals(PhosphorHue.AMBER, engine.masterState.value.environment.activeHue)
+        engine.cyclePhosphorHue()
+        assertEquals(PhosphorHue.CYAN, engine.masterState.value.environment.activeHue)
+        engine.cyclePhosphorHue()
+        assertEquals(PhosphorHue.GREEN, engine.masterState.value.environment.activeHue)
+    }
+
+    @Test
+    fun stealthAction_togglesReversibly() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        assertFalse(engine.masterState.value.environment.isStealthMode)
+        engine.toggleStealthMode()
+        assertTrue(engine.masterState.value.environment.isStealthMode)
+        engine.toggleStealthMode()
+        assertFalse(engine.masterState.value.environment.isStealthMode)
+    }
+
+    @Test
+    fun beaconOn_forceDropsStealth_signallingTakesPriority() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        engine.toggleStealthMode()
+        assertTrue(engine.masterState.value.environment.isStealthMode)
+
+        engine.toggleBeacon() // turning Beacon ON must auto-release Stealth
+        assertTrue(engine.masterState.value.environment.isBeaconActive)
+        assertFalse(engine.masterState.value.environment.isStealthMode)
+    }
+
+    @Test
+    fun beaconOff_leavesStealthUntouched() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        engine.toggleBeacon()                 // on
+        engine.toggleStealthMode()            // stealth on after beacon (allowed)
+        engine.toggleBeacon()                 // off — must not flip stealth
+        assertFalse(engine.masterState.value.environment.isBeaconActive)
+        assertTrue(engine.masterState.value.environment.isStealthMode)
+    }
+
+    @Test
+    fun readinessPercent_isFullWhenAllNominal_andLowWhenDrained() {
+        val full = VitalityState(batteryPercentage = 100, connectivityStrength = 4, coreTempCelsius = 25f)
+        assertEquals(100, full.readinessPercent)
+        val drained = VitalityState(batteryPercentage = 0, connectivityStrength = 0, coreTempCelsius = 50f)
+        assertEquals(0, drained.readinessPercent)
+    }
 }
