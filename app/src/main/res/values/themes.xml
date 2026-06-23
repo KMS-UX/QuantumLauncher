@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Theme.QuantumOS — deliberately minimal. This is a Compose launcher that owns ALL of its
+      own rendering (edge-to-edge via enableEdgeToEdge(); we own inset handling), so the XML theme
+      exists only to (a) strip the platform action bar, (b) make the system bars transparent so the
+      phosphor surface and CRT falloff reach the screen edges, and (c) set the window background to
+      the CRT ground so there is no white flash before Compose draws.
+
+      Parent is the platform Material NoActionBar theme (minSdk 33) — no Material Components / AppCompat
+      dependency is pulled in, which keeps us off Material-default chrome per CLAUDE.md.
+    -->
+    <style name="Theme.QuantumOS" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/crt_ground</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

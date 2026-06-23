@@ -13,10 +13,17 @@ HOME ⇄ APPS nav works both directions, QuantumOS offered as Home option in pic
 (STATUS + LOG channels: real battery/uptime/storage + event log).
 
 ## Status
-- [x] First green `gradle assembleDebug`  ← M0
-- [x] `gradle test` — 4/4 passing          ← M0
+- [x] First green `gradle assembleDebug`  ← achieved during M1 (see note below)
+- [x] `gradle test` — 4/4 passing
 - [ ] M0 confirmed on Fold 6 (phosphor screen + hue switch live)  ← Director action
 - [ ] Chakra Petch actually bundled (currently Monospace placeholder)  ← deferred to M2/polish
+
+> **Note on the green build:** the project had NEVER actually compiled before M1, despite M0
+> being described as done. Two latent blockers were masking each other: (1) `settings.gradle.kts`
+> had no `pluginManagement` repos so AGP could not resolve, and (2) there was no `res/` directory
+> at all, yet the manifest referenced `@string/app_name` and `@style/Theme.QuantumOS`. Both are
+> now fixed (repos declared; `res/values/{strings,colors,themes}.xml` created). The Kotlin sources
+> compiled clean once it reached that stage.
 - [x] HOME intent-filter added (M1 Step 1) — will offer QuantumOS as Home picker option on install
 - [x] `<queries>` package-visibility block added (M1 Step 2)
 - [x] APPS channel: queries real installed apps, renders grid, tap-to-launch (M1 Step 3)
@@ -55,4 +62,6 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   4 unit tests, cheap non-shader CRT overlay. Font placeholder in place.
 - **M1 session (2026-06-23):** HOME intent declared, `<queries>` added, App Shell chrome
   (nameplate + channel strip), APPS grid wired to real PackageManager, HOME ⇄ APPS nav,
-  back gesture routing. All Steps 0–5 complete.
+  back gesture routing. All Steps 0–5 complete. Also unblocked the build for the first time:
+  fixed `settings.gradle.kts` plugin repos, created the missing `res/values/*` (strings, colors,
+  CRT-ground theme), and repaired the CI workflow (valid YAML + Gradle wrapper).

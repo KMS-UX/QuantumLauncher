@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- CRT screen ground — near-black, NOT pure black (matches Phosphor.Crt = 0xFF020402).
+         Used as the window background so the brief pre-Compose frame is already the CRT ground,
+         never a white flash. -->
+    <color name="crt_ground">#FF020402</color>
+</resources>
