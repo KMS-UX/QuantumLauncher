@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Google Fonts provider certificate fingerprints for Downloadable Fonts.
+    TODO: Replace stub arrays with real certs.
+    Fastest path: Android Studio → res/font → New → More Resources → Font →
+    search "Chakra Petch" → Download → Android Studio auto-generates this file.
+    Alternatively bundle res/font/chakra_petch.ttf and switch Font() to R.font.
+-->
+<resources>
+    <string-array name="com_google_android_gms_fonts_certs">
+        <item>@array/com_google_android_gms_fonts_certs_dev</item>
+        <item>@array/com_google_android_gms_fonts_certs_prod</item>
+    </string-array>
+    <!-- Stub — populate with real SHA-256 DER cert values from Android Studio. -->
+    <string-array name="com_google_android_gms_fonts_certs_dev" />
+    <string-array name="com_google_android_gms_fonts_certs_prod" />
+</resources>

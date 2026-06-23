@@ -33,6 +33,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +56,20 @@ import kotlinx.coroutines.launch
  * androidx.compose.material3:material3.  Compile in the cloud to confirm — verify-before-banking
  * applies to THIS file too; it was authored without a compiler.
  */
+
+// ---------- M0 typography: Chakra Petch (Monofonto substitute, decision 9) ----------
+// Provider certs are stubs in res/values/font_certs.xml; replace with real values from
+// Android Studio (Add Downloadable Font → Chakra Petch) or bundle the TTF at res/font/.
+private val _fontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs
+)
+private val _chakraPetch = GoogleFont("Chakra Petch")
+val ChakraPetchFamily = FontFamily(
+    Font(googleFont = _chakraPetch, fontProvider = _fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = _chakraPetch, fontProvider = _fontProvider, weight = FontWeight.Bold)
+)
 
 // ---------- single phosphor token source (M0): one switch recolors everything ----------
 object Phosphor {
@@ -202,8 +219,7 @@ fun QuantumTerminalSurface(vm: QuantumViewModel, constraints: TerminalConstraint
     val state by vm.engine.masterState.collectAsState()
     val logs by vm.engine.systemLogs.collectAsState()
     val color = Phosphor.bright(state.environment.activeHue)
-    // TODO M0 typography: replace with Chakra Petch (res/font/chakra_petch.ttf), Monofonto substitute.
-    val font = FontFamily.Monospace
+    val font = ChakraPetchFamily
 
     Column(
         Modifier.fillMaxSize().padding(constraints.systemBarsPadding).padding(16.dp)
@@ -225,7 +241,7 @@ private fun HueChip(label: String, color: Color, onClick: () -> Unit) {
     Text(
         text = "[$label]",
         color = color,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = ChakraPetchFamily,
         fontSize = 13.sp,
         modifier = Modifier.clickable { onClick() }.padding(4.dp)
     )

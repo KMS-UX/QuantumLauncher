@@ -26,7 +26,7 @@ jobs:
           gradle-version: '8.9'
 
       - name: Run unit tests (no emulator needed)
-        run: gradle test --no-daemon --stacktrace
+        run: gradle test --no-daemon --stacktrace --rerun-tasks
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon --stacktrace
