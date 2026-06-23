@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Step 2: package visibility — required on Android 11+ to list launchable apps.
+         Uses the narrowly-scoped query; NOT QUERY_ALL_PACKAGES (Play policy). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
+        android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.QuantumOS">
@@ -10,12 +20,22 @@
             android:name="com.quantumos.shell.ui.LauncherActivity"
             android:exported="true"
             android:enableOnBackInvokedCallback="true">
+
+            <!-- Original tappable-app entry point (keep) -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- For the spike this is a normal tappable app. The HOME-launcher intent
-                 (category.HOME) is deliberately NOT added yet — that arrives on hardware. -->
+
+            <!-- Step 1: HOME declaration (M1). Installing this build makes Android OFFER
+                 QuantumOS as a Home option — it does not take over silently. The system
+                 will prompt "Use as Home" or the Director must set it in
+                 Settings → Apps → Default apps → Home app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

@@ -1,0 +1,13 @@
+# Gradle build cache and daemon state — machine-local, never commit
+.gradle/
+build/
+app/build/
+
+# Android Studio / IntelliJ project files
+.idea/
+*.iml
+local.properties
+
+# APK outputs (uploaded as CI artifacts instead)
+*.apk
+*.aab
