@@ -1,67 +1,69 @@
-# QuantumOS — Claude Code Quick Reference
+# CLAUDE.md — QuantumOS build context
 
-Deep source material lives in `docs/`. When anything here conflicts with the Build Bible, **the Build Bible wins** — flag it, don't guess.
+**Read this before writing any code.** QuantumOS is a retro-futuristic "used-future" Android
+field multi-tool (launcher + companion apps) with a phosphor-CRT aesthetic. This file keeps the
+build on-spec; default Android/Material styling is **wrong** here.
 
----
+## Roles
+- **Director** (repo owner, non-coder) — sets direction, approves, judges the look on-device.
+- **Clara** (planning Claude) — owns architecture, the design system, specs, and the Build Bible.
+- **You (Claude Code)** — implement to spec on the real repo; compile, read errors, fix, iterate.
+- **The compiler + the Fold 6** — the final judges of correctness and of the look.
 
-## Current milestone: Pre-M0 Cloud Spike → M0
+When a choice is *aesthetic or UX* (e.g. the fixed-container vs fill question), do **not** lock it
+silently — implement the recommended default, flag it, and let the Director judge it on-device.
 
-**Where we are:** The project skeleton compiles to a debug APK (Pre-M0 Cloud Spike ✅ in progress).
-**Next step:** Complete M0 design-system foundation so the app launches to a phosphor CRT screen with working font + hue switch. Then M1 (HOME intent, APPS grid).
+## Where we are
+Critical path: **Tree 1.5 — Launcher App**, building toward **Checkpoint β**. Work the milestones
+in order; each is one session and ends with an on-device check on the Fold 6 + a `BUILD_LOG.md`
+update. Current target: **M0 — first green build** (phosphor screen, font, live hue switch, logic
+tests pass).
 
-Full task sequence: M0 → M1 · Launcher core → M2 · STATUS/LOG → M3 · Vitality panel → M4 · Floating QUARK trigger → M5 · QUARK Assistant View → M6 · Splash/sound/polish → M7 · Ship/field-test → Checkpoint β.
+- **M0** Design-system foundation → phosphor CRT screen, font + hue switch live.
+- **M1** Launcher core → HOME intent, Home channel, set as default launcher, APPS grid. *(See rollback rule below.)*
+- **M2** STATUS + LOG channels (real battery/uptime/storage + event log).
+- **M3** Vitality panel (atom roll-down; vitals; Phosphor/Stealth/Beacon real, Lock cosmetic).
+- **M4** Floating QUARK trigger (overlay, static + draggable, PLEASE STANDBY beat).
+- **M5** QUARK Assistant View (4 reactive states, log, command rail, scripted brain).
+- **M6** Splash + sound + CRT-shader/motion polish.
+- **M7** Signed APK → sideload to Fold 6 → Checkpoint β.
 
----
+## Design language — non-negotiable (full detail in the House Style skill / docs)
+- **Color:** phosphor only. Active hue is GREEN `#00FF00`/dim `#00AA00` (default), AMBER
+  `#FFB000`/`#A86F00`, CYAN `#00E5FF`/`#0090A8`. `--warn` `#FF3B1F` = alerts/access-denied ONLY.
+  `--crt` `#020402` = screen ground. **One token source; never hardcode hues per-screen; no off-palette colors.**
+- **Screen:** CRT falloff — content fades to black at the edges; scanlines + vignette + glow.
+  Effects are **AGSL/GPU shaders, never CPU draw-loops.** Keep a cheap non-shader fallback so
+  layout renders on software emulators.
+- **Type:** Chakra Petch (substitute for Monofonto). Bundle it; don't ship system Monospace.
+- **Motion:** stepped, not interpolated. **Static at rest** (zero idle redraw) — life only through
+  functional reactive states. Loading = a **PLEASE STANDBY** card, never a generic spinner.
+- **Chrome:** the App Shell (opaque nameplate header, registration marks, strip→content→action-rail,
+  persistent floating QUARK trigger). No Material-default app bars/FABs/dialogs.
+- **Voice:** address the user as **Operator**. QUARK's lines come from the **Scripted-Line Library**
+  — do not invent her dialogue inline.
 
-## Hard guardrails (never violate without director sign-off)
+## Platform rules (verified June 2026)
+- Native Kotlin + Jetpack Compose. minSdk 33. Logic lives in `com.quantumos.core` (no UI deps, unit-tested).
+- Edge-to-edge via `enableEdgeToEdge()` (not `setDecorFitsSystemWindows`); we own inset handling.
+- State that must survive fold/unfold/rotate lives in a **ViewModel** (not in composition).
+- Consume the back gesture inside the shell; manifest `android:enableOnBackInvokedCallback="true"`.
+- State data classes = all-`val` primitives/enums (Compose infers them stable).
 
-- **Aesthetic north star:** used-future / atomic-age industrial / lived-in field tool. Every asset original (Fallout/Blade Runner = mood lineage only, zero direct copying).
-- **Address the user as "Operator."** QUARK is a peer-grade aide, not servile. Precise, EDI register — honesty in the Operator's interest, never flattery.
-- **QUARK's spoken lines come from the Scripted-Line Library** (`docs/QUARK-Scripted-Line-Library-v1.1.md`) — never invented inline.
-- **"Verify before banking":** code produced without a compiler running (e.g. by any AI) is treated as a draft, not truth. CI + device are the final judges.
-- **Don't re-litigate locked decisions.** If you think a decision is wrong, flag it rather than silently diverging.
-- **Docs in `docs/` are read-only.** They are versioned by the Director/Clara. Surface conflicts in `BUILD_LOG.md` under "Decisions pending."
+## Hard guardrails
+- **Do NOT add `<category android:name="android.intent.category.HOME">` until M1.** For now this is a
+  normal tappable app, so it can't take over the Fold's home screen by accident.
+- **M1 rollback rule:** before setting QuantumOS as the *default* launcher, confirm the way back —
+  *Settings → Apps → Default apps → Home → stock launcher* — and put that in the verify step. The Fold
+  is also the daily phone; never leave it without a working home screen.
+- **One objective per session.** Don't run ahead into later milestones.
+- End every session by updating `BUILD_LOG.md`: what's done, known issues, and the exact "resume here".
+- Back-and-brand review: surface anything that diverges from this file rather than guessing.
 
----
-
-## Design language (quick ref — full detail in `.claude/skills/quantumos-house-style/`)
-
-**Color:** phosphor CRT. One switchable hue recolors everything. Green default (`#00FF00` / `#00AA00`), Amber (`#FFB000` / `#A86F00`), Cyan (`#00E5FF` / `#0090A8`). Warn = `#FF3B1F` (alerts / access-denied ONLY — never decorative). CRT ground = `#020402`. No off-palette colors.
-
-**Screen treatment:** content fades to black at the edges (CRT falloff). Layered: scanlines + edge vignette + subtle flicker + phosphor glow. GPU effects (AGSL shaders, API 33+) on hardware; non-shader fallback for cloud/emulator builds.
-
-**Typography:** Chakra Petch (Monofonto substitute, bundled). Monoton = display accent only (boot wordmark stamp — one blessed ceremonial use). Never Monoton as a system text face.
-
-**Motion:** stepped + discrete (slide-projector clicks, not smooth glides). Static at rest — zero idle redraw. PLEASE STANDBY = universal loading card; never a generic spinner. Functional motion only.
-
-**Sound:** mechanical, synthesized. Boot = power-up sweep · Denied = harsh buzz · Granted = two-note + sub · Keypad = relay tick. QUARK's non-verbal chirps are wordless and distinct from her voice.
-
----
-
-## Codebase map
-
-| Package | Role |
-|---|---|
-| `com.quantumos.core` | Pure Kotlin logic — state engine, parser, scripted-line seam. **No UI/Android deps.** Unit-tested without emulator. |
-| `com.quantumos.shell.ui` | Compose UI — activity, ViewModel, shell, surfaces. |
-
-**Key files:**
-- `app/src/main/java/com/quantumos/core/QuantumState.kt` — engine, parser, all enums/state
-- `app/src/main/java/com/quantumos/shell/ui/LauncherUi.kt` — activity, Phosphor tokens, CRT overlay, terminal surface
-- `app/src/test/java/com/quantumos/core/QuantumStateEngineTest.kt` — pure-logic unit tests (no emulator)
-
----
-
-## Platform notes (verified June 2026, see Verification Addendum)
-
-- Edge-to-edge is **enforced** at targetSdk 35+. Use `enableEdgeToEdge()` (done). The CRT container owns inset handling.
-- Back gesture: add `android:enableOnBackInvokedCallback="true"` in manifest (done) + `BackHandler` in Compose (done).
-- AGSL shaders (`RuntimeShader`) confirmed at API 33+. Non-shader CRT stub is correct for cloud/emulator builds.
-- Cutout / punch-hole: black *de-emphasizes* on OLED but the hole is still physically there. Design the container to live around it — "blend," not "mask."
-- Android 17 "AppFunctions" (on-device MCP equivalent): alpha, not for now. Revisit at Chat 04 / Tree 3.
-
----
-
-## Scope guard — NOT in this build
-
-Lock screen/keypad, true notification shade, real Android boot animation, deep stock-surface theming. All return free in kiosk (Tree 1.75). Real `lockNow()` arrives in device-owner mode. QUARK's LLM brain = Chat 04.
+## Build / run
+```
+gradle test            # logic tests, no emulator
+gradle assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
+```
+Toolchain is pinned for reliability (AGP 8.7.2 / Gradle 8.9 / Kotlin 2.0.21 / Compose BOM 2024.10.01).
+If you upgrade it, do so deliberately and note it in `BUILD_LOG.md`.
