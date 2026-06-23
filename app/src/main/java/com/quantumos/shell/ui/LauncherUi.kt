@@ -12,9 +12,11 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -69,7 +71,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -77,9 +81,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quantumos.shell.overlay.QuarkTriggerService
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
 import com.quantumos.core.EnvironmentProfile
@@ -314,8 +321,43 @@ class LauncherActivity : ComponentActivity() {
                 }
             }
 
+            // ---------- M4 — floating QUARK trigger: permission walkthrough + service deploy ----------
+            // The "draw over other apps" capability is the one new permission this milestone touches
+            // (Launcher Build Spec §5, pre-approved as a one-time Settings toggle). It CANNOT be asked
+            // through a runtime dialog — only via the system overlay-settings screen.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            var canOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+            // Re-check on resume: the Operator grants it OUTSIDE the app and returns — no restart needed.
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) canOverlay = Settings.canDrawOverlays(context)
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+            // Deploy (or re-tint) the overlay once granted. Keyed on the active hue too, so a live
+            // phosphor switch recolours the floating mark via a redelivered start command.
+            LaunchedEffect(canOverlay, state.environment.activeHue) {
+                if (canOverlay) {
+                    QuarkTriggerService.deploy(context, Phosphor.bright(state.environment.activeHue).toArgb())
+                }
+            }
+            val onRequestOverlay: () -> Unit = {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + context.packageName)
+                    )
+                )
+            }
+
             QuantumOSLayoutShell(forceFixedContainer = false) { constraints ->
-                QuantumAppShell(vm = vm, constraints = constraints)
+                QuantumAppShell(
+                    vm = vm,
+                    constraints = constraints,
+                    canOverlay = canOverlay,
+                    onRequestOverlay = onRequestOverlay
+                )
             }
         }
     }
@@ -406,7 +448,12 @@ fun Modifier.crtOverlay(): Modifier = drawWithContent {
 
 // ---------- App Shell (house-style chrome: nameplate + channel strip + content) ----------
 @Composable
-fun QuantumAppShell(vm: QuantumViewModel, constraints: TerminalConstraints) {
+fun QuantumAppShell(
+    vm: QuantumViewModel,
+    constraints: TerminalConstraints,
+    canOverlay: Boolean,
+    onRequestOverlay: () -> Unit
+) {
     val state by vm.engine.masterState.collectAsState()
     val panelOpen by vm.vitalityPanelOpen.collectAsState()
     val color = Phosphor.bright(state.environment.activeHue)
@@ -456,7 +503,7 @@ fun QuantumAppShell(vm: QuantumViewModel, constraints: TerminalConstraints) {
                     .fillMaxWidth()
             ) {
                 when (state.currentNavigation) {
-                    NavigationChannel.HOME -> HomeChannelBody(vm = vm, state = state, panelOpen = panelOpen, color = color, dimColor = dimColor, font = font, constraints = constraints)
+                    NavigationChannel.HOME -> HomeChannelBody(vm = vm, state = state, panelOpen = panelOpen, color = color, dimColor = dimColor, font = font, constraints = constraints, canOverlay = canOverlay, onRequestOverlay = onRequestOverlay)
                     NavigationChannel.APPS -> AppsChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
                     NavigationChannel.STATUS -> StatusChannelScreen(vm = vm, state = state, color = color, dimColor = dimColor, font = font)
                     NavigationChannel.LOG -> LogChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
@@ -549,7 +596,9 @@ private fun HomeChannelBody(
     color: Color,
     dimColor: Color,
     font: FontFamily,
-    constraints: TerminalConstraints
+    constraints: TerminalConstraints,
+    canOverlay: Boolean,
+    onRequestOverlay: () -> Unit
 ) {
     val logs by vm.engine.systemLogs.collectAsState()
     val conn by vm.connectivity.collectAsState()
@@ -588,6 +637,15 @@ private fun HomeChannelBody(
                 color = color,
                 fontFamily = font,
                 fontSize = 13.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            // M4 — the floating QUARK trigger's enable/status affordance lives on HOME.
+            QuarkTriggerControl(
+                canOverlay = canOverlay,
+                color = color,
+                dimColor = dimColor,
+                font = font,
+                onRequestOverlay = onRequestOverlay
             )
         }
 
@@ -664,6 +722,42 @@ private fun HueChip(label: String, color: Color, onClick: () -> Unit) {
         fontSize = 13.sp,
         modifier = Modifier.clickable { onClick() }.padding(4.dp)
     )
+}
+
+// M4 trigger control: when the overlay permission isn't granted, a tappable line opens the system
+// settings screen (the only path — this permission has no runtime dialog). Once granted, the service
+// is already deployed (see LauncherActivity) and this reads as a static, dim confirmation.
+@Composable
+private fun QuarkTriggerControl(
+    canOverlay: Boolean,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onRequestOverlay: () -> Unit
+) {
+    if (canOverlay) {
+        Text(
+            text = "QUARK TRIGGER // DEPLOYED",
+            color = dimColor,
+            fontFamily = font,
+            fontSize = 11.sp
+        )
+    } else {
+        Box(
+            Modifier
+                .clickable { onRequestOverlay() }
+                .border(BorderStroke(1.dp, color))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = "QUARK TRIGGER // GRANT OVERLAY ►",
+                color = color,
+                fontFamily = font,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
 }
 
 private fun buildReadout(state: QuantumLauncherState, logs: List<String>, c: TerminalConstraints): String =
@@ -921,11 +1015,23 @@ private fun LockOverlay(
                 Spacer(Modifier.height(12.dp))
                 Text("TAP TO UNSEAL, OPERATOR", color = dimColor, fontFamily = font, fontSize = 12.sp)
             } else {
-                // PLEASE STANDBY card — the universal loading beat, never a generic spinner.
-                Text("PLEASE STANDBY", color = color, fontFamily = font, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(12.dp))
-                Text("SEALING PERIMETER…", color = dimColor, fontFamily = font, fontSize = 12.sp)
+                // The universal loading beat — reused, never a generic spinner.
+                PleaseStandbyCard(subline = "SEALING PERIMETER…", color = color, dimColor = dimColor, font = font)
             }
+        }
+    }
+}
+
+// PLEASE STANDBY card — the one universal loading/transition beat (House Style: never a generic
+// spinner). Public + standalone so every surface reuses it rather than rebuilding the beat:
+// the cosmetic Lock overlay and the M4 QUARK-trigger stub both render through here.
+@Composable
+fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: FontFamily) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("PLEASE STANDBY", color = color, fontFamily = font, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        if (subline.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(subline, color = dimColor, fontFamily = font, fontSize = 12.sp)
         }
     }
 }

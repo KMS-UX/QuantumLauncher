@@ -6,6 +6,19 @@
          READ_PHONE_STATE — precise signal-strength bars are out of scope (M2 hard stop). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- M4: the floating QUARK trigger. SYSTEM_ALERT_WINDOW = "draw over other apps" (the one new
+         capability this milestone touches; pre-approved in Build Spec §5 as a one-time Settings
+         toggle — granted via the system overlay-settings screen, never a runtime dialog). The
+         trigger lives in a foreground Service so it survives leaving QuantumOS; on API 34+ a
+         foreground service must declare a type, and "specialUse" is correct for a persistent
+         launcher overlay (no narrower type fits). POST_NOTIFICATIONS is declared for the minimal
+         foreground-service notification; we do NOT prompt for it this milestone (M4 hard stop:
+         request no permission beyond the overlay) — the service runs regardless. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- Step 2: package visibility — required on Android 11+ to list launchable apps.
          Uses the narrowly-scoped query; NOT QUERY_ALL_PACKAGES (Play policy). -->
     <queries>
@@ -42,5 +55,26 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- M4: the floating-trigger foreground service. Not exported — only QuantumOS starts it. -->
+        <service
+            android:name="com.quantumos.shell.overlay.QuarkTriggerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="persistent_floating_launcher_trigger" />
+        </service>
+
+        <!-- M4/M5 boundary: the placeholder QUARK surface the trigger taps through to. Full-screen,
+             excluded from recents (it's a momentary overlay, not a task), single-top so repeated
+             taps don't stack copies. M5 replaces its body with the real Assistant View. -->
+        <activity
+            android:name="com.quantumos.shell.overlay.QuarkStubActivity"
+            android:exported="false"
+            android:theme="@style/Theme.QuantumOS"
+            android:enableOnBackInvokedCallback="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop" />
     </application>
 </manifest>

@@ -7,13 +7,35 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M3 — Vitality panel — ✅ **code complete**; **awaiting on-device
-confirmation on the Fold 6** (the Step 0/3 checkpoints — especially the gauge-accuracy and
-Beacon/Stealth checks). Tap the ⚛ atom mark on HOME → the panel rolls down (stepped) with real
-Readiness %/word, Signal/Power/Core-Temp segmented gauges and a 1s-ticking Uptime; the four quick
-actions (Stealth · Phosphor · Beacon · Lock) are wired — three real, Lock cosmetic.
-**Goal of next session:** Start **M4 — floating QUARK trigger** (overlay; static + draggable with
-edge-snap; PLEASE STANDBY beat). Do NOT start M4 until the Director confirms M3 on hardware.
+**Current milestone:** M4 — floating QUARK trigger — ✅ **code complete**; **awaiting on-device
+confirmation on the Fold 6** (the headline check: does the mark hover over *another real app* and
+stay draggable + tappable there). A persistent, app-icon-sized phosphor "iris" floats over every
+app via a `TYPE_APPLICATION_OVERLAY` window owned by a foreground `Service`. Static at rest;
+drags 1:1; snaps to the nearest edge on release; tap plays the reused PLEASE STANDBY beat and opens
+a placeholder stub Activity that acknowledges the real Assistant View is M5.
+**Goal of next session:** Start **M5 — QUARK Assistant View** — replace the placeholder stub
+(`QuarkStubActivity`) with the real content: four reactive states, conversation log, command rail,
+text entry, scripted-brain wiring. Do NOT start M5 until the Director confirms M4 on hardware.
+
+> **Director note — the one new permission (M4):** the trigger needs **"Allow display over other
+> apps"** (SYSTEM_ALERT_WINDOW). It is a **one-time Settings toggle** — already anticipated in the
+> Launcher Build Spec §5 — and it **cannot** be a runtime dialog; the app sends you to the system
+> overlay-settings screen. On HOME, while it's ungranted, a `QUARK TRIGGER // GRANT OVERLAY ►`
+> control opens that screen; on return the app re-detects the grant on resume (no restart) and
+> deploys the trigger. No other permission was added or requested this milestone.
+
+> **M4 default park position:** right edge, mid-height (`OverlayGeometry.defaultPark`) — clear of
+> the bottom-centre system gesture area and the status bar. **Forward concern (Bible):** avoiding a
+> *companion app's* primary control (e.g. a future camera shutter) is NOT encoded yet — those apps
+> don't exist, so it isn't testable today. Don't forget it when companion apps land.
+
+> **M4 known limits / forward concerns:** (1) live hue sync is push-only — the launcher re-tints the
+> mark via a redelivered start command when phosphor changes *from within QuantumOS*; an external
+> relaunch defaults to green until the launcher next resumes. (2) The foreground-service
+> notification is intentionally minimal and won't be *visible* unless POST_NOTIFICATIONS is granted
+> (we don't prompt — M4 hard stop); the service still runs. (3) No "retract trigger" control yet —
+> the overlay persists once deployed. (4) The iris is placeholder art, **not** the final QUARK
+> mascot (deferred to the identity/polish stage per decision 60).
 
 > **M3 designed interaction rule (logged, not buried):** turning **Beacon ON force-drops Stealth** —
 > active signalling outranks staying low-emission. The rule lives in `QuantumStateEngine.toggleBeacon()`
@@ -31,10 +53,39 @@ edge-snap; PLEASE STANDBY beat). Do NOT start M4 until the Director confirms M3 
 
 ## Status
 - [x] First green `gradle assembleDebug`  ← achieved during M1
-- [x] `gradle test` — 9/9 passing (4 prior + 5 new M3 core tests; verified in a JVM harness since the
-  cloud session has no Android SDK — CI runs the real `gradle test`/`assembleDebug`)
+- [x] `gradle test` — 12/12 passing (9 prior + 3 new M4 `OverlayGeometry` tests; the cloud session
+  has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
+  `.github/workflows/build.yml`)
 
-### M3 — Vitality panel (this session)
+### M4 — floating QUARK trigger (this session)
+- [x] **Step 0 — permission walkthrough:** `LauncherActivity` checks `Settings.canDrawOverlays`,
+  re-checks on `ON_RESUME` (grant happens outside the app, then return — no restart). Ungranted →
+  the HOME `QUARK TRIGGER // GRANT OVERLAY ►` control fires
+  `Intent(ACTION_MANAGE_OVERLAY_PERMISSION, package:…)`. Granted → the control reads
+  `QUARK TRIGGER // DEPLOYED` and the service is (re)started. No runtime-permission dialog exists for
+  this capability — the Settings screen is the only path. **No other permission added/requested.**
+- [x] **Step 1 — the overlay:** `QuarkTriggerService` (foreground, `specialUse` FGS type) adds a
+  `TYPE_APPLICATION_OVERLAY` view via `WindowManager` — Service-owned, NOT Activity-scoped, so it
+  survives switching apps. App-icon-sized (52dp ≈ an APPS-grid icon, not larger). Visual = a simple
+  phosphor "iris" (ring + dim disc + bright aperture) on the CRT ground, **static at rest** (no idle
+  animation). Minimal ongoing FGS notification.
+- [x] **Step 2 — draggable + edge-snap:** 1:1 real-time follow while dragging (the one place
+  "stepped" motion doesn't apply); on release it snaps to the nearest edge via the unit-tested
+  `OverlayGeometry.nearestEdgeX`, settled in a quick **stepped** run (6 × 12ms), not an elastic ease.
+  Default park = right edge, mid-height (`OverlayGeometry.defaultPark`).
+- [x] **Step 3 — tap (M4/M5 boundary):** tap → reused `PleaseStandbyCard` beat (extracted from the
+  M3 Lock overlay, now public/shared — not rebuilt) → `QuarkStubActivity`, a full-screen phosphor
+  placeholder reading `QUARK / ASSISTANT VIEW` + the one line `MODULE PENDING // M5` +
+  `◄ TAP TO RETURN, OPERATOR`. Tap or Back `finish()`es back to whatever app was underneath. **No**
+  reactive states / conversation log / command rail / text entry — that's M5.
+- [x] **Core logic:** `OverlayGeometry` (edge-snap + default park) lives in `com.quantumos.core`
+  (no Android deps), unit-tested — single source of truth, same pattern as the M3 Beacon rule.
+- [ ] **M4 confirmed on Fold 6** — grant the overlay toggle; the iris appears (phosphor, static);
+  drag it and it settles to an edge; tap plays PLEASE STANDBY → placeholder, Back returns; **open a
+  real other app (Settings / an APPS-grid app) and confirm the iris still hovers, drags, and taps
+  there** (the headline check).  ← **Director action**
+
+### M3 — Vitality panel (previous session)
 - [x] **Step 0 — atom mark + roll-down:** ⚛ atom mark added to the **HOME channel header only**
   (per the scope boundary — NOT on APPS/STATUS/LOG). Static at rest; one stepped quarter-turn spin
   on open. Panel rolls down with **stepped** motion (discrete step count, not a smooth slide).

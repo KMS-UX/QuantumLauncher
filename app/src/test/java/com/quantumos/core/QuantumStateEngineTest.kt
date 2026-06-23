@@ -107,6 +107,27 @@ class QuantumStateEngineTest {
         assertTrue(engine.masterState.value.environment.isStealthMode)
     }
 
+    // ---------- M4 floating-trigger placement (pure geometry) ----------
+
+    @Test
+    fun nearestEdge_snapsLeftWhenCentreOnLeftHalf() {
+        // 52px view near the left: centre at 30 < 540 → snap to x=0.
+        assertEquals(0, OverlayGeometry.nearestEdgeX(currentX = 4, viewSize = 52, screenWidth = 1080))
+    }
+
+    @Test
+    fun nearestEdge_snapsRightWhenCentreOnRightHalf() {
+        // View near the right: snap flush to the right edge (screenWidth - viewSize).
+        assertEquals(1028, OverlayGeometry.nearestEdgeX(currentX = 900, viewSize = 52, screenWidth = 1080))
+    }
+
+    @Test
+    fun defaultPark_isRightEdgeAndVerticallyCentred() {
+        val (x, y) = OverlayGeometry.defaultPark(viewSize = 52, screenWidth = 1080, screenHeight = 2400)
+        assertEquals(1028, x)                 // flush right
+        assertEquals((2400 - 52) / 2, y)      // mid-height
+    }
+
     @Test
     fun readinessPercent_isFullWhenAllNominal_andLowWhenDrained() {
         val full = VitalityState(batteryPercentage = 100, connectivityStrength = 4, coreTempCelsius = 25f)
