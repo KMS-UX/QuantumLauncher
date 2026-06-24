@@ -5,8 +5,11 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RenderEffect
+import android.graphics.RuntimeShader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.os.Build
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
@@ -60,15 +63,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -84,10 +92,13 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.shell.overlay.QuarkTriggerService
 import com.quantumos.core.BootLifecycleState
+import com.quantumos.core.BootPace
+import com.quantumos.core.DeploymentRegions
 import com.quantumos.core.EnvironmentProfile
 import com.quantumos.core.NavigationChannel
 import com.quantumos.core.PhosphorHue
 import com.quantumos.core.QuantumLauncherState
+import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
 import kotlinx.coroutines.delay
@@ -166,11 +177,18 @@ class QuantumViewModel : ViewModel() {
     private val _vitalityPanelOpen = MutableStateFlow(false)
     val vitalityPanelOpen: StateFlow<Boolean> = _vitalityPanelOpen.asStateFlow()
 
-    fun boot() = QuantumRuntime.boot()
+    fun boot(context: Context) = QuantumRuntime.boot(context)
 
     fun setHue(hue: PhosphorHue) = engine.updateEnvironmentProfile { it.copy(activeHue = hue) }
 
-    fun navigate(target: NavigationChannel) = engine.transitionNavigation(target)
+    fun navigate(target: NavigationChannel) {
+        engine.transitionNavigation(target)
+        QuantumRuntime.playCue(SoundCue.UI_CLUNK)        // UI-select clunk on channel change
+    }
+
+    // M6 STATUS toggles — cycle + persist + (region) QUARK ack, all via the runtime.
+    fun cycleDeploymentRegion() = QuantumRuntime.cycleDeploymentRegion()
+    fun cycleBootPace() = QuantumRuntime.cycleBootPace()
 
     // ---------- M3 Vitality-panel wiring (all delegate to the single engine seam) ----------
     fun toggleVitalityPanel() { _vitalityPanelOpen.value = !_vitalityPanelOpen.value }
@@ -215,7 +233,7 @@ class LauncherActivity : ComponentActivity() {
             val context = LocalContext.current
             val state by vm.engine.masterState.collectAsState()
             LaunchedEffect(Unit) {
-                vm.boot()
+                vm.boot(context)                  // loads persisted settings, then cold boot
                 vm.startTelemetry(context)        // M2: real battery/uptime/connectivity poll
                 vm.loadApps(context.packageManager)
             }
@@ -346,7 +364,7 @@ fun QuantumOSLayoutShell(
                     .width(cw)
                     .height(ch)
                     .background(Phosphor.Crt)
-                    .crtOverlay()
+                    .crtShader()
             ) {
                 content(constraints)
             }
@@ -354,7 +372,53 @@ fun QuantumOSLayoutShell(
     }
 }
 
-// Cheap non-shader CRT treatment. Real AGSL phosphor glow replaces this on hardware (M6).
+/*
+ * M6 Step 5 — REAL CRT shader. An AGSL RuntimeShader (RenderEffect, API 33+, covered by minSdk 33)
+ * that samples the rendered content and lays scanlines, a CRT-falloff vignette, and a phosphor
+ * self-glow over it on the GPU — not a CPU draw-loop (design-tokens rendering rule). It sets uniforms
+ * once per size, so there is no idle redraw (static at rest).
+ *
+ * Safety net (brief Step 5): if shader compilation EVER fails — or on a pre-33 surface that slips
+ * through — it falls back automatically to the cheap non-shader overlay below, rather than deleting
+ * the net. This is the first time the real look gets judged on hardware (the Fold 6), not an emulator.
+ */
+private const val CRT_AGSL_SHADER = """
+uniform shader content;
+uniform float2 resolution;
+half4 main(float2 coord) {
+    half4 src = content.eval(coord);
+    float2 uv = coord / resolution;
+    // scanlines — soft dark bands, period ~3px
+    float scan = 0.88 + 0.12 * (0.5 + 0.5 * sin(coord.y * 2.094));
+    // CRT falloff — content fades toward the edges
+    float2 c = uv - 0.5;
+    float vig = clamp(1.0 - dot(c, c) * 1.15, 0.28, 1.0);
+    float f = scan * vig;
+    float3 rgb = float3(src.rgb) * f;
+    // phosphor self-glow — lift the bright phosphor a touch
+    float3 glow = float3(src.rgb) * float3(src.rgb) * 0.22;
+    return half4(half3(rgb + glow), src.a);
+}
+"""
+
+fun Modifier.crtShader(): Modifier = composed {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@composed this.crtOverlay()
+    val shader = remember { runCatching { RuntimeShader(CRT_AGSL_SHADER) }.getOrNull() }
+        ?: return@composed this.crtOverlay()   // compilation failed → cheap fallback (safety net)
+    var size by remember { mutableStateOf(IntSize.Zero) }
+    this
+        .onSizeChanged { size = it }
+        .graphicsLayer {
+            if (size.width > 0 && size.height > 0) {
+                shader.setFloatUniform("resolution", size.width.toFloat(), size.height.toFloat())
+                renderEffect = RenderEffect
+                    .createRuntimeShaderEffect(shader, "content")
+                    .asComposeRenderEffect()
+            }
+        }
+}
+
+// Cheap non-shader CRT treatment — the automatic fallback if the AGSL shader can't compile.
 fun Modifier.crtOverlay(): Modifier = drawWithContent {
     drawContent()
     val gap = 3.dp.toPx()
@@ -384,7 +448,7 @@ fun QuantumAppShell(
     val panelOpen by vm.vitalityPanelOpen.collectAsState()
     val color = Phosphor.bright(state.environment.activeHue)
     val dimColor = Phosphor.dim(state.environment.activeHue)
-    val font = FontFamily.Monospace
+    val font = Fonts.ChakraPetch    // M6 Step 1: real bundled face, replacing the Monospace placeholder
 
     // Track whether cold boot has completed at least once, so the Lock overlay's
     // PLEASE STANDBY → DEVICE SECURED beat shows only for a real lock, never during boot
@@ -395,6 +459,11 @@ fun QuantumAppShell(
     }
     val showLock = hasBooted && (state.bootLifecycle == BootLifecycleState.PLEASE_STANDBY ||
         state.bootLifecycle == BootLifecycleState.DEVICE_SECURED)
+
+    // M6 Step 3 — the boot-splash ceremony plays only on a TRUE cold boot (before the first ACTIVE).
+    // A plain Home-press resumes the existing ViewModel (hasBooted already true) and the engine's own
+    // bootLifecycle != UNINITIALIZED guard skips the sequence — so this never replays on resume.
+    val booting = !hasBooted && state.bootLifecycle != BootLifecycleState.ACTIVE
 
     BackHandler(enabled = true) {
         when {
@@ -447,6 +516,131 @@ fun QuantumAppShell(
                 onUnlock = { vm.releaseLock() }
             )
         }
+
+        // The full-screen cold-boot ceremony — drawn above the shell while booting, resolves to Home.
+        if (booting) {
+            BootSplash(state = state, color = color, dimColor = dimColor, font = font)
+        }
+    }
+}
+
+/*
+ * BootSplash — the M6 Step 3 cold-boot ceremony. Replaces the old "background log lines" boot with a
+ * real full-screen beat: CRT power-on flash → stepped boot log (each step ticked) → QUARK online (her
+ * §6 canon line with live data + power-up sweep, iris opening) → Monoton wordmark stamp → PLEASE
+ * STANDBY → Home. Static at rest within each state; life comes only from the discrete state changes
+ * the engine drives. Resolves to Home in ALL cases this milestone (the "Lock (cold)" nuance is flagged
+ * in BUILD_LOG.md, not guessed at — brief Step 3).
+ */
+@Composable
+private fun BootSplash(
+    state: QuantumLauncherState,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily
+) {
+    val lc = state.bootLifecycle
+    // The five stepped boot stages, in order, mapped to their lifecycle states.
+    val stages = listOf(
+        BootLifecycleState.STEP_CORE to "CORE",
+        BootLifecycleState.STEP_PHOSPHOR_DRIVER to "PHOSPHOR DRIVER",
+        BootLifecycleState.STEP_SENSOR_ARRAY to "SENSOR ARRAY",
+        BootLifecycleState.STEP_BIOMETRICS to "BIOMETRICS",
+        BootLifecycleState.STEP_QUARK to "QUARK"
+    )
+
+    // CRT power-on: a brief bright flash that falls off into the ceremony (one-shot, not an idle loop).
+    var flash by remember { mutableStateOf(0f) }
+    LaunchedEffect(lc) {
+        if (lc == BootLifecycleState.CRT_POWER_ON) {
+            for (a in listOf(1f, 0.7f, 0.4f, 0.15f, 0f)) { flash = a; delay(45) }
+        } else flash = 0f
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Phosphor.Crt)
+            .crtShader(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // ----- stepped boot log (CORE → … → QUARK) -----
+            Text("QUANTUMOS // COLD BOOT", color = dimColor, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            stages.forEach { (stageState, label) ->
+                val done = lc.ordinal > stageState.ordinal
+                val active = lc.ordinal == stageState.ordinal
+                val marker = when {
+                    done -> "[ OK ]"
+                    active -> "[ >> ]"
+                    else -> "[ .. ]"
+                }
+                Row(Modifier.fillMaxWidth(0.7f).padding(vertical = 2.dp)) {
+                    Text(marker, color = if (done || active) color else dimColor, fontFamily = font, fontSize = 12.sp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(label, color = if (done || active) color else dimColor, fontFamily = font, fontSize = 12.sp)
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            // ----- stage-specific centrepiece -----
+            when (lc) {
+                BootLifecycleState.QUARK_ONLINE -> {
+                    BootIris(color = color, dimColor = dimColor)
+                    Spacer(Modifier.height(16.dp))
+                    val line = state.quarkBrain.responseTextSnippet
+                    Text(
+                        text = if (line.isNotBlank()) "QUARK: $line" else "QUARK ONLINE",
+                        color = color, fontFamily = font, fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                BootLifecycleState.WORDMARK_STAMP -> {
+                    // The ONE ceremonial Monoton use — the boot wordmark stamp (Step 1 / Step 3).
+                    Text(
+                        text = "QuantumOS",
+                        color = color,
+                        fontFamily = Fonts.Monoton,
+                        fontSize = 40.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                BootLifecycleState.PLEASE_STANDBY -> {
+                    PleaseStandbyCard(subline = "BRINGING UP HOME…", color = color, dimColor = dimColor, font = font)
+                }
+                else -> {
+                    Text("◈", color = dimColor, fontFamily = font, fontSize = 28.sp)
+                }
+            }
+        }
+
+        // CRT power-on flash overlay — fades to reveal the ceremony beneath.
+        if (flash > 0f) {
+            Box(Modifier.fillMaxSize().background(color.copy(alpha = flash)))
+        }
+    }
+}
+
+// A small boot-only iris that "opens" once when QUARK comes online — a stepped aperture bloom, not an
+// ambient loop. Distinct from the Assistant View's QuarkPresence (this is the boot ceremony beat).
+@Composable
+private fun BootIris(color: Color, dimColor: Color) {
+    var aperture by remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        for (a in listOf(0.15f, 0.4f, 0.65f, 0.85f, 1f)) { aperture = a; delay(60) }
+    }
+    androidx.compose.foundation.Canvas(Modifier.size(96.dp)) {
+        val r = size.minDimension / 2f * 0.9f
+        val stroke = r * 0.1f
+        drawCircle(color = Phosphor.Crt, radius = r)
+        drawCircle(color = color, radius = r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke))
+        drawCircle(color = dimColor, radius = r * 0.6f, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke * 0.7f))
+        drawCircle(color = color, radius = r * 0.5f * aperture)
     }
 }
 
@@ -556,8 +750,15 @@ private fun HomeChannelBody(
                 Spacer(Modifier.width(12.dp))
                 HueChip("CYAN", color) { vm.setHue(PhosphorHue.CYAN) }
             }
+            Spacer(Modifier.height(8.dp))
+            // Deployment Region status line — terse, utilitarian status text (NOT QUARK speaking).
+            Text(
+                text = "DEPLOYMENT: ${DeploymentRegions.label(state.deploymentRegion)}",
+                color = dimColor,
+                fontFamily = font,
+                fontSize = 11.sp
+            )
             Spacer(Modifier.height(12.dp))
-            // TODO M0: replace FontFamily.Monospace with bundled Chakra Petch
             Text(
                 text = buildReadout(state, logs, constraints),
                 color = color,
@@ -644,7 +845,7 @@ private fun HueChip(label: String, color: Color, onClick: () -> Unit) {
     Text(
         text = "[$label]",
         color = color,
-        fontFamily = FontFamily.Monospace,
+        fontFamily = Fonts.ChakraPetch,
         fontSize = 13.sp,
         modifier = Modifier.clickable { onClick() }.padding(4.dp)
     )
@@ -1092,6 +1293,47 @@ private fun StatusChannelScreen(
         Spacer(Modifier.height(4.dp))
         Text("----------------------------------------", color = dimColor, fontFamily = font, fontSize = 13.sp)
         ReadoutRow("READINESS", v.readiness.name, readinessColor, dimColor, font)
+
+        // ----- CONFIG: tap-to-cycle settings (same interaction pattern as Cycle-phosphor). Both
+        // persist across restarts (M6 Step 0/2). -----
+        Spacer(Modifier.height(14.dp))
+        Text("=== CONFIG // FIELD SETTINGS ===", color = color, fontFamily = font, fontSize = 13.sp)
+        Spacer(Modifier.height(6.dp))
+        ConfigCycleRow(
+            label = "DEPLOYMENT REGION",
+            value = DeploymentRegions.label(state.deploymentRegion),
+            color = color, dimColor = dimColor, font = font
+        ) { vm.cycleDeploymentRegion() }
+        ConfigCycleRow(
+            label = "BOOT PACE",
+            value = if (state.bootPace == BootPace.DELIBERATE) "DELIBERATE" else "SNAPPY",
+            color = color, dimColor = dimColor, font = font
+        ) { vm.cycleBootPace() }
+    }
+}
+
+// A tappable STATUS settings row: dim label · bright value · ► cycle affordance. Tap cycles the
+// setting (and persists it). Same tap-to-cycle pattern as the Vitality-panel Phosphor control.
+@Composable
+private fun ConfigCycleRow(
+    label: String,
+    value: String,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label.padEnd(18), color = dimColor, fontFamily = font, fontSize = 13.sp)
+        Text(": $value", color = color, fontFamily = font, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.weight(1f))
+        Text("►", color = color, fontFamily = font, fontSize = 13.sp)
     }
 }
 

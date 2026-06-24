@@ -37,6 +37,63 @@ enum class PhosphorHue { GREEN, AMBER, CYAN }
 enum class SystemReadiness { NOMINAL, DEGRADED, CRITICAL }
 enum class QuarkReflexPosture { IDLE, SCAN, HAPPY, WARN }
 
+// Deployment Region patch: a manual Japan ⟷ Hong Kong switch (default JAPAN) that selects which real
+// crisis-resource block the M5 distress tier shows. Manual Operator action only — NO GPS/locale auto-
+// detection (patch hard stop). Persists across restarts from M6 (SharedPreferences, UI-side).
+enum class DeploymentRegion { JAPAN, HONG_KONG }
+
+/*
+ * Verified regional crisis-resource presets (Deployment Region patch). The phone numbers are VERIFIED
+ * values — do NOT alter them. Each block is 2-3 short plain-text lines shown beneath QUARK's crisis-
+ * tier line as plain UI text (never spoken by QUARK). These are curated constants, not free-text
+ * Config — exactly two presets, no third region, no custom entry (patch hard stops).
+ */
+object DeploymentRegions {
+    const val JAPAN =
+        "TELL Lifeline (EN): 0800-300-8355 or 03-5774-0992\n" +
+        "Yorisoi Hotline (multilingual): 0120-279-338, press 2\n" +
+        "Emergency: 110 police / 119 ambulance"
+    const val HONG_KONG =
+        "The Samaritans (24h, multilingual): 2896 0000\n" +
+        "Suicide Prevention Services: 2382 0000\n" +
+        "Emergency: 999"
+
+    fun resourceFor(region: DeploymentRegion): String = when (region) {
+        DeploymentRegion.JAPAN -> JAPAN
+        DeploymentRegion.HONG_KONG -> HONG_KONG
+    }
+
+    // STATUS / HOME display label — terse, utilitarian (house voice).
+    fun label(region: DeploymentRegion): String = when (region) {
+        DeploymentRegion.JAPAN -> "JAPAN"
+        DeploymentRegion.HONG_KONG -> "HONG KONG"
+    }
+}
+
+/*
+ * SoundCue — the canonical audio-cue token registry (M6 Step 4). The engine and the scripted library
+ * emit these string tokens onto audioCueStream; the UI-side SoundEngine synthesises a distinct,
+ * functional cue for each. Kept as plain string constants (no Android/audio deps) so core stays pure.
+ * QUARK's wordless chirps (scan/happy/warn) use the lowercase library tokens already in the bank.
+ */
+object SoundCue {
+    const val POWER_ON_FLASH = "SND_POWER_ON_FLASH"   // CRT power-on flash (boot open)
+    const val BOOT_SWEEP = "sweep_boot"               // power-up sweep — boot / QUARK online
+    const val KEY_TICK = "key_tick"                   // keypad / boot-step relay tick
+    const val UI_CLUNK = "ui_select_clunk"            // UI-select clunk (nav / rail)
+    const val BUZZ_DENIED = "buzz_denied"             // access-denied harsh buzz
+    const val CONFIRM_GRANTED = "confirm_granted"     // access-granted two-note + sub
+    const val SWEEP_PHOSPHOR = "sweep_phosphor"       // phosphor retune sweep
+    const val STEALTH_DOWN = "stealth_down"           // emission power-down
+    const val STEALTH_UP = "stealth_up"               // emission power-up / release
+    const val BLIP_BEACON = "blip_beacon"             // beacon warn-blip ×3
+    const val DEVICE_SECURED = "device_secured_latch" // device-secured latch
+    const val STANDBY_PULSE = "standby_pulse"         // PLEASE STANDBY processing pulse
+    const val CHIRP_SCAN = "chirp_scan"
+    const val CHIRP_HAPPY = "chirp_happy"
+    const val CHIRP_WARN = "chirp_warn"
+}
+
 // ---------- state ----------
 data class VitalityState(
     val batteryPercentage: Int = 100,
@@ -104,15 +161,21 @@ data class QuantumLauncherState(
     val vitality: VitalityState = VitalityState(),
     val environment: EnvironmentProfile = EnvironmentProfile(),
     val quarkBrain: QuarkBrainState = QuarkBrainState(),
-    val operatorConfig: OperatorConfig = OperatorConfig()
+    val operatorConfig: OperatorConfig = OperatorConfig(),
+    // M6 persistent settings (loaded from SharedPreferences at boot, UI-side):
+    val deploymentRegion: DeploymentRegion = DeploymentRegion.JAPAN,
+    // Ship default = DELIBERATE (Bible decision 59); the old hardcoded SNAPPY was a dev convenience.
+    val bootPace: BootPace = BootPace.DELIBERATE
 )
 
 // ---------- engine ----------
 class QuantumStateEngine(
     private val externalScope: CoroutineScope,
-    private val pace: BootPace = BootPace.DELIBERATE
+    pace: BootPace = BootPace.DELIBERATE
 ) {
-    private val _masterState = MutableStateFlow(QuantumLauncherState())
+    // Boot pace lives in master state (M6) so STATUS can show it and it survives a restart once
+    // loaded from persistence. The constructor param only seeds the initial value.
+    private val _masterState = MutableStateFlow(QuantumLauncherState(bootPace = pace))
     val masterState: StateFlow<QuantumLauncherState> = _masterState.asStateFlow()
 
     private val _audioCueStream = MutableSharedFlow<String>(replay = 0)
@@ -126,12 +189,15 @@ class QuantumStateEngine(
     val conversationLog: StateFlow<List<ConversationEntry>> = _conversationLog.asStateFlow()
 
     fun executeColdBootSequence() {
-        // Cold-boot-only trigger (Bible decision 59).
+        // Cold-boot-only trigger (Bible decision 59). A plain Home-press resumes the existing
+        // activity/ViewModel and this guard (bootLifecycle != UNINITIALIZED) skips the replay.
         if (_masterState.value.bootLifecycle != BootLifecycleState.UNINITIALIZED) return
+        val step = _masterState.value.bootPace.stepDurationMs   // pace fixed for the duration of one boot
         externalScope.launch {
             logEvent("SYSTEM: Initiating cold-boot sequence.")
             updateBootLifecycle(BootLifecycleState.CRT_POWER_ON)
-            delay(pace.stepDurationMs)
+            emitAudioCue(SoundCue.POWER_ON_FLASH)            // CRT power-on flash opens the ceremony
+            delay(step)
 
             val steppedLogs = listOf(
                 BootLifecycleState.STEP_CORE to "CORE STATUS: SUCCESS",
@@ -142,22 +208,48 @@ class QuantumStateEngine(
             )
             for ((state, logMessage) in steppedLogs) {
                 updateBootLifecycle(state)
+                emitAudioCue(SoundCue.KEY_TICK)              // each boot step paired with a relay tick
                 logEvent(logMessage)
-                delay(pace.stepDurationMs)
+                delay(step)
             }
 
+            // QUARK online — the canonical §6 online line (with live slots) + power-up sweep is spoken
+            // by the runtime watcher the moment this state lands; the engine just marks the milestone.
             updateBootLifecycle(BootLifecycleState.QUARK_ONLINE)
-            emitAudioCue("SND_POWER_UP_SWEEP")               // Boot = power-up sweep (sound decision 44)
             logEvent("QUARK: Intelligence framework online.")
-            delay(pace.stepDurationMs * 2)
+            delay(step * 2)
 
             updateBootLifecycle(BootLifecycleState.WORDMARK_STAMP)
-            delay(pace.stepDurationMs)
+            delay(step)
             updateBootLifecycle(BootLifecycleState.PLEASE_STANDBY)
-            delay(pace.stepDurationMs)
-            updateBootLifecycle(BootLifecycleState.ACTIVE)
+            emitAudioCue(SoundCue.STANDBY_PULSE)             // PLEASE STANDBY processing pulse
+            delay(step)
+            updateBootLifecycle(BootLifecycleState.ACTIVE)   // resolves to Home in all cases (M6 Step 3)
             logEvent("SYSTEM: Launcher entry ready.")
         }
+    }
+
+    // M6: persisted Boot Pace (STATUS toggle). Set before boot to take effect this cold boot.
+    fun setBootPace(pace: BootPace) = _masterState.update { it.copy(bootPace = pace) }
+    fun cycleBootPace() {
+        val next = when (_masterState.value.bootPace) {
+            BootPace.DELIBERATE -> BootPace.SNAPPY
+            BootPace.SNAPPY -> BootPace.DELIBERATE
+        }
+        _masterState.update { it.copy(bootPace = next) }
+        logEvent("CONFIG: Boot pace -> $next")
+    }
+
+    // M6 / Deployment Region patch: persisted region (STATUS toggle, HOME status line).
+    fun setDeploymentRegion(region: DeploymentRegion) =
+        _masterState.update { it.copy(deploymentRegion = region) }
+    fun cycleDeploymentRegion() {
+        val next = when (_masterState.value.deploymentRegion) {
+            DeploymentRegion.JAPAN -> DeploymentRegion.HONG_KONG
+            DeploymentRegion.HONG_KONG -> DeploymentRegion.JAPAN
+        }
+        _masterState.update { it.copy(deploymentRegion = next) }
+        logEvent("CONFIG: Deployment region -> $next")
     }
 
     fun transitionNavigation(target: NavigationChannel) {
@@ -181,6 +273,7 @@ class QuantumStateEngine(
             PhosphorHue.CYAN -> PhosphorHue.GREEN
         }
         updateEnvironmentProfile { it.copy(activeHue = next) }
+        emitAudioCue(SoundCue.SWEEP_PHOSPHOR)            // phosphor retune sweep (fires from the action)
         logEvent("ENV: Phosphor line shifted -> $next")
     }
 
@@ -189,6 +282,9 @@ class QuantumStateEngine(
     fun toggleStealthMode() {
         val on = !_masterState.value.environment.isStealthMode
         updateEnvironmentProfile { it.copy(isStealthMode = on) }
+        // Stealth power-down / release power-up cue (fires from the action). The SoundEngine lets these
+        // two through even while stealth is engaged — they ARE the transition sound.
+        emitAudioCue(if (on) SoundCue.STEALTH_DOWN else SoundCue.STEALTH_UP)
         logEvent("ENV: Stealth ${if (on) "ENGAGED — emission dimmed" else "RELEASED"}")
     }
 
@@ -205,6 +301,7 @@ class QuantumStateEngine(
                 isStealthMode = if (droppedStealth) false else it.isStealthMode
             )
         }
+        emitAudioCue(SoundCue.BLIP_BEACON)               // beacon warn-blip ×3 (fires from the action)
         logEvent("ENV: Beacon ${if (turningOn) "ACTIVE — field flag raised" else "DARK"}")
         if (droppedStealth) logEvent("ENV: Stealth auto-released — Beacon takes priority.")
     }
@@ -281,13 +378,19 @@ class QuantumStateEngine(
         _masterState.update { it.copy(operatorConfig = it.operatorConfig.copy(crisisResourceLine = line)) }
 
     /*
-     * The crisis-resource text the Assistant View shows beneath QUARK's distress line. If the
-     * Director has not configured a concrete, region-appropriate resource yet (the default), this
-     * returns the SAFE GENERIC FALLBACK so the safety feature works from first boot. It deliberately
-     * names NO specific hotline/number — that choice is the Director's (M5 brief Step 1).
+     * The crisis-resource text the Assistant View shows beneath QUARK's distress line.
+     * Resolution order (Deployment Region patch):
+     *   1. An explicit Operator-configured override, if set (rare; Config surface lands later).
+     *   2. Otherwise the active Deployment Region's verified preset block (Japan default / Hong Kong).
+     *   3. GENERIC_CRISIS_FALLBACK as a defensive default if the lookup ever fails — it should not
+     *      normally be seen now that real regional presets exist.
      */
-    fun effectiveCrisisResource(): String =
-        _masterState.value.operatorConfig.crisisResourceLine.ifBlank { GENERIC_CRISIS_FALLBACK }
+    fun effectiveCrisisResource(): String {
+        val override = _masterState.value.operatorConfig.crisisResourceLine
+        if (override.isNotBlank()) return override
+        return runCatching { DeploymentRegions.resourceFor(_masterState.value.deploymentRegion) }
+            .getOrNull()?.ifBlank { null } ?: GENERIC_CRISIS_FALLBACK
+    }
 
     fun executeCosmeticLockSequence() {
         // Cosmetic only — does NOT grab Device Admin (Bible decision 56). Real lockNow() arrives in kiosk.
@@ -295,8 +398,10 @@ class QuantumStateEngine(
         externalScope.launch {
             logEvent("SECURITY: Secure request acknowledged.")
             updateBootLifecycle(BootLifecycleState.PLEASE_STANDBY)
-            emitAudioCue("SND_SECURING_BEAT")
-            delay(500L)
+            emitAudioCue(SoundCue.STANDBY_PULSE)
+            delay(300L)
+            emitAudioCue(SoundCue.DEVICE_SECURED)            // device-secured latch
+            delay(200L)
             updateBootLifecycle(BootLifecycleState.DEVICE_SECURED)
             updateEnvironmentProfile { it.copy(isSystemLocked = true) }
             logEvent("SECURITY: Perimeter sealed.")
@@ -412,6 +517,7 @@ object QuarkIntent {
     const val INSULT = "INSULT"; const val JOKE = "JOKE"; const val GOODBYE = "GOODBYE"
     const val HARBOR = "HARBOR"; const val DISTRESS = "DISTRESS"; const val FALLBACK = "FALLBACK"
     const val OPENED = "OPENED"; const val STOWED = "STOWED"
+    const val ONLINE = "ONLINE"; const val REGION = "REGION"
 }
 
 class ScriptedLineLibrary {
@@ -443,22 +549,24 @@ class ScriptedLineLibrary {
                     "Nominal across the board. Power {power}, signal {signal}. Up {uptime} and steady."
                 ))
             }
-            QuarkIntent.STEALTH -> if (mode == "on") build(QuarkReflexPosture.HAPPY, "confirm_granted", true, listOf(
+            // Stealth/Phosphor/Beacon: the cue fires from the ACTION (engine), not from QUARK's voice
+            // (library §2) — so audio is null here to avoid a double-trigger.
+            QuarkIntent.STEALTH -> if (mode == "on") build(QuarkReflexPosture.HAPPY, null, true, listOf(
                 "Stealth engaged. Emission minimal, audio silenced. We're quiet - one tap brings me back.",
                 "Dark and quiet, {operator}. Minimum signature. I'm still watching."
-            )) else build(QuarkReflexPosture.HAPPY, "confirm_granted", true, listOf(
+            )) else build(QuarkReflexPosture.HAPPY, null, true, listOf(
                 "Stealth released. Full output restored.",
                 "Back up. You're visible again - your call."
             ))
-            QuarkIntent.PHOSPHOR -> build(QuarkReflexPosture.HAPPY, "sweep_phosphor", true, listOf(
+            QuarkIntent.PHOSPHOR -> build(QuarkReflexPosture.HAPPY, null, true, listOf(
                 "Phosphor set to {phosphor}.",
                 "{phosphor} phosphor. Easier on the eyes out here.",
                 "{phosphor} it is."
             ))
-            QuarkIntent.BEACON -> if (mode == "on") build(QuarkReflexPosture.IDLE, "blip_beacon", true, listOf(
+            QuarkIntent.BEACON -> if (mode == "on") build(QuarkReflexPosture.IDLE, null, true, listOf(
                 "Beacon lit. You're visible now - and so is your position. Your call.",
                 "Torch on. Everyone can see you, {operator}. Make it count."
-            )) else build(QuarkReflexPosture.IDLE, "blip_beacon", true, listOf(
+            )) else build(QuarkReflexPosture.IDLE, null, true, listOf(
                 "Beacon dark. Position's yours again.",
                 "Light's out. Back to quiet."
             ))
@@ -579,6 +687,22 @@ class ScriptedLineLibrary {
                 "I've got it from here."
             ))
 
+            // §6 canon online line (boot complete) — Happy, power-up sweep, live slots.
+            QuarkIntent.ONLINE -> build(QuarkReflexPosture.HAPPY, SoundCue.BOOT_SWEEP, false, listOf(
+                "QUARK online. Power {power}, signal {signal} - readiness {readiness_word}. I have you, {operator}. Standing by.",
+                "Systems up. {readiness_pct} percent and holding. I'm here."
+            ))
+
+            // Deployment Region patch §4 — acknowledgement on a region switch. Happy, reuse the
+            // phosphor-retune sweep (no new sound asset). Rotates per the established rule.
+            QuarkIntent.REGION -> if (mode == "HONG_KONG") build(QuarkReflexPosture.HAPPY, SoundCue.SWEEP_PHOSPHOR, false, listOf(
+                "Deployment region set to Hong Kong.",
+                "Hong Kong, {operator}. Recalibrating the local watch."
+            )) else build(QuarkReflexPosture.HAPPY, SoundCue.SWEEP_PHOSPHOR, false, listOf(
+                "Deployment region set to Japan.",
+                "Japan, {operator}. Home ground - standing by."
+            ))
+
             else -> build(QuarkReflexPosture.IDLE, null, false, listOf(
                 "I don't have that one yet, {operator}. My full mind comes online later - for now ask me for status, stealth, phosphor, beacon, or lock.",
                 "That's past my reflexes right now. Try status, or tell me to go dark, switch phosphor, or light the beacon.",
@@ -617,6 +741,13 @@ class QuarkParser(private val engine: QuantumStateEngine) {
     // ---------- session beats ----------
     fun speakOpened() = engine.quarkSay("ASSISTANT OPENED", false, library.respond(QuarkIntent.OPENED, slots()))
     fun speakStowed() = engine.quarkSay("ASSISTANT STOWED", false, library.respond(QuarkIntent.STOWED, slots()))
+
+    // M6: the §6 canon online line, spoken once when cold boot reaches QUARK_ONLINE (live slots).
+    fun speakOnline() = engine.quarkSay("SYSTEM ONLINE", false, library.respond(QuarkIntent.ONLINE, slots()))
+
+    // Deployment Region patch §4: QUARK acknowledges a region switch (direction selects the variant).
+    fun speakRegionSwitched(region: DeploymentRegion) =
+        engine.quarkSay("DEPLOYMENT REGION", false, library.respond(QuarkIntent.REGION, slots(), region.name))
 
     // ---------- command rail (six actions) ----------
     fun railStatusReport() = doStatus("STATUS REPORT", false)

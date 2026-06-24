@@ -7,7 +7,8 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.SystemClock
-import com.quantumos.core.BootPace
+import com.quantumos.core.BootLifecycleState
+import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -37,21 +39,74 @@ import kotlinx.coroutines.launch
 object QuantumRuntime {
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-    val engine = QuantumStateEngine(appScope, BootPace.SNAPPY) // SNAPPY dev boot; ship = DELIBERATE
+    // Ship default = DELIBERATE; the persisted Boot Pace (loaded in boot()) overrides this before the
+    // cold-boot sequence actually runs. The old hardcoded SNAPPY was a dev-only convenience (M6 Step 2).
+    val engine = QuantumStateEngine(appScope)
     val parser = QuarkParser(engine)
+
+    // M6 Step 4 — procedural sound, app-scoped so cues sound regardless of which Activity is foreground.
+    private val sound = SoundEngine()
 
     // UI-only connectivity label (transport type isn't part of core state) — shared so STATUS and
     // the assistant read one source.
     private val _connectivity = MutableStateFlow(ConnectivityInfo())
     val connectivity: StateFlow<ConnectivityInfo> = _connectivity.asStateFlow()
 
+    private var appContext: Context? = null
     private var booted = false
     private var telemetryStarted = false
+    private var audioStarted = false
 
-    fun boot() {
+    fun boot(context: Context) {
+        appContext = context.applicationContext
         if (booted) return
         booted = true
+
+        // Apply persisted settings BEFORE the cold-boot sequence so the chosen pace takes effect this
+        // boot and the region is right from the first frame (M6 Step 0/2).
+        appContext?.let { ctx ->
+            engine.setBootPace(SettingsStore.loadBootPace(ctx))
+            engine.setDeploymentRegion(SettingsStore.loadRegion(ctx))
+        }
+
+        startAudioPlayback()
+
+        // Speak the §6 canon online line the moment cold boot reaches QUARK_ONLINE (live slots). Launch
+        // the watcher BEFORE executeColdBootSequence so it can't miss the transient state.
+        appScope.launch {
+            engine.masterState.first { it.bootLifecycle == BootLifecycleState.QUARK_ONLINE }
+            parser.speakOnline()
+        }
+
         engine.executeColdBootSequence()
+    }
+
+    // Collect the engine's audio-cue stream and synthesise each token (gated by Stealth). Idempotent.
+    private fun startAudioPlayback() {
+        if (audioStarted) return
+        audioStarted = true
+        appScope.launch {
+            engine.audioCueStream.collect { token ->
+                sound.play(token, engine.masterState.value.environment.isStealthMode)
+            }
+        }
+    }
+
+    // Direct cue for pure-UI feedback (keypad tick, select clunk) — still routed through the same
+    // Stealth gate as the stream so muting stays consistent.
+    fun playCue(token: String) = sound.play(token, engine.masterState.value.environment.isStealthMode)
+
+    // ---------- M6 persistent settings — cycle + persist + acknowledge in one place ----------
+    fun cycleDeploymentRegion() {
+        engine.cycleDeploymentRegion()
+        val region: DeploymentRegion = engine.masterState.value.deploymentRegion
+        parser.speakRegionSwitched(region)               // QUARK acknowledges + logs the exchange
+        appContext?.let { SettingsStore.saveRegion(it, region) }
+    }
+
+    fun cycleBootPace() {
+        engine.cycleBootPace()
+        appContext?.let { SettingsStore.saveBootPace(it, engine.masterState.value.bootPace) }
     }
 
     /*

@@ -52,10 +52,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.WindowManager
 import com.quantumos.core.QuarkReflexPosture
+import com.quantumos.core.SoundCue
+import com.quantumos.shell.ui.Fonts
 import com.quantumos.shell.ui.Phosphor
 import com.quantumos.shell.ui.PleaseStandbyCard
 import com.quantumos.shell.ui.QuantumRuntime
-import com.quantumos.shell.ui.crtOverlay
+import com.quantumos.shell.ui.crtShader
 import kotlinx.coroutines.delay
 
 /*
@@ -82,11 +84,10 @@ class QuarkAssistantActivity : ComponentActivity() {
         val engine = QuantumRuntime.engine
         val parser = QuantumRuntime.parser
         // Make sure the shared engine is alive even if the assistant is the first surface reached.
-        QuantumRuntime.boot()
+        QuantumRuntime.boot(this)
         QuantumRuntime.startTelemetry(this)
 
-        // TODO M0: replace FontFamily.Monospace with bundled Chakra Petch (shared with the launcher).
-        val font = FontFamily.Monospace
+        val font = Fonts.ChakraPetch    // M6 Step 1: real bundled face (shared with the launcher)
 
         setContent {
             val state by engine.masterState.collectAsState()
@@ -123,7 +124,7 @@ class QuarkAssistantActivity : ComponentActivity() {
                 Modifier
                     .fillMaxSize()
                     .background(Phosphor.Crt)
-                    .crtOverlay()
+                    .crtShader()
             ) {
                 if (standby) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -374,7 +375,10 @@ private fun RailButton(
 private fun FreeTextEntry(color: Color, dimColor: Color, font: FontFamily, onSubmit: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val send = {
-        if (text.isNotBlank()) { onSubmit(text); text = "" }
+        if (text.isNotBlank()) {
+            QuantumRuntime.playCue(SoundCue.KEY_TICK)   // keypad relay tick on send
+            onSubmit(text); text = ""
+        }
     }
     Row(
         Modifier
