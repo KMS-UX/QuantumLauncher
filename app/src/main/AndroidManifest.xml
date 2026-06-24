@@ -66,11 +66,11 @@
                 android:value="persistent_floating_launcher_trigger" />
         </service>
 
-        <!-- M4/M5 boundary: the placeholder QUARK surface the trigger taps through to. Full-screen,
+        <!-- M5: the real QUARK Assistant View the floating trigger taps through to. Full-screen,
              excluded from recents (it's a momentary overlay, not a task), single-top so repeated
-             taps don't stack copies. M5 replaces its body with the real Assistant View. -->
+             taps don't stack copies. Shares the launcher's engine via QuantumRuntime. -->
         <activity
-            android:name="com.quantumos.shell.overlay.QuarkStubActivity"
+            android:name="com.quantumos.shell.overlay.QuarkAssistantActivity"
             android:exported="false"
             android:theme="@style/Theme.QuantumOS"
             android:enableOnBackInvokedCallback="true"

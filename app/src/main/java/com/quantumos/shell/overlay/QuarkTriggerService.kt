@@ -164,10 +164,11 @@ class QuarkTriggerService : Service() {
     }
 
     private fun onTriggerTapped() {
-        // Tap → PLEASE STANDBY beat → M5 placeholder stub. The beat + stub live in the Activity so
+        // Tap → PLEASE STANDBY beat → the M5 QUARK Assistant View. The beat lives in the Activity so
         // the trigger overlay stays a thin, static mark. NEW_TASK so it surfaces over whatever app
-        // is currently in the foreground.
-        val intent = Intent(this, QuarkStubActivity::class.java).apply {
+        // is currently in the foreground. (The hue extra is legacy; the Assistant now reads the live
+        // phosphor hue from the shared engine, so it recolours without a restart.)
+        val intent = Intent(this, QuarkAssistantActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             putExtra(EXTRA_HUE_COLOR, hueColor)
         }

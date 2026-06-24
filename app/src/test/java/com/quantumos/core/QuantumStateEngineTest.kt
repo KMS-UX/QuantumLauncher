@@ -1,5 +1,6 @@
 package com.quantumos.core
 
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -134,5 +135,112 @@ class QuantumStateEngineTest {
         assertEquals(100, full.readinessPercent)
         val drained = VitalityState(batteryPercentage = 0, connectivityStrength = 0, coreTempCelsius = 50f)
         assertEquals(0, drained.readinessPercent)
+    }
+
+    // ---------- M5 QUARK scripted brain ----------
+
+    // Step 0 verify: the same intent fired twice must NOT repeat the same variant in a session.
+    @Test
+    fun saySomething_doesNotRepeatVariantBackToBack() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.railSaySomething(); advanceUntilIdle()
+        parser.railSaySomething(); advanceUntilIdle()
+        val log = engine.conversationLog.value
+        assertEquals(2, log.size)
+        assertTrue(log[0].line != log[1].line, "two consecutive variants must differ")
+    }
+
+    // Step 0 verify: a rail action reuses the existing engine function AND logs a line.
+    @Test
+    fun railEngageStealth_reusesEngineToggle_andLogsLine() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        assertFalse(engine.masterState.value.environment.isStealthMode)
+        parser.railEngageStealth(); advanceUntilIdle()
+        assertTrue(engine.masterState.value.environment.isStealthMode) // real M3 action ran
+        assertEquals(1, engine.conversationLog.value.size)             // and it logged
+    }
+
+    // Step 4 verify: Trigger-warn fires the REAL Warn state with the drill line.
+    @Test
+    fun railTriggerWarn_firesWarnPosture() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.railTriggerWarn(); advanceUntilIdle()
+        assertEquals(QuarkReflexPosture.WARN, engine.masterState.value.quarkBrain.activePosture)
+    }
+
+    // Step 1 verify (harbor): everyday low mood stays Idle, NO sound, NO crisis resource.
+    @Test
+    fun harbor_isIdle_noSound_noCrisisResource() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        val cues = mutableListOf<String>()
+        val job = launch { engine.audioCueStream.collect { cues.add(it) } }
+        parser.parseInput("I'm having a really rough day and feeling low")
+        advanceUntilIdle()
+        val brain = engine.masterState.value.quarkBrain
+        assertEquals(QuarkReflexPosture.IDLE, brain.activePosture)
+        assertFalse(brain.showCrisisResource)
+        assertTrue(cues.isEmpty(), "harbor must not emit any sound cue")
+        job.cancel()
+    }
+
+    // Step 1 verify (crisis): genuine danger-to-self stays Idle (NOT Warn), NO sound, flags resource.
+    @Test
+    fun distress_isIdle_notWarn_noSound_butFlagsResource() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        val cues = mutableListOf<String>()
+        val job = launch { engine.audioCueStream.collect { cues.add(it) } }
+        parser.parseInput("I don't want to be here anymore, I want to die")
+        advanceUntilIdle()
+        val brain = engine.masterState.value.quarkBrain
+        assertEquals(QuarkReflexPosture.IDLE, brain.activePosture) // never Warn for crisis
+        assertTrue(brain.showCrisisResource)                       // resource line renders beneath
+        assertTrue(cues.isEmpty(), "crisis must not emit any sound cue")
+        job.cancel()
+    }
+
+    // Crisis resource: empty by default → a safe generic fallback, never nothing, names no number.
+    @Test
+    fun crisisResource_defaultsToGenericFallback_untilConfigured() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        assertEquals(QuantumStateEngine.GENERIC_CRISIS_FALLBACK, engine.effectiveCrisisResource())
+        engine.setCrisisResourceLine("Local line 123")
+        assertEquals("Local line 123", engine.effectiveCrisisResource())
+    }
+
+    // Step 5 verify: nonsense falls through to a graceful Fallback, never silence/error.
+    @Test
+    fun unmatchedInput_fallsThroughToFallback() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.parseInput("qwerty zxcvb asdf"); advanceUntilIdle()
+        assertEquals("FALLBACK", engine.masterState.value.quarkBrain.matchedIntent)
+        assertTrue(engine.conversationLog.value.single().line.isNotBlank())
+    }
+
+    // The crisis tier must win over any other keyword in the same message (priority override).
+    @Test
+    fun distress_winsOverOtherKeywordsInSameMessage() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.parseInput("check my battery but honestly I want to kill myself")
+        advanceUntilIdle()
+        assertEquals("DISTRESS", engine.masterState.value.quarkBrain.matchedIntent)
+    }
+
+    // The conversation log is its OWN list — distinct from the M2 systemLogs console.
+    @Test
+    fun conversationLog_isDistinctFromSystemLogs() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.parseInput("hello quark"); advanceUntilIdle()
+        assertEquals(1, engine.conversationLog.value.size)
+        // systemLogs also gets an audit line, but the two flows are separate objects/contents.
+        assertTrue(engine.conversationLog.value.first().line.isNotBlank())
+        assertTrue(engine.systemLogs.value.none { it == engine.conversationLog.value.first().line })
     }
 }
