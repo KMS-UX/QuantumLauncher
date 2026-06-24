@@ -11,17 +11,59 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M5 — QUARK Assistant View — ✅ **code complete**; **awaiting on-device
-confirmation on the Fold 6.** The floating trigger now opens the REAL assistant
-(`QuarkAssistantActivity`), not the old stub: a large central reactive presence (the four locked
-states), a one-line state caption, a scrolling **conversation log** (its own list, separate from the
-M2 LOG channel), the six-action **command rail**, and **free-text entry**. Every line QUARK speaks
-is wired **verbatim** from the Scripted-Line Library v1.1 via a shared `QuarkParser` — the M0–M4
-placeholder lines are gone. The launcher and the assistant share **one** engine (`QuantumRuntime`)
-so phosphor hue + Stealth carry over and the four reused rail actions behave exactly as their M3
-originals.
-**Goal of next session:** Start **M6 — splash, sound, and CRT-shader/motion polish.** Do NOT start
-M6 until the Director confirms M5 on hardware (see the M5 verify checklist below).
+**Current milestone:** M6 — splash, sound, real fonts/shaders, persistent settings + the Deployment
+Region patch — ✅ **code complete**; **awaiting on-device confirmation on the Fold 6** (CI build
+green). All seven steps + the Deployment Region patch are implemented:
+- **Deployment Region patch + Step 0:** `DeploymentRegion` enum (JAPAN default / HONG_KONG) with the
+  two **verified** crisis-resource preset blocks (`DeploymentRegions`); STATUS tap-to-cycle row, a
+  HOME `DEPLOYMENT: <region>` status line, QUARK's region-switch acknowledgement line (§4 drafts —
+  **pending Director sign-off**, not yet folded into the Scripted-Line Library), and a region-aware
+  `effectiveCrisisResource()`. **Persists** across restarts (`SettingsStore` / SharedPreferences).
+- **Step 1 real fonts:** Chakra Petch bundled as `res/font/*.ttf` (Regular/Medium/Bold) and wired as
+  the system face via `Fonts.ChakraPetch` everywhere `FontFamily.Monospace` used to stand in. Monoton
+  bundled for the ONE ceremonial boot wordmark stamp only.
+- **Step 2 Boot Pace:** STATUS tap-to-cycle `BOOT PACE: DELIBERATE / SNAPPY`, **default DELIBERATE**,
+  persisted; the dev-only hardcoded `SNAPPY` is gone (runtime loads the persisted pace before boot).
+- **Step 3 boot-splash:** full-screen `BootSplash` ceremony — CRT power-on flash → stepped boot log
+  (each step relay-ticked) → QUARK online (canon §6 line w/ live data + power-up sweep + iris bloom)
+  → Monoton wordmark stamp → PLEASE STANDBY → Home. Cold-boot-only by construction (resume never
+  replays it). Resolves to **Home in all cases** (see open "Lock (cold)" question below).
+- **Step 4 sound:** procedural `SoundEngine` (AudioTrack synthesis) — one distinct cue per audio
+  token (signature four + supporting cues + QUARK chirps), Stealth-muted except the stealth
+  transition cues. Action cues (phosphor/stealth/beacon) now fire from the engine action so the M3
+  Vitality panel sounds too.
+- **Step 5 CRT shader:** real AGSL `RuntimeShader`/`RenderEffect` (scanline + vignette + phosphor
+  glow), with the cheap non-shader overlay kept as an **automatic fallback** if compilation fails.
+- **Step 6 motion:** boot/splash cadence is discrete-stepped; existing stepped transitions retuned
+  lightly (no new construction).
+
+**Goal of next session:** **M7 — signed APK → sideload to Fold 6 → Checkpoint β.** Do NOT start M7
+until the Director confirms M6 on hardware (see the M6 verify checklist below), particularly **how
+the real CRT shader actually looks on the Fold 6** (first hardware judgement of the shader).
+
+> **OPEN QUESTION — "Lock (cold) / Home (warm)" boot resolution (M6 Step 3, flagged not resolved):**
+> the original decision text mentions the boot sequence resolving to "Lock (cold) / Home (warm)". The
+> exact meaning of "cold" vs "warm" relative to the Lock state is **not unambiguous**, and no
+> persisted-lock mechanic is clearly specified. Per the brief, M6 **resolves to Home in all cases**
+> and does NOT guess at a persisted-lock-on-cold-boot behaviour. Clara/Director to clarify before any
+> lock-on-boot work.
+
+> **Director sign-off pending — Deployment Region §4 lines:** QUARK's region-switch acknowledgement
+> lines ("Deployment region set to …", "Hong Kong, {operator}. Recalibrating the local watch.", etc.)
+> are **new content** drafted in the patch, wired verbatim, but **not yet folded into the official
+> Scripted-Line Library doc**. Confirm they feel right before they become canon.
+
+> **M6 verify on the Fold 6 (Director):** (1) **cold boot** (restart the phone, or force-stop +
+> relaunch) plays the full ceremony — real Chakra Petch fonts, the real CRT shader look, real
+> synthesised sound, QUARK's online line with live data — and ends on **Home**; a plain Home-press
+> from another app **never** replays it. (2) The real **AGSL CRT shader** reads as the phosphor look
+> (scanlines/vignette/glow) on hardware — the headline judgement. (3) STATUS **Deployment Region** and
+> **Boot Pace** rows tap-to-cycle, and **both survive a full restart**. (4) Switch region → QUARK
+> speaks the ack line + the HOME `DEPLOYMENT:` line updates without restart; trigger the crisis intent
+> → the **active region's** real resource block renders beneath QUARK's line. (5) Trigger a sample of
+> sounds (boot sweep, lock latch, beacon blips, a QUARK chirp) — each is a **distinct, audible** cue,
+> and **Stealth mutes** them (except the stealth down/up transition). (6) Boot Pace SNAPPY vs
+> DELIBERATE actually changes the boot speed.
 
 > **Director action — crisis-tier resource string (M5 Step 1):** the Distress/crisis intent renders
 > a real resource line beneath QUARK's words as plain UI text. It is a **Config-settable string,
@@ -147,8 +189,10 @@ M6 until the Director confirms M5 on hardware (see the M5 verify checklist below
 - [ ] **M2 confirmed on Fold 6** (battery moves on plug/unplug, uptime counts, link reflects Wi-Fi/
   cellular; surface fills the unfolded display; grid shows more columns unfolded)  ← Director action
 - [ ] M0/hue confirmed on Fold 6 (phosphor screen + hue switch live)  ← Director action
-- [ ] Chakra Petch actually bundled (currently Monospace placeholder)  ← deferred to polish
-  (`ui-text-google-fonts` dep + `font_certs.xml` stub are in place from the M0 infra branch)
+- [x] **Chakra Petch actually bundled (M6 Step 1)** — real `res/font/chakra_petch_*.ttf`, wired via
+  `Fonts.ChakraPetch`; `FontFamily.Monospace` retired. Monoton bundled for the boot wordmark only.
+  (The old `ui-text-google-fonts` Downloadable-Fonts path + `font_certs.xml` stub are now unused —
+  we bundle the .ttf so it renders identically offline; left in place, harmless, can be removed.)
 
 > **Note on the green build:** the project had NEVER actually compiled before M1, despite M0
 > being described as done. Two latent blockers were masking each other: (1) `settings.gradle.kts`
@@ -174,10 +218,20 @@ M6 until the Director confirms M5 on hardware (see the M5 verify checklist below
 HOME category was confirmed NOT declared before M1 work began (manifest verified clean).
 
 ## Known issues / TODOs
-- **M5 audio cues are tokens only (no player yet):** `quarkSay` emits the library's cue tokens
-  (`chirp_scan`, `chirp_happy`, `chirp_warn`, `confirm_granted`, `blip_beacon`, `sweep_phosphor`) to
-  `audioCueStream`. There is still no player — playback (and Stealth's mute gate) lands in M6. Crisis
-  and harbor correctly emit **no** token at all.
+- **M6 sound is synthesised, not mastered (by design):** `SoundEngine` procedurally synthesises every
+  cue via `AudioTrack` (the spirit of the prototype Web-Audio synth) — NOT professionally produced
+  audio files. That's a future identity/polish refinement, explicitly out of M6 scope. Tune the synth
+  recipes if the Director wants a different character.
+- **`buzz_denied` (access-denied) is synthesised but not yet emitted anywhere** — there is no
+  "access-denied" flow in the app today (no feature refuses an action). The cue is in the bank ready;
+  wire it the moment a real denial path exists. The other three signature sounds DO fire (boot sweep,
+  access-granted via Stealth confirm, keypad tick on boot steps + text send).
+- **M6 CRT shader is judged on hardware for the first time** — the AGSL `RuntimeShader` look (scanline
+  /vignette/glow intensities) is tuned by eye in code; the Fold 6 pass is the real judgement. If it
+  reads wrong, tune the constants in `CRT_AGSL_SHADER` (LauncherUi.kt). The cheap overlay remains the
+  automatic fallback if the shader ever fails to compile.
+- **M5/earlier:** audio cues were tokens-only with no player; M6 added the player + Stealth mute gate.
+  Crisis and harbor still correctly emit **no** token at all.
 - **M5 `{limiter}` slot deferred (per the library §1 director note):** status DEGRADED/CRITICAL use
   the library's no-limiter variants, so those two bands have a single variant (no back-to-back
   rotation needed — they only fire on a degraded device). NOMINAL has its full 3-variant rotation.
@@ -212,9 +266,9 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   (`◈`, `⊕`, `▲`); per-app SVG masters arrive at the later identity/polish stage.
 - **M3 Vitality panel is HOME-channel-only by design** (scope boundary) — the "flick from anywhere"
   system-wide shade is deferred to kiosk mode (Bible decision 56). Not added to APPS/STATUS/LOG.
-- Typography: replace `FontFamily.Monospace` with Chakra Petch (`res/font/chakra_petch.ttf` or
-  Downloadable Fonts via the now-present `ui-text-google-fonts` dep + real certs in `font_certs.xml`).
-- CRT: current overlay is the cheap non-shader fallback; real AGSL shader is M6 polish.
+- ~~Typography: replace `FontFamily.Monospace` with Chakra Petch~~ — **done M6** (bundled .ttf).
+- ~~CRT: current overlay is the cheap non-shader fallback; real AGSL shader is M6 polish.~~ — **done
+  M6** (real AGSL `RuntimeShader`; the cheap overlay is now the automatic fallback, not the default).
 - **STATUS — connectivity is coarse by design (M2 hard stop):** connected/not + transport label
   only. No precise signal-strength bars (would need `READ_PHONE_STATE`) — deferred, not dropped.
   The engine's readiness composite uses a coarse signal proxy (connected→3, offline→0).
@@ -291,3 +345,19 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   entry. Stealth re-applied per-window (Step 7); hue carries over via shared state. Manifest + service
   point at the new Activity. Built on CI (no local Android SDK). **Pending Director confirmation on
   the Fold 6** + the crisis-resource string decision before M5 is closed.
+- **M6 session (2026-06-24):** Splash, sound, real fonts/shaders, persistent settings + the Deployment
+  Region patch. Core (`QuantumState.kt`): `DeploymentRegion` enum + verified `DeploymentRegions`
+  preset blocks; `deploymentRegion` + `bootPace` promoted into `QuantumLauncherState`;
+  `setBootPace`/`cycleBootPace`, `setDeploymentRegion`/`cycleDeploymentRegion`; region-aware
+  `effectiveCrisisResource()`; a `SoundCue` token registry; boot sequence now emits power-on/relay-
+  tick/standby cues; new `ONLINE` + `REGION` library intents and `speakOnline`/`speakRegionSwitched`
+  parser beats; action cues (phosphor/stealth/beacon) moved to fire from the engine action.
+  UI: bundled `Fonts` (Chakra Petch system face + Monoton boot-only) replacing `FontFamily.Monospace`;
+  `SettingsStore` (SharedPreferences) loaded by `QuantumRuntime` before cold boot so Boot Pace +
+  Region survive a restart; `SoundEngine` (procedural `AudioTrack` synthesis) wired to `audioCueStream`
+  with a Stealth mute gate; a full-screen `BootSplash` ceremony; real AGSL `crtShader()` (with the
+  cheap `crtOverlay()` as the automatic fallback); STATUS `CONFIG` tap-to-cycle rows for Region + Boot
+  Pace; a HOME `DEPLOYMENT:` status line. +7 core unit tests (region cycle, boot pace default/apply,
+  online + region lines; the crisis-resource test updated to the region-aware behaviour). Built on CI
+  (no local Android SDK). **Pending Director confirmation on the Fold 6** — especially the CRT shader
+  look — and sign-off on the new Deployment Region §4 acknowledgement lines, before M6 is closed.
