@@ -205,7 +205,7 @@ class QuantumStateEngineTest {
 
     // Crisis resource: empty by default → a safe generic fallback, never nothing, names no number.
     @Test
-    fun crisisResource_defaultsToGenericFallback_untilConfigured() {
+    fun crisisResource_defaultsToGenericFallback_untilConfigured() = runTest {
         val engine = QuantumStateEngine(this, BootPace.SNAPPY)
         assertEquals(QuantumStateEngine.GENERIC_CRISIS_FALLBACK, engine.effectiveCrisisResource())
         engine.setCrisisResourceLine("Local line 123")
