@@ -203,11 +203,14 @@ class QuantumStateEngineTest {
         job.cancel()
     }
 
-    // Crisis resource: empty by default → a safe generic fallback, never nothing, names no number.
+    // Crisis resource (Deployment Region patch): default region JAPAN → the Japan preset block (never
+    // the generic fallback now); switching region swaps the block; an explicit override still wins.
     @Test
-    fun crisisResource_defaultsToGenericFallback_untilConfigured() = runTest {
+    fun crisisResource_resolvesActiveRegionBlock_andOverrideWins() = runTest {
         val engine = QuantumStateEngine(this, BootPace.SNAPPY)
-        assertEquals(QuantumStateEngine.GENERIC_CRISIS_FALLBACK, engine.effectiveCrisisResource())
+        assertEquals(DeploymentRegions.JAPAN, engine.effectiveCrisisResource())
+        engine.cycleDeploymentRegion()
+        assertEquals(DeploymentRegions.HONG_KONG, engine.effectiveCrisisResource())
         engine.setCrisisResourceLine("Local line 123")
         assertEquals("Local line 123", engine.effectiveCrisisResource())
     }
@@ -230,6 +233,64 @@ class QuantumStateEngineTest {
         parser.parseInput("check my battery but honestly I want to kill myself")
         advanceUntilIdle()
         assertEquals("DISTRESS", engine.masterState.value.quarkBrain.matchedIntent)
+    }
+
+    // ---------- M6 settings + boot/region lines ----------
+
+    // Ship default is DELIBERATE (the old hardcoded SNAPPY was dev-only).
+    @Test
+    fun bootPace_defaultsToDeliberate_andCyclesToggle() = runTest {
+        val engine = QuantumStateEngine(this)   // no pace arg → ship default
+        assertEquals(BootPace.DELIBERATE, engine.masterState.value.bootPace)
+        engine.cycleBootPace()
+        assertEquals(BootPace.SNAPPY, engine.masterState.value.bootPace)
+        engine.cycleBootPace()
+        assertEquals(BootPace.DELIBERATE, engine.masterState.value.bootPace)
+    }
+
+    // setBootPace before boot actually changes the boot duration (pace is read at sequence start).
+    @Test
+    fun setBootPace_appliesToColdBoot() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.DELIBERATE)
+        engine.setBootPace(BootPace.SNAPPY)
+        engine.executeColdBootSequence()
+        advanceUntilIdle()
+        assertEquals(BootLifecycleState.ACTIVE, engine.masterState.value.bootLifecycle)
+    }
+
+    // Deployment Region: default JAPAN, cycles JAPAN → HONG_KONG → JAPAN.
+    @Test
+    fun deploymentRegion_defaultsJapan_andCycles() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        assertEquals(DeploymentRegion.JAPAN, engine.masterState.value.deploymentRegion)
+        engine.cycleDeploymentRegion()
+        assertEquals(DeploymentRegion.HONG_KONG, engine.masterState.value.deploymentRegion)
+        engine.cycleDeploymentRegion()
+        assertEquals(DeploymentRegion.JAPAN, engine.masterState.value.deploymentRegion)
+    }
+
+    // §6 online line: spoken once, Happy posture, logs to the conversation log with live data.
+    @Test
+    fun speakOnline_firesHappyOnlineLine() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.speakOnline(); advanceUntilIdle()
+        assertEquals("ONLINE", engine.masterState.value.quarkBrain.matchedIntent)
+        assertEquals(QuarkReflexPosture.HAPPY, engine.masterState.value.quarkBrain.activePosture)
+        assertEquals(1, engine.conversationLog.value.size)
+    }
+
+    // Region ack: switching to Hong Kong speaks the Hong Kong variant and logs it.
+    @Test
+    fun speakRegionSwitched_firesRegionAck_andLogs() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        engine.cycleDeploymentRegion() // → HONG_KONG
+        parser.speakRegionSwitched(engine.masterState.value.deploymentRegion)
+        advanceUntilIdle()
+        assertEquals("REGION", engine.masterState.value.quarkBrain.matchedIntent)
+        val line = engine.conversationLog.value.single().line
+        assertTrue(line.contains("Hong Kong"), "region ack must name the new region")
     }
 
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.
