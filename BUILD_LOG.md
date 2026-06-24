@@ -11,15 +11,35 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M4 — floating QUARK trigger — ✅ **code complete**; **awaiting on-device
-confirmation on the Fold 6** (the headline check: does the mark hover over *another real app* and
-stay draggable + tappable there). A persistent, app-icon-sized phosphor "iris" floats over every
-app via a `TYPE_APPLICATION_OVERLAY` window owned by a foreground `Service`. Static at rest;
-drags 1:1; snaps to the nearest edge on release; tap plays the reused PLEASE STANDBY beat and opens
-a placeholder stub Activity that acknowledges the real Assistant View is M5.
-**Goal of next session:** Start **M5 — QUARK Assistant View** — replace the placeholder stub
-(`QuarkStubActivity`) with the real content: four reactive states, conversation log, command rail,
-text entry, scripted-brain wiring. Do NOT start M5 until the Director confirms M4 on hardware.
+**Current milestone:** M5 — QUARK Assistant View — ✅ **code complete**; **awaiting on-device
+confirmation on the Fold 6.** The floating trigger now opens the REAL assistant
+(`QuarkAssistantActivity`), not the old stub: a large central reactive presence (the four locked
+states), a one-line state caption, a scrolling **conversation log** (its own list, separate from the
+M2 LOG channel), the six-action **command rail**, and **free-text entry**. Every line QUARK speaks
+is wired **verbatim** from the Scripted-Line Library v1.1 via a shared `QuarkParser` — the M0–M4
+placeholder lines are gone. The launcher and the assistant share **one** engine (`QuantumRuntime`)
+so phosphor hue + Stealth carry over and the four reused rail actions behave exactly as their M3
+originals.
+**Goal of next session:** Start **M6 — splash, sound, and CRT-shader/motion polish.** Do NOT start
+M6 until the Director confirms M5 on hardware (see the M5 verify checklist below).
+
+> **Director action — crisis-tier resource string (M5 Step 1):** the Distress/crisis intent renders
+> a real resource line beneath QUARK's words as plain UI text. It is a **Config-settable string,
+> empty by default**, and currently shows a **safe generic fallback** ("contact your local emergency
+> services / a person you trust") because no concrete resource is configured. **Which
+> region-appropriate hotline/number to ship is the Director's call** — it was deliberately NOT chosen
+> in code. Set it via `engine.setCrisisResourceLine(...)` (a CONFIG surface to expose it lands
+> later). The feature ships working in its fallback form from first boot, exactly as required.
+
+> **M5 verify on the Fold 6 (Director):** (1) tap the trigger → real assistant opens (PLEASE STANDBY
+> → "Reading the field…" Scan→Idle), not the stub; (2) the four states are visually distinct — Scan
+> on open/processing, Happy/Warn/Idle per intent; (3) all six rail buttons work, and Status/Stealth/
+> Phosphor/Beacon behave identically to M3 (Beacon still drops Stealth; Stealth still dims; Phosphor
+> still recolours everywhere); (4) typed phrases land on sensible intents and nonsense → graceful
+> Fallback; (5) **safety check, once:** type an everyday-down line (→ harbor: calm, no Warn, no
+> sound) and separately a genuine self-danger line (→ crisis: **Idle not Warn**, no sound, her line +
+> the fallback resource box beneath it); (6) switch hue / toggle Stealth in the Vitality panel, THEN
+> open the assistant — both already reflect the current state, not reset.
 
 > **Director note — the one new permission (M4):** the trigger needs **"Allow display over other
 > apps"** (SYSTEM_ALERT_WINDOW). It is a **one-time Settings toggle** — already anticipated in the
@@ -154,6 +174,29 @@ text entry, scripted-brain wiring. Do NOT start M5 until the Director confirms M
 HOME category was confirmed NOT declared before M1 work began (manifest verified clean).
 
 ## Known issues / TODOs
+- **M5 audio cues are tokens only (no player yet):** `quarkSay` emits the library's cue tokens
+  (`chirp_scan`, `chirp_happy`, `chirp_warn`, `confirm_granted`, `blip_beacon`, `sweep_phosphor`) to
+  `audioCueStream`. There is still no player — playback (and Stealth's mute gate) lands in M6. Crisis
+  and harbor correctly emit **no** token at all.
+- **M5 `{limiter}` slot deferred (per the library §1 director note):** status DEGRADED/CRITICAL use
+  the library's no-limiter variants, so those two bands have a single variant (no back-to-back
+  rotation needed — they only fire on a degraded device). NOMINAL has its full 3-variant rotation.
+  Computing the limiter is cheap and derived (no new sensor) if Clara/Director later wants it.
+- **M5 boot "Online" line not wired (nice-to-have, brief Step 6):** the §6 Online line was left for
+  M6's boot-sequence polish to avoid firing it before telemetry has a first reading. The open/stow
+  session lines ARE wired.
+- **M5 typed "lock" triggers the real cosmetic-lock beat** (reuses M3 `executeCosmeticLockSequence`)
+  in addition to speaking the LOCK line, so the line is truthful. The DEVICE SECURED overlay then
+  shows on the launcher beneath; stow the assistant to reach it. Lock is intentionally NOT one of the
+  six rail buttons (the rail is the locked six: Status/Stealth/Phosphor/Beacon/Say/Warn).
+- **M5 Stealth carryover (brief Step 7) — fixed:** the assistant is a separate Activity, so the
+  window-level `screenBrightness` dim does NOT inherit across windows. `QuarkAssistantActivity`
+  re-applies it from the shared engine state in a `LaunchedEffect(isStealthMode)`, the same way the
+  launcher does. Phosphor hue carries over automatically (both read the one `QuantumRuntime` engine).
+- **M5 engine is now a process singleton (`QuantumRuntime`):** promoted out of the ViewModel so the
+  launcher and the assistant Activity share one engine/parser/telemetry. Telemetry runs on an
+  app-scoped coroutine (not the ViewModel scope). Watch on-device that it isn't double-started or
+  leaking — both entry points guard with idempotent flags.
 - **M3 Stealth SFX-mute is a wired flag, not an audible change yet:** the app has no audio *player*
   yet (the engine only emits `audioCueStream` string tokens; playback lands in M6). Stealth sets
   `isStealthMode`, which the future player must check before sounding a cue. Honest stand-in, not a
@@ -230,3 +273,21 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   held in the ViewModel (survives fold/rotate); signal upgraded to a coarse transport tier. No new
   permissions. Core verified locally in a JVM harness; full APK build is on CI. **Pending Director
   confirmation on the Fold 6** before M3 is closed.
+- **M5 session (2026-06-24):** QUARK Assistant View. Core (`QuantumState.kt`): replaced the
+  placeholder `ScriptedLineLibrary` with the verbatim Scripted-Line Library v1.1 (all six rail
+  intents, the §4 keyword categories, §6 open/stow lines), each with its 2-3 rotating variants +
+  reactive posture + sound cue; per-(intent,mode) "don't repeat the last variant" rotation. Rewrote
+  `QuarkParser` to classify typed input (Distress matched narrowly + priority-first, then
+  most-specific) and route everything through one `engine.quarkSay` speak beat that runs the
+  Scan→result thinking beat and records a distinct `conversationLog` (separate from `systemLogs`).
+  Added `OperatorConfig` (operator name + crisis-resource string, both empty by default),
+  `ConversationEntry`, caption + crisis flag on `QuarkBrainState`, and `effectiveCrisisResource()`
+  (safe generic fallback). Crisis + harbor are Idle-only, no sound, never Warn; crisis flags the
+  resource line. +9 unit tests (18/18). UI: new `QuantumRuntime` process-singleton holding the one
+  engine/parser/telemetry so the launcher + assistant share state; `QuantumViewModel` slimmed to
+  delegate. New `QuarkAssistantActivity` (replaces `QuarkStubActivity`) — central `QuarkPresence`
+  with the four stepped reactive states, state caption, scrolling conversation log with the crisis
+  resource box, six-action command rail (4 reused M3 actions + Say/Warn), and a phosphor `BasicTextField`
+  entry. Stealth re-applied per-window (Step 7); hue carries over via shared state. Manifest + service
+  point at the new Activity. Built on CI (no local Android SDK). **Pending Director confirmation on
+  the Fold 6** + the crisis-resource string decision before M5 is closed.

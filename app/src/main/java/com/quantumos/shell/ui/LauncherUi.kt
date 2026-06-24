@@ -2,7 +2,6 @@ package com.quantumos.shell.ui
 
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -10,10 +9,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
-import android.os.BatteryManager
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
@@ -88,20 +84,16 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.shell.overlay.QuarkTriggerService
 import com.quantumos.core.BootLifecycleState
-import com.quantumos.core.BootPace
 import com.quantumos.core.EnvironmentProfile
 import com.quantumos.core.NavigationChannel
 import com.quantumos.core.PhosphorHue
 import com.quantumos.core.QuantumLauncherState
-import com.quantumos.core.QuantumStateEngine
-import com.quantumos.core.QuarkParser
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -156,24 +148,25 @@ data class ConnectivityInfo(
 )
 
 // ---------- ViewModel ----------
+// M5: the engine/parser/telemetry now live in the process-singleton QuantumRuntime so the launcher
+// and the QUARK Assistant View (a separate Activity) share ONE state. The ViewModel keeps only the
+// launcher-local UI state (installed apps + the Vitality-panel open flag) and delegates the rest.
 class QuantumViewModel : ViewModel() {
-    val engine = QuantumStateEngine(viewModelScope, BootPace.SNAPPY) // SNAPPY = snappy dev boot; ship = DELIBERATE
-    val parser = QuarkParser(engine) // Scripted-Line seam (used from M5); held here so the brain has one owner.
-    private var telemetryStarted = false
+    val engine = QuantumRuntime.engine
+    val parser = QuantumRuntime.parser
 
     private val _installedApps = MutableStateFlow<List<AppInfo>>(emptyList())
     val installedApps: StateFlow<List<AppInfo>> = _installedApps.asStateFlow()
 
-    // UI-only connectivity label for the STATUS readout (transport type isn't part of core state).
-    private val _connectivity = MutableStateFlow(ConnectivityInfo())
-    val connectivity: StateFlow<ConnectivityInfo> = _connectivity.asStateFlow()
+    // UI-only connectivity label for the STATUS readout — shared via the runtime.
+    val connectivity: StateFlow<ConnectivityInfo> = QuantumRuntime.connectivity
 
     // M3: Vitality-panel open/stow. UI navigation state — held here so it survives fold/rotate
     // (per platform rule: state that must survive config change lives in the ViewModel, not composition).
     private val _vitalityPanelOpen = MutableStateFlow(false)
     val vitalityPanelOpen: StateFlow<Boolean> = _vitalityPanelOpen.asStateFlow()
 
-    fun boot() = engine.executeColdBootSequence()
+    fun boot() = QuantumRuntime.boot()
 
     fun setHue(hue: PhosphorHue) = engine.updateEnvironmentProfile { it.copy(activeHue = hue) }
 
@@ -208,75 +201,8 @@ class QuantumViewModel : ViewModel() {
         }
     }
 
-    /*
-     * M2 Step 1 — real telemetry poll. One loop on the ViewModel scope (survives fold/rotate),
-     * NOT a per-recomposition read. Feeds the existing engine.incomingTelemetryUpdate(...) seam so
-     * readiness stays a single source of truth; the UI-only transport label rides alongside.
-     * Uses applicationContext so the long-lived coroutine never holds an Activity.
-     */
-    fun startTelemetry(context: Context) {
-        if (telemetryStarted) return
-        telemetryStarted = true
-        val appContext = context.applicationContext
-        viewModelScope.launch {
-            while (isActive) {
-                val battery = readBattery(appContext)
-                val conn = readConnectivity(appContext)
-                val uptimeMs = SystemClock.elapsedRealtime()
-                // Coarse signal tier for the engine's readiness composite + the M3 Signal gauge
-                // (M3 brief §1: wifi = high tier, cellular = mid, neither = low). No precise-dBm
-                // permission — intentionally deferred. 0..4 so it maps straight onto the gauge.
-                val signal = signalTier(conn)
-                engine.incomingTelemetryUpdate(
-                    battery.percent, battery.charging, uptimeMs, signal, battery.tempCelsius
-                )
-                _connectivity.value = conn
-                delay(3000L) // sane interval; status is functional reactive state, not an animation loop
-            }
-        }
-    }
-
-    private data class BatteryReading(val percent: Int, val charging: Boolean, val tempCelsius: Float)
-
-    // ACTION_BATTERY_CHANGED sticky broadcast — no permission required.
-    private fun readBattery(context: Context): BatteryReading {
-        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val percent = if (level >= 0 && scale > 0) (level * 100) / scale else 0
-        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
-        // EXTRA_TEMPERATURE is tenths of a degree C; benign default if the device omits it.
-        val rawTemp = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
-        val tempCelsius = if (rawTemp > 0) rawTemp / 10f else 25.0f
-        return BatteryReading(percent, charging, tempCelsius)
-    }
-
-    // Basic connected/not + transport via ConnectivityManager. No precise-bars permission (M2 hard stop).
-    private fun readConnectivity(context: Context): ConnectivityInfo {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-            ?: return ConnectivityInfo(false, "OFFLINE")
-        val caps = cm.activeNetwork?.let { cm.getNetworkCapabilities(it) }
-            ?: return ConnectivityInfo(false, "OFFLINE")
-        val online = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-        val transport = when {
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "WI-FI"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "CELLULAR"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ETHERNET"
-            caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "VPN"
-            else -> "UNKNOWN"
-        }
-        return if (online) ConnectivityInfo(true, transport) else ConnectivityInfo(false, "OFFLINE")
-    }
-
-    // Coarse 0..4 signal tier from the active transport — no precise-strength permission.
-    private fun signalTier(conn: ConnectivityInfo): Int = when {
-        !conn.connected -> 0
-        conn.transport == "WI-FI" || conn.transport == "ETHERNET" -> 4
-        conn.transport == "CELLULAR" || conn.transport == "VPN" -> 2
-        else -> 1
-    }
+    // M2 telemetry now runs in QuantumRuntime (shared, app-scoped) — the launcher just kicks it off.
+    fun startTelemetry(context: Context) = QuantumRuntime.startTelemetry(context)
 }
 
 // ---------- Activity ----------
