@@ -11,7 +11,67 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M6 — splash, sound, real fonts/shaders, persistent settings + the Deployment
+**Current milestone:** M7 — signed APK + Checkpoint β field-test — **code complete**; **awaiting
+Director field-test on the Fold 6** (see Step 3 checklist below) and confirmation that the keystore
+is backed up outside this build environment.
+
+> **Checkpoint β is reached once the Director completes the Step 3 field-test and all items pass.**
+> At that point, update this block to reflect "Checkpoint β reached" and notify Clara to bump the
+> Bible.
+
+### M7 — What was done this session
+
+- **Step 0 — Signing key ceremony:**
+  - Generated `app/release.keystore` (RSA 2048, 10 000-day validity, alias `quantumos-release`).
+  - `keystore.properties` written at repo root — **gitignored, never committed.**
+  - `app/build.gradle.kts` updated: reads `keystore.properties` at build time and wires the
+    `signingConfigs.release` block into the `release` build type. Gracefully skips signing if the
+    properties file is absent (debug CI builds still work unchanged).
+  - `versionName` bumped from `0.1-spike` → `0.1-beta` for this first signed release.
+  - **DIRECTOR ACTION — CRITICAL:** The keystore and its passwords are held only in this ephemeral
+    cloud container. Before this session ends (or the container is reclaimed), back up both:
+    1. The `app/release.keystore` file — base64 string in the session report below.
+    2. Keystore/key password: `QuantumLaunch_2026` (both store and key passwords are the same).
+    Recommended: save the base64 string and the password in a password manager entry named
+    "QuantumOS release keystore". Without this backup, the app can never receive a clean update
+    again on any device that has the current install.
+
+- **Step 1 — CI release build:**
+  - `.github/workflows/build.yml` updated — a new conditional release-APK job activates when three
+    GitHub repository secrets are present: `KEYSTORE_BASE64`, `KEYSTORE_STORE_PASSWORD`,
+    `KEYSTORE_KEY_PASSWORD`.
+  - **DIRECTOR ACTION:** In the GitHub repo → Settings → Secrets and variables → Actions, add:
+    - `KEYSTORE_BASE64` = the base64 string in the session report below.
+    - `KEYSTORE_STORE_PASSWORD` = `QuantumLaunch_2026`
+    - `KEYSTORE_KEY_PASSWORD` = `QuantumLaunch_2026`
+  - After adding the secrets, re-run (or push to trigger) the CI workflow. The signed release APK
+    will appear as a `quantumos-release-apk` CI artifact for download.
+
+- **Steps 2–3 — Director actions (not Claude Code's):** sideload procedure and the full on-device
+  regression pass are Director steps. See the M7 task brief and the checklist below.
+
+### M7 Step 3 — Field-test checklist (Director, on the Fold 6, release build)
+- [ ] **Sideload prep:** uninstall the current debug build first (different signing cert — Android
+  blocks the upgrade). If QuantumOS is set as default Home, the phone falls back to stock launcher
+  on uninstall — expected; this is the M1 rollback path in real use. The M6 persisted settings
+  (Deployment Region, Boot Pace) will reset on first launch of the new build — expected, one-time.
+- [ ] **Install + set as Home:** install the release APK, set QuantumOS as default Home.
+- [ ] **Boot** — cold boot (restart or force-stop) plays the full M6 ceremony; warm Home-press
+  does NOT replay it.
+- [ ] **Home / Apps / Status / Log** — all four channels work (M1–M2).
+- [ ] **Vitality panel** — atom roll-down; Stealth / Phosphor / Beacon (with its Stealth-override
+  rule) / Lock all behave correctly (M3).
+- [ ] **Floating QUARK trigger** — present, draggable, survives switching to another app (M4).
+- [ ] **QUARK Assistant View** — opens, four reactive states fire correctly, six-action rail works,
+  free-text entry gets sensible replies; crisis-tier is calm (Idle, no Warn, no sound) and shows the
+  configured resource (M5).
+- [ ] **Deployment Region + Boot Pace** — both default correctly on fresh install; both toggle and
+  persist across a restart.
+- [ ] **Look and feel** — real CRT shader and synthesised sound are present.
+
+---
+
+**Previous milestone:** M6 — splash, sound, real fonts/shaders, persistent settings + the Deployment
 Region patch — ✅ **code complete**; **awaiting on-device confirmation on the Fold 6** (CI build
 green). All seven steps + the Deployment Region patch are implemented:
 - **Deployment Region patch + Step 0:** `DeploymentRegion` enum (JAPAN default / HONG_KONG) with the
@@ -361,3 +421,13 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   online + region lines; the crisis-resource test updated to the region-aware behaviour). Built on CI
   (no local Android SDK). **Pending Director confirmation on the Fold 6** — especially the CRT shader
   look — and sign-off on the new Deployment Region §4 acknowledgement lines, before M6 is closed.
+- **M7 session (2026-06-29):** Signed APK + Checkpoint β prep. Generated `app/release.keystore`
+  (RSA 2048, alias `quantumos-release`, 10 000-day validity); wired `app/build.gradle.kts` with a
+  `signingConfigs.release` block reading from gitignored `keystore.properties` (graceful fallback
+  when absent); bumped `versionName` → `0.1-beta`. Updated CI workflow
+  (`.github/workflows/build.yml`) with conditional release-APK steps gated on three repo secrets
+  (`KEYSTORE_BASE64`, `KEYSTORE_STORE_PASSWORD`, `KEYSTORE_KEY_PASSWORD`). **Director must: (1)
+  back up the keystore base64 + password from the session report before the container is reclaimed;
+  (2) add the three secrets in GitHub repo settings; (3) re-run CI to produce the signed release
+  APK artifact; (4) complete the Step 3 field-test on the Fold 6.** Checkpoint β is confirmed when
+  all field-test items pass.
