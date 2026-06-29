@@ -11,3 +11,7 @@ local.properties
 # APK outputs (uploaded as CI artifacts instead)
 *.apk
 *.aab
+
+# Release signing — NEVER commit; back up these files externally before this container is reclaimed
+app/release.keystore
+keystore.properties
