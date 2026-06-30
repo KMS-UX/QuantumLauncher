@@ -199,7 +199,6 @@ Stay in character at all times. Keep the Operator vital.
             val opts = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
                 .setMaxTokens(1024)
-                .setTopK(40)
                 .setTemperature(0.7f)
                 .setRandomSeed(0)
                 .build()
