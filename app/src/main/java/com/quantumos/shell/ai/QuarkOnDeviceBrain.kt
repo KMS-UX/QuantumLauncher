@@ -241,7 +241,7 @@ Stay in character at all times. Keep the Operator vital.
             eng.initialize()   // blocking; runs on Dispatchers.IO
             val convConfig = ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
-                samplerConfig = SamplerConfig(topK = 40, topP = 0.95f, temperature = 0.7f)
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
             )
             _engine = eng
             _conversation = eng.createConversation(convConfig)
@@ -275,7 +275,7 @@ Stay in character at all times. Keep the Operator vital.
         _conversation = try {
             eng.createConversation(ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
-                samplerConfig = SamplerConfig(topK = 40, topP = 0.95f, temperature = 0.7f)
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
             ))
         } catch (_: Exception) { null }
     }
