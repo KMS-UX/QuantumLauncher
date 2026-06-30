@@ -6,6 +6,10 @@
          READ_PHONE_STATE — precise signal-strength bars are out of scope (M2 hard stop). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Phase 1 on-device brain: needed for the first-run model download (debug-gated, install-time,
+         no runtime prompt). The scripted-brain production path never touches the network. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- M4: the floating QUARK trigger. SYSTEM_ALERT_WINDOW = "draw over other apps" (the one new
          capability this milestone touches; pre-approved in Build Spec §5 as a one-time Settings
          toggle — granted via the system overlay-settings screen, never a runtime dialog). The
