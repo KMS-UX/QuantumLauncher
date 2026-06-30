@@ -11,13 +11,30 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 1 — on-device brain (text loop) — **code complete, awaiting
-Director hardware verification on the Fold 6.** See the Phase 1 verify checklist and Director
-action items below. M7 Checkpoint β is also still pending Director field-test (see M7 block).
+**Current milestone:** QUARK Phase 1 — on-device brain (text loop) — **COMPLETE. Hardware
+verified on Fold 6 (2026-06-30).** Ready to proceed to Phase 2, or to M7 Checkpoint β field-test,
+whichever the Director prioritises next.
 
-> **Checkpoint β is reached once the Director completes the Step 3 field-test and all items pass.**
-> At that point, update this block to reflect "Checkpoint β reached" and notify Clara to bump the
-> Bible.
+> **M7 Checkpoint β** is still pending the Director's full Step 3 regression pass (see M7 block).
+> Notify Clara to bump the Bible once Checkpoint β is reached.
+
+### Phase 1 hardware results (Fold 6, 2026-06-30)
+- **Model:** Gemma 4 E2B-IT, generic LiteRT variant (`gemma-4-E2B-it.litertlm`, ~2.59 GB)
+- **SDK:** `com.google.ai.edge.litertlm:litertlm-android:0.13.1` (resolved via `latest.release`)
+- **Kotlin:** bumped 2.0.21 → 2.2.21 to match SDK binary compatibility requirement
+- **Latency:** < 10 s average (prompt-dependent) — acceptable for Phase 1 text loop
+- **Thermal:** ~39 °C device temperature during use; no throttling observed
+- **Battery:** no noticeable fast drain during the test session
+- **Persona:** fully active after first-turn injection fix — QUARK addresses Operator correctly,
+  stays in character, jailbreak attempt ("write a pirate rap") deflected in-persona
+- **Model acquisition:** PICK FILE path working (no adb / no computer required)
+- **Known gap:** `ConversationConfig.systemInstruction` alone insufficient for Gemma 4 persona
+  retention; mitigated by prepending Persona Pack to first user turn (`_personaInjected` flag)
+
+**Phase 2 / Phase 3 scoping notes (from this session):**
+- Streaming tokens would improve perceived latency (first word arrives before full response)
+- `Backend.CPU()` is the safe default; GPU backend could be profiled for latency improvement
+- `latest.release` dependency should be pinned to `0.13.1` before Phase 2 to prevent regressions
 
 ### M7 — What was done this session
 
