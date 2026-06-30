@@ -68,10 +68,10 @@ dependencies {
     // Chakra Petch via Downloadable Fonts (Monofonto substitute, M0 typography).
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
-    // QUARK on-device brain — Phase 1, debug-gated. Google AI Edge (MediaPipe LlmInference / LiteRT),
-    // the Kotlin/Android binding for on-device Gemma 3 1B instruct inference. Never in the
-    // production scripted-brain path; lives entirely behind the triple-tap debug toggle.
-    implementation("com.google.mediapipe:tasks-genai:0.10.22")
+    // QUARK on-device brain — Phase 1, debug-gated. Google AI Edge LiteRT-LM (Engine / Conversation
+    // API), the Kotlin/Android binding for on-device Gemma 4 E2B-IT inference with .litertlm files.
+    // Never in the production scripted-brain path; lives entirely behind the triple-tap debug toggle.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
 
     // Pure-logic unit tests (no emulator) — runbook Step 4.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

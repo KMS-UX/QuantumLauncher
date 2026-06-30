@@ -4,7 +4,13 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,11 +126,10 @@ Stay in character at all times. Keep the Operator vital.
         get() = File(context.getExternalFilesDir(null), QuarkModelConfig.MODEL_FILENAME)
 
     val isPresent: Boolean get() = modelFile.exists() && modelFile.length() > 1_000_000L
-    val isLoaded: Boolean get() = _llm != null
+    val isLoaded: Boolean get() = _engine != null && _conversation != null
 
-    private var _llm: LlmInference? = null
-    // Gemma turn-format conversation history, trimmed to avoid context overflow.
-    private val history = StringBuilder()
+    private var _engine: Engine? = null
+    private var _conversation: Conversation? = null  // kept open across turns; manages history internally
 
     // ---------- acquisition ----------
 
@@ -229,10 +234,17 @@ Stay in character at all times. Keep the Operator vital.
         if (!isPresent) return@withContext false
         _state.value = BrainReadyState.Loading
         return@withContext try {
-            val opts = LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(modelFile.absolutePath)
-                .build()
-            _llm = LlmInference.createFromOptions(context, opts)
+            val eng = Engine(EngineConfig(
+                modelPath = modelFile.absolutePath,
+                backend = Backend.CPU()
+            ))
+            eng.initialize()   // blocking; runs on Dispatchers.IO
+            val convConfig = ConversationConfig(
+                systemInstruction = Contents.of(systemPrompt),
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95f, temperature = 0.7f)
+            )
+            _engine = eng
+            _conversation = eng.createConversation(convConfig)
             _state.value = BrainReadyState.Loaded
             true
         } catch (e: Exception) {
@@ -243,32 +255,30 @@ Stay in character at all times. Keep the Operator vital.
 
     // ---------- inference ----------
 
-    // Generate one reply. Blocking — always call from a background coroutine (Dispatchers.Default).
-    // Manages the multi-turn Gemma chat format internally; caps history at ~3 000 chars to stay in
-    // context. Returns the raw model reply, or an [ERR] string for the caller to surface in the log.
+    // Generate one reply on a background dispatcher. The Conversation object manages turn history
+    // internally — no manual prompt-building needed. Returns the model reply as a String, or an
+    // [ERR] prefix so the caller can surface it in the conversation log without crashing.
     suspend fun reply(userInput: String): String = withContext(Dispatchers.Default) {
-        val llm = _llm ?: return@withContext "[ERR: model not loaded]"
-        val prompt = buildString {
-            append("<start_of_turn>system\n").append(systemPrompt).append("\n<end_of_turn>\n")
-            if (history.isNotEmpty()) append(history)
-            append("<start_of_turn>user\n").append(userInput).append("\n<end_of_turn>\n")
-            append("<start_of_turn>model\n")
-        }
+        val conv = _conversation ?: return@withContext "[ERR: model not loaded]"
         return@withContext try {
-            val result = llm.generateResponse(prompt).trim()
-            history.append("<start_of_turn>user\n").append(userInput).append("\n<end_of_turn>\n")
-                .append("<start_of_turn>model\n").append(result).append("\n<end_of_turn>\n")
-            if (history.length > 3_000) {
-                val cut = history.indexOf("<start_of_turn>", 1_000)
-                if (cut > 0) history.delete(0, cut)
-            }
-            result
+            conv.sendMessage(userInput).toString().trim()
         } catch (e: Exception) {
             "[ERR: ${e.message?.take(100)}]"
         }
     }
 
-    fun clearHistory() = history.clear()
+    // Reset conversation history while keeping the engine loaded — creates a fresh Conversation
+    // with the same system prompt so QUARK starts clean without reloading the model weights.
+    fun clearHistory() {
+        val eng = _engine ?: return
+        _conversation?.close()
+        _conversation = try {
+            eng.createConversation(ConversationConfig(
+                systemInstruction = Contents.of(systemPrompt),
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95f, temperature = 0.7f)
+            ))
+        } catch (_: Exception) { null }
+    }
 
     // ---------- helpers ----------
 
