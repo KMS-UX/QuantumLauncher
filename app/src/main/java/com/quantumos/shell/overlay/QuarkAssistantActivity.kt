@@ -166,7 +166,12 @@ class QuarkAssistantActivity : ComponentActivity() {
             }
             // ─────────────────────────────────────────────────────────────────────────
 
+            // Phase 2a: voice sub-toggle state (separate from debugMode so text-only Phase 1
+            // behaviour stays testable side-by-side when voice is off).
+            val voiceOn by QuantumRuntime.voiceEnabled.collectAsState()
+
             val close: () -> Unit = {
+                QuantumRuntime.stopCurrentSpeech()   // stop any in-flight TTS before leaving
                 parser.speakStowed()
                 finish()
             }
@@ -209,11 +214,20 @@ class QuarkAssistantActivity : ComponentActivity() {
                                         }
                                         .padding(4.dp)
                                 )
-                                // Dim debug-mode indicator — visible only if you know to look.
+                                // Dim debug indicators — visible only if you know to look.
                                 if (debugMode) {
                                     Text(
                                         "// BRAIN: ON-DEVICE",
                                         color = dimColor, fontFamily = font, fontSize = 9.sp
+                                    )
+                                    // Phase 2a voice sub-toggle: tap to enable/disable TTS.
+                                    // Initialises the engine lazily on first enable.
+                                    Text(
+                                        "// VOICE: ${if (voiceOn) "ON" else "OFF"}",
+                                        color = dimColor, fontFamily = font, fontSize = 9.sp,
+                                        modifier = Modifier
+                                            .clickable { QuantumRuntime.toggleVoice() }
+                                            .padding(top = 2.dp)
                                     )
                                 }
                             }

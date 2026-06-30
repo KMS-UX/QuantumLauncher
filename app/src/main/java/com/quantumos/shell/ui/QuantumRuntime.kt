@@ -11,7 +11,9 @@ import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
+import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.shell.ai.QuarkOnDeviceBrain
+import com.quantumos.shell.ai.QuarkVoiceEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -65,6 +67,85 @@ object QuantumRuntime {
         requireNotNull(appContext) { "QuantumRuntime.boot() must be called before onDeviceBrain()" },
         appScope
     ).also { _onDeviceBrain = it }
+
+    // ── Phase 2a — TTS voice (debug-gated) ────────────────────────────────────────────────────
+    // voiceEnabled is the sub-toggle: on/off independently of the main debug toggle, so text-only
+    // Phase 1 behaviour stays testable side-by-side. The engine initialises lazily on first enable.
+    private val _voiceEnabled = MutableStateFlow(false)
+    val voiceEnabled: StateFlow<Boolean> = _voiceEnabled.asStateFlow()
+
+    private var _voiceEngine: QuarkVoiceEngine? = null
+    private var voiceObserverStarted = false
+
+    fun toggleVoice() {
+        _voiceEnabled.value = !_voiceEnabled.value
+        if (_voiceEnabled.value) {
+            // Lazy-init: create and start the observer the first time voice is enabled.
+            val ctx = requireNotNull(appContext) { "QuantumRuntime.boot() must be called first" }
+            if (_voiceEngine == null) {
+                _voiceEngine = QuarkVoiceEngine(ctx)
+                startVoiceObserver()
+            }
+        }
+    }
+
+    /*
+     * Stop any in-flight TTS utterance without settling posture. Call on Activity close so
+     * a mid-sentence STOW doesn't leave orphaned audio after the view is gone. The voice
+     * observer remains live; the next spoken line will start fresh.
+     */
+    fun stopCurrentSpeech() {
+        _voiceEngine?.stop()
+    }
+
+    /*
+     * Observe the conversation log and speak each new entry once it settles into its result
+     * posture. Sequences after the non-verbal chirp (≈280 ms gap) so they never overlap.
+     * Respects both the voice sub-toggle and the Stealth mute gate (decision 38). On completion,
+     * dispatches IDLE so the reactive presence returns to rest — matching the brief's rule that
+     * audio finishes → settle back to Idle.
+     *
+     * Safety: crisis entries (showCrisisResource == true) are never spoken — the resource line is
+     * plain UI text shown beneath QUARK's words, and speaking it would undermine its careful tone.
+     */
+    private fun startVoiceObserver() {
+        if (voiceObserverStarted) return
+        voiceObserverStarted = true
+        appScope.launch {
+            var prevSize = engine.conversationLog.value.size   // skip entries already in the log
+            engine.conversationLog.collect { log ->
+                if (log.size <= prevSize) { prevSize = log.size; return@collect }
+                val entry = log[prevSize]           // the one new entry (quarkSay adds one at a time)
+                prevSize = log.size
+
+                if (entry.showCrisisResource) return@collect    // safety rule — never speak crisis
+                if (!_voiceEnabled.value) return@collect        // sub-toggle gate
+                if (engine.masterState.value.environment.isStealthMode) return@collect  // Stealth
+
+                // Brief gap to let the non-verbal chirp finish before speech begins (decision 45).
+                delay(280)
+
+                val callTime = System.currentTimeMillis()
+                var audioStartTime = 0L
+                _voiceEngine?.speak(
+                    text = entry.line,
+                    onStart = { t -> audioStartTime = t },
+                    onDone = {
+                        // Report latency to the LOG channel so the Director can read it.
+                        val startLatencyMs = if (audioStartTime > 0) audioStartTime - callTime else -1
+                        val playbackMs = System.currentTimeMillis() -
+                            (if (audioStartTime > 0) audioStartTime else callTime)
+                        engine.appendSystemLog(
+                            "VOICE: TTS_START ${startLatencyMs}ms · PLAYBACK ${playbackMs}ms"
+                        )
+                        // Settle the reactive presence back to Idle once audio finishes.
+                        engine.dispatchQuarkReflex("VOICE_DONE", QuarkReflexPosture.IDLE, "", null)
+                    }
+                )
+            }
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────────────────────
 
     fun boot(context: Context) {
         appContext = context.applicationContext
