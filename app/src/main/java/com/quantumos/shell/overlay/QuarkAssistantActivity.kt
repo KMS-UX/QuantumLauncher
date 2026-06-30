@@ -511,7 +511,7 @@ private fun ModelAcquisitionPanel(
             color = color, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold
         )
         Text(
-            "GEMMA 3 · 1B-IT · ~500 MB · LITERT FORMAT",
+            "GEMMA 4 · E2B-IT · ~2.6 GB · LITERTLM FORMAT",
             color = dimColor, fontFamily = font, fontSize = 11.sp
         )
 
@@ -527,9 +527,9 @@ private fun ModelAcquisitionPanel(
                     is BrainReadyState.Idle -> {
                         Text("WEIGHTS NOT PRESENT", color = color, fontFamily = font, fontSize = 12.sp)
                         Text(
-                            "Model file: ${QuarkModelConfig.MODEL_FILENAME}\n" +
-                            "Obtain from: kaggle.com/models/google/gemma\n" +
-                            "(accept Gemma Terms of Use, download MediaPipe/LiteRT variant)",
+                            "Tap PICK FILE and select:\n" +
+                            "gemma-4-E2B-it.litertlm\n" +
+                            "Source: HuggingFace → google/gemma-4-E2B-it",
                             color = dimColor, fontFamily = font, fontSize = 11.sp
                         )
                     }

@@ -40,12 +40,13 @@ import java.net.URL
 
 object QuarkModelConfig {
     // Set to a hosted URL once the model is obtained and provisioned.
-    // Gemma 3 requires accepting Google's Gemma Terms of Use (kaggle.com/models/google/gemma).
-    // Leave blank to disable programmatic download — side-load only.
+    // Leave blank to disable programmatic download — use PICK FILE or side-load instead.
     const val DOWNLOAD_URL: String = ""
 
-    const val MODEL_FILENAME = "gemma-3-1b-it.bin"
-    const val APPROX_SIZE_BYTES = 520L * 1024 * 1024   // ~500 MB for progress display
+    // Gemma 4 E2B-IT, generic LiteRT variant (works on any device incl. Fold 6 SM8650).
+    // Source: HuggingFace → google/gemma-4-E2B-it → gemma-4-E2B-it.litertlm
+    const val MODEL_FILENAME = "gemma-4-e2b-it.litertlm"
+    const val APPROX_SIZE_BYTES = 2590L * 1024 * 1024  // ~2.59 GB for progress display
 }
 
 sealed interface BrainReadyState {
