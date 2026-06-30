@@ -11,6 +11,7 @@ import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
+import com.quantumos.shell.ai.QuarkOnDeviceBrain
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -56,6 +57,14 @@ object QuantumRuntime {
     private var booted = false
     private var telemetryStarted = false
     private var audioStarted = false
+
+    // Phase 1 on-device brain (debug-gated). Created lazily so it never initialises unless the
+    // debug toggle activates. appContext is set by boot() before any Activity can call onDeviceBrain().
+    private var _onDeviceBrain: QuarkOnDeviceBrain? = null
+    fun onDeviceBrain(): QuarkOnDeviceBrain = _onDeviceBrain ?: QuarkOnDeviceBrain(
+        requireNotNull(appContext) { "QuantumRuntime.boot() must be called before onDeviceBrain()" },
+        appScope
+    ).also { _onDeviceBrain = it }
 
     fun boot(context: Context) {
         appContext = context.applicationContext

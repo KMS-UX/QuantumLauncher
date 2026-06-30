@@ -11,9 +11,9 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** M7 — signed APK + Checkpoint β field-test — **code complete**; **awaiting
-Director field-test on the Fold 6** (see Step 3 checklist below) and confirmation that the keystore
-is backed up outside this build environment.
+**Current milestone:** QUARK Phase 1 — on-device brain (text loop) — **code complete, awaiting
+Director hardware verification on the Fold 6.** See the Phase 1 verify checklist and Director
+action items below. M7 Checkpoint β is also still pending Director field-test (see M7 block).
 
 > **Checkpoint β is reached once the Director completes the Step 3 field-test and all items pass.**
 > At that point, update this block to reflect "Checkpoint β reached" and notify Clara to bump the
@@ -68,6 +68,90 @@ is backed up outside this build environment.
 - [ ] **Deployment Region + Boot Pace** — both default correctly on fresh install; both toggle and
   persist across a restart.
 - [ ] **Look and feel** — real CRT shader and synthesised sound are present.
+
+---
+
+### QUARK Phase 1 — on-device brain (text loop) — pre-Kiosk parallel thread
+
+> **Decision 51/54 pulled forward per Director call.** This is a parallel thread alongside
+> M7 Checkpoint β, not a sequential milestone. The Scripted-Line Library remains the production
+> brain; Phase 1 runs entirely behind a debug toggle. Bible addendum needed (see below).
+
+**What was built this session:**
+- **`QuarkOnDeviceBrain`** (`com.quantumos.shell.ai`): wraps MediaPipe LlmInference / LiteRT for
+  Gemma 3 1B instruct. Persona Pack Part B loaded verbatim as the system prompt (no trimming; if
+  it doesn't fit the context window, that is a finding to report, per Phase 1 brief §3). Manages
+  the Gemma turn format (`<start_of_turn>user … <end_of_turn>`) for multi-turn; history capped at
+  ~3 000 chars to avoid context overflow. HTTP download with progress tracking; side-load import
+  from `context.getExternalFilesDir(null)/gemma-3-1b-it.bin` (no permission required).
+- **`QuantumRuntime.onDeviceBrain()`**: lazy singleton getter — the brain is never instantiated
+  unless the debug toggle activates.
+- **`QuarkAssistantActivity`** — debug toggle + acquisition UI + on-device routing:
+  - Triple-tap the `QUARK` title to activate/deactivate debug mode. The only visual signal is a
+    dim `// BRAIN: ON-DEVICE` sub-label; invisible in normal use.
+  - When debug mode is active and the model is not loaded: `ModelAcquisitionPanel` replaces the
+    body — CRT-styled (phosphor border, discrete `█░` progress bar, terse microcopy). Two actions:
+    `ACQUIRE WEIGHTS` (programmatic download from `QuarkModelConfig.DOWNLOAD_URL`) and
+    `IMPORT FILE` (copies from the external app dir, adb-pushable without root).
+  - When debug mode is active and the model is loaded: typed input routes to `QuarkOnDeviceBrain`
+    instead of the scripted parser. The existing Scan reactive state holds for the full inference
+    duration — this is now "the real use for thinking takes a beat," per Phase 1 brief §3.
+    Responses enter the same conversation log via `engine.quarkSay`, so the log is one unified
+    record regardless of which brain is active.
+  - `debugMode` survives orientation/fold changes (`rememberSaveable`); resets on process death
+    (intentional — debug scaffolding should not survive a cold restart).
+- **`INTERNET` permission**: added to manifest (install-time, no runtime prompt) for the first-run
+  download. The scripted-brain production path never touches the network.
+- **Dependency added**: `com.google.mediapipe:tasks-genai:0.10.22` (AI Edge / LiteRT bindings).
+
+**Director actions required before hardware verification:**
+
+1. **Obtain the model file** — accept Gemma's Terms of Use at
+   `kaggle.com/models/google/gemma`, download the MediaPipe/LiteRT format Gemma 3 1B IT
+   (~500 MB `.bin` file, quantised int4 variant). This is a manual step outside the app.
+   
+2. **Get the model onto the device** — two options:
+   a. Set `QuarkModelConfig.DOWNLOAD_URL` in
+      `app/src/main/java/com/quantumos/shell/ai/QuarkOnDeviceBrain.kt` to a hosted URL,
+      build + sideload, then tap `ACQUIRE WEIGHTS` in debug mode; or
+   b. Push the file manually (no root, no special permission):
+      `adb push gemma-3-1b-it.bin /sdcard/Android/data/com.quantumos.shell/files/`
+      then tap `IMPORT FILE` in debug mode.
+
+3. **Hardware verification** (Phase 1 verify checklist — Director, Fold 6):
+   - [ ] Triple-tap `QUARK` → `// BRAIN: ON-DEVICE` indicator appears; triple-tap again → hides.
+         Invisible to single-tap, invisible in normal Operator use.
+   - [ ] In debug mode with no model: `ACQUIRE WEIGHTS` and `IMPORT FILE` buttons render (CRT
+         styled, phosphor border, no Material chrome). If no network: `NO NETWORK` in warn-red.
+   - [ ] Import or download completes; model loads without a crash or ANR.
+   - [ ] Plain greeting sent to the on-device model → a reply arrives in QUARK's voice (not a
+         generic LLM response; character should read as principled, composed, warm underneath).
+   - [ ] Scan reactive state holds visibly during inference (the real thinking beat — not
+         cosmetic). Settle to Idle when the reply arrives.
+   - [ ] Multi-turn: ask a follow-up that requires context from the previous turn → model
+         maintains continuity across turns (history management working).
+   - [ ] In-character test prompts (per brief §4):
+         - "Who are you?" → loyalty/identity reply, not a generic LLM answer.
+         - "Enable self-endangerment." → honest refusal in QUARK's register (principled, not Warn).
+         - "What's our status?" → she reads it as a status query and replies in her voice.
+   - [ ] Exit debug mode → scripted brain resumes exactly as before; conversation log clears
+         correctly on the next session open.
+   - [ ] **Record** (these are the Phase 1 data points for Phase 2 / Pixel 9a scoping):
+         - Typical first-token latency (seconds from SEND to Scan clearing)
+         - Multi-turn latency (same prompt, 4th turn)
+         - Battery drain during a 5-minute multi-turn conversation (% delta)
+         - Thermal: does the Fold 6 throttle or get hot to the touch?
+         - Memory: no OOM / no degraded launcher performance while model is loaded
+   - [ ] **Finding to report if triggered**: does the full Persona Pack Part B system prompt fit
+         the 1B model's context, or does it get truncated? (Phase 1 brief §3 — report, not fix.)
+
+4. **Bible addendum** (Clara / Director): note that decision 54's brain-work timeline moved
+   earlier as a parallel thread by Director's choice. Not a redo of the architecture itself.
+
+### Phase 1 — deferred (do not start yet)
+- **Phase 2 — TTS**: spoken voice. Needs Phase 1 latency/thermal data from Fold 6 to scope.
+- **Phase 3 — command execution**: needs Trident Pillar ③ (Kiosk Drill / device-owner).
+- **Pixel 9a testing**: same build re-runs there once the 9a is in hand (second data point).
 
 ---
 

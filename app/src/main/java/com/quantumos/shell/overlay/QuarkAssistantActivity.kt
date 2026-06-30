@@ -34,8 +34,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,13 +55,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.WindowManager
 import com.quantumos.core.QuarkReflexPosture
+import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
+import com.quantumos.shell.ai.BrainReadyState
+import com.quantumos.shell.ai.QuarkModelConfig
 import com.quantumos.shell.ui.Fonts
 import com.quantumos.shell.ui.Phosphor
 import com.quantumos.shell.ui.PleaseStandbyCard
 import com.quantumos.shell.ui.QuantumRuntime
 import com.quantumos.shell.ui.crtShader
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /*
  * QuantumOS — M5 QUARK Assistant View. Replaces the M4 placeholder stub the floating trigger taps
@@ -95,10 +102,9 @@ class QuarkAssistantActivity : ComponentActivity() {
             val color = Phosphor.bright(state.environment.activeHue)
             val dimColor = Phosphor.dim(state.environment.activeHue)
             val brain = state.quarkBrain
+            val scope = rememberCoroutineScope()
 
-            // Step 7 — re-apply Stealth's window-level dim in THIS window (state carries over from the
-            // shared engine; the window attribute does not). Phosphor hue recolours automatically
-            // because every colour above reads the same shared environment state.
+            // Step 7 — re-apply Stealth's window-level dim in THIS window.
             LaunchedEffect(state.environment.isStealthMode) {
                 window.attributes = window.attributes.apply {
                     screenBrightness = if (state.environment.isStealthMode) stealthBrightness
@@ -114,8 +120,45 @@ class QuarkAssistantActivity : ComponentActivity() {
                 parser.speakOpened()
             }
 
+            // ── PHASE 1 debug toggle ──────────────────────────────────────────────────
+            // Triple-tap the "QUARK" title to activate / deactivate the on-device brain.
+            // Same spirit as the Kiosk Drill's hidden debug actions — test scaffolding,
+            // invisible to the Operator in normal use. rememberSaveable so it survives
+            // orientation changes; does NOT survive process death (intentional).
+            var debugMode by rememberSaveable { mutableStateOf(false) }
+            var titleTaps by remember { mutableIntStateOf(0) }
+
+            // Auto-reset tap counter if the sequence stalls (2 s window).
+            LaunchedEffect(titleTaps) {
+                if (titleTaps in 1..2) {
+                    delay(2_000)
+                    titleTaps = 0
+                }
+            }
+
+            // Brain state — always subscribed (collectAsState can't be called conditionally).
+            // onDeviceBrain() is a cheap lazy singleton getter; the model itself isn't loaded
+            // until the user explicitly taps ACQUIRE or the auto-load fires below.
+            val onDeviceBrain = QuantumRuntime.onDeviceBrain()
+            val brainReadyState by onDeviceBrain.state.collectAsState()
+            val brainLoaded = brainReadyState is BrainReadyState.Loaded
+
+            // Auto-load when model is present on disk and debug mode just activated.
+            LaunchedEffect(debugMode) {
+                if (debugMode && onDeviceBrain.isPresent && !onDeviceBrain.isLoaded) {
+                    onDeviceBrain.loadModel()
+                }
+            }
+            // Auto-load after a successful download or import.
+            LaunchedEffect(brainReadyState) {
+                if (brainReadyState is BrainReadyState.Downloaded) {
+                    onDeviceBrain.loadModel()
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────────
+
             val close: () -> Unit = {
-                parser.speakStowed() // "assistant stowed" (Idle) — logged before we leave
+                parser.speakStowed()
                 finish()
             }
             BackHandler(enabled = true) { close() }
@@ -137,45 +180,106 @@ class QuarkAssistantActivity : ComponentActivity() {
                             .padding(WindowInsetsPadding())
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        // ----- header: stow · title · caption -----
+                        // ----- header: stow · title (triple-tap = debug) · caption -----
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 "◄ STOW",
-                                color = dimColor,
-                                fontFamily = font,
-                                fontSize = 12.sp,
+                                color = dimColor, fontFamily = font, fontSize = 12.sp,
                                 modifier = Modifier.clickable { close() }.padding(4.dp)
                             )
                             Spacer(Modifier.weight(1f))
-                            Text("QUARK", color = color, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    "QUARK",
+                                    color = color, fontFamily = font, fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clickable {
+                                            titleTaps++
+                                            if (titleTaps >= 3) { debugMode = !debugMode; titleTaps = 0 }
+                                        }
+                                        .padding(4.dp)
+                                )
+                                // Dim debug-mode indicator — visible only if you know to look.
+                                if (debugMode) {
+                                    Text(
+                                        "// BRAIN: ON-DEVICE",
+                                        color = dimColor, fontFamily = font, fontSize = 9.sp
+                                    )
+                                }
+                            }
                             Spacer(Modifier.weight(1f))
-                            Text(brain.caption, color = if (brain.activePosture == QuarkReflexPosture.WARN) Phosphor.Warn else dimColor, fontFamily = font, fontSize = 11.sp)
+                            Text(
+                                brain.caption,
+                                color = if (brain.activePosture == QuarkReflexPosture.WARN) Phosphor.Warn else dimColor,
+                                fontFamily = font, fontSize = 11.sp
+                            )
                         }
 
                         Spacer(Modifier.height(8.dp))
+
                         // ----- central reactive presence -----
                         Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
                             QuarkPresence(posture = brain.activePosture, color = color, dimColor = dimColor)
                         }
                         Spacer(Modifier.height(4.dp))
 
-                        // ----- conversation log (its own list; console aesthetic) -----
-                        ConversationLog(
-                            entries = convo,
-                            crisisResource = engine.effectiveCrisisResource(),
-                            color = color,
-                            dimColor = dimColor,
-                            font = font,
-                            modifier = Modifier.weight(1f).fillMaxWidth()
-                        )
+                        // ----- body: acquisition panel (debug + not loaded) or normal content -----
+                        if (debugMode && !brainLoaded) {
+                            ModelAcquisitionPanel(
+                                readyState = brainReadyState,
+                                color = color, dimColor = dimColor, font = font,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                onAcquire = { onDeviceBrain.downloadModel() },
+                                onImport = { onDeviceBrain.importFromExternal() }
+                            )
+                        } else {
+                            // ----- conversation log -----
+                            ConversationLog(
+                                entries = convo,
+                                crisisResource = engine.effectiveCrisisResource(),
+                                color = color, dimColor = dimColor, font = font,
+                                modifier = Modifier.weight(1f).fillMaxWidth()
+                            )
 
-                        Spacer(Modifier.height(8.dp))
-                        // ----- command rail: six actions, fixed order -----
-                        CommandRail(font = font, color = color, dimColor = dimColor)
+                            Spacer(Modifier.height(8.dp))
 
-                        Spacer(Modifier.height(8.dp))
-                        // ----- free-text entry -----
-                        FreeTextEntry(color = color, dimColor = dimColor, font = font) { parser.parseInput(it) }
+                            // ----- command rail: six actions (scripted brain only; rail is unchanged) -----
+                            CommandRail(font = font, color = color, dimColor = dimColor)
+
+                            Spacer(Modifier.height(8.dp))
+
+                            // ----- free-text entry -----
+                            // In debug mode (model loaded): routes to on-device brain, holds SCAN state
+                            // during real inference — this is the Phase 1 headline: thinking takes
+                            // a real beat because there's a real model thinking.
+                            FreeTextEntry(color = color, dimColor = dimColor, font = font) { input ->
+                                if (debugMode && brainLoaded) {
+                                    scope.launch {
+                                        QuantumRuntime.playCue(SoundCue.KEY_TICK)
+                                        // Set SCAN immediately — the model holds it for the full inference.
+                                        engine.dispatchQuarkReflex(
+                                            "ON_DEVICE_SCAN", QuarkReflexPosture.SCAN, "", SoundCue.CHIRP_SCAN
+                                        )
+                                        val response = onDeviceBrain.reply(input)
+                                        // Route through quarkSay to log the exchange and settle posture.
+                                        engine.quarkSay(
+                                            trigger = input, isUserInput = true,
+                                            response = ScriptedResponse(
+                                                intent = "ON_DEVICE",
+                                                posture = QuarkReflexPosture.IDLE,
+                                                text = response,
+                                                audio = null,
+                                                scanFirst = false,
+                                                isCrisis = false
+                                            )
+                                        )
+                                    }
+                                } else {
+                                    parser.parseInput(input)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -366,6 +470,140 @@ private fun RailButton(
         contentAlignment = Alignment.Center
     ) {
         Text(label, color = color, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+/*
+ * ModelAcquisitionPanel — CRT-styled model download / import surface.
+ * Shown in the Assistant View body when debug mode is active and the on-device model is not
+ * yet in memory. Replaces the conversation log + rail + entry until the model is ready.
+ * House style: terse status microcopy, phosphor-only palette, discrete progress bar, no Material
+ * chrome (no stock buttons, no stock progress indicators).
+ */
+@Composable
+private fun ModelAcquisitionPanel(
+    readyState: BrainReadyState,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    modifier: Modifier = Modifier,
+    onAcquire: () -> Unit,
+    onImport: () -> Unit
+) {
+    Column(
+        modifier = modifier.padding(vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // --- model identity header ---
+        Text(
+            "NEURAL WEIGHTS",
+            color = color, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold
+        )
+        Text(
+            "GEMMA 3 · 1B-IT · ~500 MB · LITERT FORMAT",
+            color = dimColor, fontFamily = font, fontSize = 11.sp
+        )
+
+        // --- status block ---
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .border(BorderStroke(1.dp, dimColor))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when (readyState) {
+                    is BrainReadyState.Idle -> {
+                        Text("WEIGHTS NOT PRESENT", color = color, fontFamily = font, fontSize = 12.sp)
+                        Text(
+                            "Model file: ${QuarkModelConfig.MODEL_FILENAME}\n" +
+                            "Obtain from: kaggle.com/models/google/gemma\n" +
+                            "(accept Gemma Terms of Use, download MediaPipe/LiteRT variant)",
+                            color = dimColor, fontFamily = font, fontSize = 11.sp
+                        )
+                    }
+                    is BrainReadyState.Downloading -> {
+                        val pct = (readyState.fraction * 100).toInt()
+                        val mbRead = readyState.bytesRead / (1024 * 1024)
+                        val mbTotal = readyState.total / (1024 * 1024)
+                        Text("ACQUIRING WEIGHTS…", color = color, fontFamily = font, fontSize = 12.sp)
+                        // Discrete phosphor progress bar — 20 segments, stepped not smooth.
+                        val filled = (readyState.fraction * 20).toInt().coerceIn(0, 20)
+                        Text(
+                            "█".repeat(filled) + "░".repeat(20 - filled) + "  $pct%",
+                            color = color, fontFamily = font, fontSize = 13.sp
+                        )
+                        Text("$mbRead MB / $mbTotal MB TRANSFERRED", color = dimColor, fontFamily = font, fontSize = 11.sp)
+                        Text("PLEASE STANDBY", color = dimColor, fontFamily = font, fontSize = 11.sp)
+                    }
+                    is BrainReadyState.Downloaded -> {
+                        Text("WEIGHTS ACQUIRED // LOADING MODEL", color = color, fontFamily = font, fontSize = 12.sp)
+                        Text("PLEASE STANDBY — INITIALISING INFERENCE ENGINE", color = dimColor, fontFamily = font, fontSize = 11.sp)
+                    }
+                    is BrainReadyState.Loading -> {
+                        Text("LOADING WEIGHTS INTO MEMORY", color = color, fontFamily = font, fontSize = 12.sp)
+                        Text("PLEASE STANDBY — THIS TAKES ~10 S ON FIRST LOAD", color = dimColor, fontFamily = font, fontSize = 11.sp)
+                    }
+                    is BrainReadyState.Loaded -> {
+                        // Should not normally be visible (parent hides this panel when loaded).
+                        Text("WEIGHTS LOADED // ONLINE", color = color, fontFamily = font, fontSize = 12.sp)
+                    }
+                    is BrainReadyState.NoNetwork -> {
+                        Text("NO NETWORK // CANNOT DOWNLOAD", color = Phosphor.Warn, fontFamily = font, fontSize = 12.sp)
+                        Text(
+                            "Side-load alternative:\n" +
+                            "adb push ${QuarkModelConfig.MODEL_FILENAME}\n" +
+                            "  /sdcard/Android/data/com.quantumos.shell/files/\n" +
+                            "then tap IMPORT FILE below.",
+                            color = dimColor, fontFamily = font, fontSize = 11.sp
+                        )
+                    }
+                    is BrainReadyState.Err -> {
+                        Text("ACQUISITION ERROR", color = Phosphor.Warn, fontFamily = font, fontSize = 12.sp)
+                        Text(readyState.message, color = dimColor, fontFamily = font, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // --- action rail ---
+        val acquiring = readyState is BrainReadyState.Downloading || readyState is BrainReadyState.Loading
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .border(BorderStroke(1.dp, if (acquiring) dimColor else color))
+                    .clickable(enabled = !acquiring) { onAcquire() }
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "ACQUIRE WEIGHTS",
+                    color = if (acquiring) dimColor else color,
+                    fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                )
+            }
+            Box(
+                Modifier
+                    .weight(1f)
+                    .border(BorderStroke(1.dp, if (acquiring) dimColor else color))
+                    .clickable(enabled = !acquiring) { onImport() }
+                    .padding(vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "IMPORT FILE",
+                    color = if (acquiring) dimColor else color,
+                    fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "IMPORT reads: /sdcard/Android/data/com.quantumos.shell/files/${QuarkModelConfig.MODEL_FILENAME}",
+            color = dimColor, fontFamily = font, fontSize = 10.sp
+        )
     }
 }
 
