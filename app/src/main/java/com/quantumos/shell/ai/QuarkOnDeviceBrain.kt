@@ -198,9 +198,6 @@ Stay in character at all times. Keep the Operator vital.
         return@withContext try {
             val opts = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(1024)
-                .setTemperature(0.7f)
-                .setRandomSeed(0)
                 .build()
             _llm = LlmInference.createFromOptions(context, opts)
             _state.value = BrainReadyState.Loaded
