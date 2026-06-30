@@ -53,7 +53,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
 import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
@@ -143,6 +146,12 @@ class QuarkAssistantActivity : ComponentActivity() {
             val brainReadyState by onDeviceBrain.state.collectAsState()
             val brainLoaded = brainReadyState is BrainReadyState.Loaded
 
+            // File picker — lets the Operator select a model from any location on the device
+            // (Downloads, Files app, etc.) without needing adb or a computer.
+            val pickFileLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri: Uri? -> uri?.let { onDeviceBrain.importFromUri(it) } }
+
             // Auto-load when model is present on disk and debug mode just activated.
             LaunchedEffect(debugMode) {
                 if (debugMode && onDeviceBrain.isPresent && !onDeviceBrain.isLoaded) {
@@ -231,7 +240,8 @@ class QuarkAssistantActivity : ComponentActivity() {
                                 color = color, dimColor = dimColor, font = font,
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 onAcquire = { onDeviceBrain.downloadModel() },
-                                onImport = { onDeviceBrain.importFromExternal() }
+                                onImport = { onDeviceBrain.importFromExternal() },
+                                onPickFile = { pickFileLauncher.launch(arrayOf("*/*")) }
                             )
                         } else {
                             // ----- conversation log -----
@@ -488,7 +498,8 @@ private fun ModelAcquisitionPanel(
     font: FontFamily,
     modifier: Modifier = Modifier,
     onAcquire: () -> Unit,
-    onImport: () -> Unit
+    onImport: () -> Unit,
+    onPickFile: () -> Unit
 ) {
     Column(
         modifier = modifier.padding(vertical = 8.dp),
@@ -568,17 +579,33 @@ private fun ModelAcquisitionPanel(
 
         // --- action rail ---
         val acquiring = readyState is BrainReadyState.Downloading || readyState is BrainReadyState.Loading
+        // ACQUIRE WEIGHTS — full width (URL download, requires DOWNLOAD_URL to be set)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .border(BorderStroke(1.dp, if (acquiring) dimColor else color))
+                .clickable(enabled = !acquiring) { onAcquire() }
+                .padding(vertical = 14.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "ACQUIRE WEIGHTS",
+                color = if (acquiring) dimColor else color,
+                fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+            )
+        }
+        // PICK FILE | IMPORT FILE — local transfer options side by side
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(
                 Modifier
                     .weight(1f)
                     .border(BorderStroke(1.dp, if (acquiring) dimColor else color))
-                    .clickable(enabled = !acquiring) { onAcquire() }
+                    .clickable(enabled = !acquiring) { onPickFile() }
                     .padding(vertical = 14.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    "ACQUIRE WEIGHTS",
+                    "PICK FILE",
                     color = if (acquiring) dimColor else color,
                     fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
                 )
@@ -601,7 +628,7 @@ private fun ModelAcquisitionPanel(
 
         Spacer(Modifier.height(4.dp))
         Text(
-            "IMPORT reads: /sdcard/Android/data/com.quantumos.shell/files/${QuarkModelConfig.MODEL_FILENAME}",
+            "PICK FILE: browse device · IMPORT FILE: reads adb push path",
             color = dimColor, fontFamily = font, fontSize = 10.sp
         )
     }

@@ -3,6 +3,7 @@ package com.quantumos.shell.ai
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -164,6 +165,37 @@ Stay in character at all times. Keep the Operator vital.
                 _state.value = BrainReadyState.Downloaded
             } catch (e: Exception) {
                 _state.value = BrainReadyState.Err("DOWNLOAD FAILED: ${e.message?.take(80)}")
+            }
+        }
+    }
+
+    // Import model from any URI the system file picker returns — no permission needed on API 33+.
+    fun importFromUri(uri: Uri) {
+        if (_state.value is BrainReadyState.Downloading || _state.value is BrainReadyState.Loading) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                val total = QuarkModelConfig.APPROX_SIZE_BYTES
+                _state.value = BrainReadyState.Downloading(0f, 0L, total)
+                val tmp = File(context.filesDir, "${QuarkModelConfig.MODEL_FILENAME}.tmp")
+                context.contentResolver.openInputStream(uri)?.use { inp ->
+                    tmp.outputStream().use { out ->
+                        val buf = ByteArray(65_536)
+                        var read = 0L; var n: Int
+                        while (inp.read(buf).also { n = it } >= 0) {
+                            out.write(buf, 0, n); read += n
+                            _state.value = BrainReadyState.Downloading(
+                                (read.toFloat() / total).coerceIn(0f, 1f), read, total
+                            )
+                        }
+                    }
+                } ?: run {
+                    _state.value = BrainReadyState.Err("CANNOT OPEN FILE\nTry a different file manager app.")
+                    return@launch
+                }
+                tmp.renameTo(modelFile)
+                _state.value = BrainReadyState.Downloaded
+            } catch (e: Exception) {
+                _state.value = BrainReadyState.Err("IMPORT FAILED: ${e.message?.take(80)}")
             }
         }
     }
