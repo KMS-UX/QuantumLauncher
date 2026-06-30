@@ -130,6 +130,10 @@ Stay in character at all times. Keep the Operator vital.
 
     private var _engine: Engine? = null
     private var _conversation: Conversation? = null  // kept open across turns; manages history internally
+    // Tracks whether the system prompt has been injected into the first user turn. Gemma 4 doesn't
+    // reliably pick up ConversationConfig.systemInstruction alone, so we reinforce persona by
+    // prepending the full prompt text to the very first message the model sees.
+    private var _personaInjected = false
 
     // ---------- acquisition ----------
 
@@ -255,13 +259,19 @@ Stay in character at all times. Keep the Operator vital.
 
     // ---------- inference ----------
 
-    // Generate one reply on a background dispatcher. The Conversation object manages turn history
-    // internally — no manual prompt-building needed. Returns the model reply as a String, or an
-    // [ERR] prefix so the caller can surface it in the conversation log without crashing.
+    // Generate one reply on a background dispatcher. On the first call, prepends the full Persona
+    // Pack system prompt to the user turn — Gemma 4 reads first-turn context reliably even when
+    // ConversationConfig.systemInstruction alone doesn't take hold.
     suspend fun reply(userInput: String): String = withContext(Dispatchers.Default) {
         val conv = _conversation ?: return@withContext "[ERR: model not loaded]"
         return@withContext try {
-            conv.sendMessage(userInput).toString().trim()
+            val message = if (!_personaInjected) {
+                _personaInjected = true
+                "$systemPrompt\n\n---\n\nOperator: $userInput"
+            } else {
+                userInput
+            }
+            conv.sendMessage(message).toString().trim()
         } catch (e: Exception) {
             "[ERR: ${e.message?.take(100)}]"
         }
@@ -272,6 +282,7 @@ Stay in character at all times. Keep the Operator vital.
     fun clearHistory() {
         val eng = _engine ?: return
         _conversation?.close()
+        _personaInjected = false
         _conversation = try {
             eng.createConversation(ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
