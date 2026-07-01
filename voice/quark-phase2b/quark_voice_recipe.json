@@ -1,0 +1,31 @@
+{
+  "canonical_voice": "QUARK-H2",
+  "engine": "kokoro-onnx",
+  "model": "kokoro-v1.0",
+  "sample_rate": 24000,
+  "lang": "en-us",
+  "speed": 1.02,
+  "blend": [
+    {
+      "voice": "af_bella",
+      "weight": 0.4
+    },
+    {
+      "voice": "af_nicole",
+      "weight": 0.56
+    },
+    {
+      "voice": "bf_emma",
+      "weight": 0.035
+    },
+    {
+      "voice": "af_aoede",
+      "weight": 0.0025
+    },
+    {
+      "voice": "af_heart",
+      "weight": 0.0025
+    }
+  ],
+  "note": "Weights are relative; normalized at blend time. Synthetic blend, matches no single shipped voice (decision 42). Reference clips are the four QUARK canon registers (Persona Pack v1.0 \u00a79/\u00a77)."
+}

@@ -11,8 +11,25 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
-hardware verification on Fold 6.** Phase 2b (custom voice) is deferred until 2a is confirmed.
+**Current milestone:** QUARK Phase 2b — custom voice — **VOICE LOCKED (2026-07-01); on-device
+integration NOT yet done.** The Director chose the canonical QUARK voice from a real Kokoro-engine
+audition (candidate **H2**); the blend recipe + exported embedding are committed under
+`voice/quark-phase2b/`. Phase 2a pipeline (Android TTS placeholder) remains code-complete and is
+still pending its own Fold 6 latency confirmation.
+
+> **Next session (Phase 2b integration — on the Fold 6):**
+> 1. Swap the `QuarkVoiceEngine` placeholder for a Kokoro ONNX runtime that loads
+>    `voice/quark-phase2b/quark_voice_H2.f32.bin`, behind the **same 2a `// VOICE` toggle** (caller
+>    API is unchanged by design). Model weights (`kokoro-v1.0.onnx`, ~325 MB) are a fetched
+>    dependency — not in git; see `voice/quark-phase2b/README.md`.
+> 2. **Latency re-check on hardware** — Kokoro runs slower than Android TTS. Warm the engine at boot /
+>    first Scan so cold cost hides in the reactive beat. Record warm spoken-reply latency.
+> 3. If too slow to read as *deliberate*: keep the fast engine for real-time lines, reserve QUARK-H2
+>    for set-pieces — a **documented** split, not a silent degradation.
+> 4. Confirm reactive-state sync, Stealth-mute respect, Scan-beat sequencing carry over unchanged.
+
+**Current milestone (prior):** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
+hardware verification on Fold 6.**
 
 > **Director actions required:**
 > 1. Install the CI build.
@@ -50,6 +67,45 @@ hardware verification on Fold 6.** Phase 2b (custom voice) is deferred until 2a 
 - Streaming tokens would improve perceived latency (first word arrives before full response)
 - `Backend.CPU()` is the safe default; GPU backend could be profiled for latency improvement
 - `latest.release` dependency should be pinned to `0.13.1` before Phase 2 to prevent regressions
+
+### QUARK Phase 2b — custom voice — VOICE LOCKED (2026-07-01)
+
+**Decision of record for QUARK's spoken-voice identity — closes Build Bible decision 42.**
+Chose a synthetic-seed voice via a real Kokoro-engine audition on the build machine (per the
+Phase 2b Synthetic-Seed note), *not* a clone of any real person — original by construction.
+
+**Canonical QUARK voice (candidate "H2"):**
+- **Engine:** `kokoro-onnx`, model `kokoro-v1.0` (StyleTTS2 lineage); 24 kHz; `en-us` G2P (espeak-ng).
+- **Speed:** `1.02`.
+- **Blend (relative weights, normalized at blend time):**
+  `af_bella 0.40 + af_nicole 0.56 + bf_emma 0.035 + af_aoede 0.0025 + af_heart 0.0025`.
+  Matches no single shipped voice — `af_nicole` leads for closeness/breath, `af_bella` carries the
+  richness, a whisper of `bf_emma`/`af_aoede` for clarity.
+
+**How it was chosen:** 6 audition rounds, same four fixed QUARK canon lines each round (Happy §9,
+Idle-status §9, Warn §5, Refusal/boundary §7) so the Director judged *voice*, not script. Round 1:
+5 built-ins + 3 blends → Director leaned blendY (rich+close). Rounds 2–6 converged on richness,
+brightness, closeness, and pace by ear (0.95 → 1.02). Reference-clip-and-clone approach from the
+Phase 2 brief §2 was superseded by the synthetic-blend route.
+
+**Committed artifacts (`voice/quark-phase2b/`, reproducible + owned):**
+- `quark_voice_recipe.json` — machine-readable recipe.
+- `quark_voice_H2.npy` / `.f32.bin` — exported speaker embedding, `(510,1,256)` float32 (the owned
+  voice; drop-in for the on-device ONNX runtime).
+- `generate_quark_voice.py` — regenerates embedding + reference master from the recipe.
+- `reference-master/QUARK_*.wav` — the four canon reference clips + stitched `ALL4`. Acceptance bar
+  met: Happy (warm) and Warn (grave, no-wit) sound audibly different.
+- Model weights (`kokoro-v1.0.onnx` ~325 MB, `voices-v1.0.bin` ~28 MB) are **not** committed — fetched
+  from the kokoro-onnx model release; the small `.npy` embedding is the owned artifact.
+
+**Integration status: NOT done — held by design.** Only the *voice* is locked. The on-device swap
+behind the 2a toggle + the Fold 6 latency re-check (and any Piper/fast-engine fallback split) are the
+remaining Phase 2b work — see the RESUME HERE next-session steps.
+
+**Build note (proxy):** HuggingFace and `download.pytorch.org` are blocked by this environment's
+egress policy, so the audition used the ONNX engine (weights from GitHub release assets) rather than
+the torch/HF `kokoro` package. Same model — relevant because the on-device Android runtime will use
+the ONNX path too.
 
 ### QUARK Phase 2a — voice pipeline — code complete (2026-06-30)
 
