@@ -17,16 +17,19 @@ audition (candidate **H2**); the blend recipe + exported embedding are committed
 `voice/quark-phase2b/`. Phase 2a pipeline (Android TTS placeholder) remains code-complete and is
 still pending its own Fold 6 latency confirmation.
 
-> **Next session (Phase 2b integration — on the Fold 6):**
-> 1. Swap the `QuarkVoiceEngine` placeholder for a Kokoro ONNX runtime that loads
->    `voice/quark-phase2b/quark_voice_H2.f32.bin`, behind the **same 2a `// VOICE` toggle** (caller
->    API is unchanged by design). Model weights (`kokoro-v1.0.onnx`, ~325 MB) are a fetched
->    dependency — not in git; see `voice/quark-phase2b/README.md`.
-> 2. **Latency re-check on hardware** — Kokoro runs slower than Android TTS. Warm the engine at boot /
->    first Scan so cold cost hides in the reactive beat. Record warm spoken-reply latency.
-> 3. If too slow to read as *deliberate*: keep the fast engine for real-time lines, reserve QUARK-H2
->    for set-pieces — a **documented** split, not a silent degradation.
-> 4. Confirm reactive-state sync, Stealth-mute respect, Scan-beat sequencing carry over unchanged.
+> **Next session (Phase 2b — finish on the Fold 6). The engine swap is already scaffolded** (see the
+> Phase 2b entry below: `VoiceEngine`/`KokoroVoiceEngine`/`VoiceIdentity`, onnxruntime-android). Two
+> seams remain before the custom voice is audible:
+> 1. **Fetch the model** — `kokoro-v1.0.onnx` (~325 MB, gitignored) into `filesDir/quark_voice/`
+>    (reuse the Phase 1 PICK-FILE acquisition). The voice embedding + vocab already ship as assets.
+> 2. **Wire an on-device `Phonemizer`** (espeak-ng / bundled G2P) — the one genuinely hard piece;
+>    `UnavailablePhonemizer` is the default, which keeps `KokoroVoiceEngine` UNAVAILABLE (→ placeholder)
+>    until a real G2P lands. This is what flips `isSupported()` true.
+> 3. `QuantumRuntime.setVoiceIdentity(QUARK_H2)` and **run the latency re-check** — warm at boot so
+>    cold cost hides in the Scan beat; record warm spoken-reply latency.
+> 4. If too slow to read as *deliberate*: keep the fast engine for real-time lines, reserve QUARK-H2
+>    for set-pieces — a **documented** split, not a silent degradation. Confirm reactive-state sync,
+>    Stealth-mute respect, and Scan-beat sequencing carry over unchanged.
 
 **Current milestone (prior):** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
 hardware verification on Fold 6.**
@@ -98,9 +101,27 @@ Phase 2 brief §2 was superseded by the synthetic-blend route.
 - Model weights (`kokoro-v1.0.onnx` ~325 MB, `voices-v1.0.bin` ~28 MB) are **not** committed — fetched
   from the kokoro-onnx model release; the small `.npy` embedding is the owned artifact.
 
-**Integration status: NOT done — held by design.** Only the *voice* is locked. The on-device swap
-behind the 2a toggle + the Fold 6 latency re-check (and any Piper/fast-engine fallback split) are the
-remaining Phase 2b work — see the RESUME HERE next-session steps.
+**Integration scaffolding — landed (2026-07-01, same session).** The on-device swap is now wired,
+compiling behind the existing 2a `// VOICE` toggle; two seams remain that need the Fold 6 + assets:
+- **`VoiceEngine` interface** (`shell.ai`): the contract the voice observer speaks to
+  (`readyState`/`isReady`/`warmUp`/`speak`/`stop`/`shutdown`). `QuarkVoiceEngine` (Android-TTS
+  placeholder) now implements it unchanged; `VoiceReadyState` moved here.
+- **`KokoroVoiceEngine`** (`shell.ai`): the QUARK-H2 engine against the real kokoro-v1.0 graph
+  (`tokens int64[1,seq]`, `style float[1,256]`, `speed float[1]` → `audio float[]` @24 kHz). Full
+  pipeline: phonemize → tokenize (bundled `kokoro_vocab.json`) → ONNX Runtime inference (embedding
+  asset `quark_voice/quark_voice_H2.f32`, style row indexed by phoneme count) → `AudioTrack`
+  float-PCM playback, with `warmUp()` for the cold-start-hide trick and latency callbacks intact.
+- **Engine selector** in `QuantumRuntime`: `VoiceIdentity{PLACEHOLDER, QUARK_H2}` (default
+  PLACEHOLDER). `KokoroVoiceEngine.isSupported()` gates on the fetched model **and** an on-device
+  phonemizer; until both exist it returns false and the runtime falls back to the placeholder — the
+  voice loop never goes mute.
+- **Dependency:** `com.microsoft.onnxruntime:onnxruntime-android:1.20.0`.
+- **The two open seams (Fold 6 next session):** (1) fetch `kokoro-v1.0.onnx` (~325 MB, gitignored)
+  to `filesDir/quark_voice/`; (2) wire an on-device `Phonemizer` (espeak-ng / bundled G2P) —
+  `UnavailablePhonemizer` is the honest default. Then flip identity to QUARK_H2 and run the
+  **latency re-check** (warm at boot; deliberate-vs-broken; Piper-fallback split only if forced).
+
+**Voice identity is locked; on-device custom voice is NOT yet audible** until those two seams land.
 
 **Build note (proxy):** HuggingFace and `download.pytorch.org` are blocked by this environment's
 egress policy, so the audition used the ONNX engine (weights from GitHub release assets) rather than
