@@ -15,3 +15,7 @@ local.properties
 # Release signing — NEVER commit; back up these files externally before this container is reclaimed
 app/release.keystore
 keystore.properties
+
+# QUARK Phase 2b — Kokoro model weights are fetched at runtime, never committed (~325MB).
+app/src/main/assets/quark_voice/*.onnx
+app/src/main/assets/quark_voice/voices-*.bin

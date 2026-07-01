@@ -13,7 +13,9 @@ import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
 import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.shell.ai.QuarkOnDeviceBrain
+import com.quantumos.shell.ai.KokoroVoiceEngine
 import com.quantumos.shell.ai.QuarkVoiceEngine
+import com.quantumos.shell.ai.VoiceEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -74,8 +76,31 @@ object QuantumRuntime {
     private val _voiceEnabled = MutableStateFlow(false)
     val voiceEnabled: StateFlow<Boolean> = _voiceEnabled.asStateFlow()
 
-    private var _voiceEngine: QuarkVoiceEngine? = null
+    private var _voiceEngine: VoiceEngine? = null
     private var voiceObserverStarted = false
+
+    // Which voice identity to build when voice is first enabled. PLACEHOLDER is the Phase 2a Android
+    // TTS stand-in (always available); QUARK_H2 is the Phase 2b custom voice (KokoroVoiceEngine) and
+    // is used only when its model + phonemizer are present — otherwise we fall back to PLACEHOLDER so
+    // the voice loop never goes mute. Default stays PLACEHOLDER until the Fold 6 latency pass signs
+    // QUARK_H2 off (see BUILD_LOG Phase 2b RESUME HERE).
+    enum class VoiceIdentity { PLACEHOLDER, QUARK_H2 }
+    private val _voiceIdentity = MutableStateFlow(VoiceIdentity.PLACEHOLDER)
+    val voiceIdentity: StateFlow<VoiceIdentity> = _voiceIdentity.asStateFlow()
+
+    /** Select the voice identity. Takes effect on the next voice engine (re)build. */
+    fun setVoiceIdentity(identity: VoiceIdentity) { _voiceIdentity.value = identity }
+
+    /** Build the engine for the current identity, falling back to the placeholder if unavailable. */
+    private fun buildVoiceEngine(ctx: Context): VoiceEngine {
+        val engine: VoiceEngine =
+            if (_voiceIdentity.value == VoiceIdentity.QUARK_H2 && KokoroVoiceEngine.isSupported(ctx))
+                KokoroVoiceEngine(ctx)
+            else
+                QuarkVoiceEngine(ctx)
+        engine.warmUp()   // hide any cold cost inside the reactive beat
+        return engine
+    }
 
     fun toggleVoice() {
         _voiceEnabled.value = !_voiceEnabled.value
@@ -83,7 +108,7 @@ object QuantumRuntime {
             // Lazy-init: create and start the observer the first time voice is enabled.
             val ctx = requireNotNull(appContext) { "QuantumRuntime.boot() must be called first" }
             if (_voiceEngine == null) {
-                _voiceEngine = QuarkVoiceEngine(ctx)
+                _voiceEngine = buildVoiceEngine(ctx)
                 startVoiceObserver()
             }
         }

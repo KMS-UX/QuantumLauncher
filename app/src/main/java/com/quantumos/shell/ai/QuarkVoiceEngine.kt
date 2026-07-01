@@ -8,8 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 
-enum class VoiceReadyState { INITIALIZING, READY, UNAVAILABLE }
-
 /*
  * Phase 2a voice engine — wraps Android's built-in TextToSpeech for the text→audio pipeline.
  *
@@ -18,19 +16,19 @@ enum class VoiceReadyState { INITIALIZING, READY, UNAVAILABLE }
  * satisfies Phase 2a's requirements (on-device, offline, no network, real latency headroom) while
  * the ONNX/Piper→Kokoro voice swap in Phase 2b replaces the timbre, not the pipeline.
  *
- * Pitch/rate are dialled slightly toward the EDI register as a stand-in direction. Phase 2b
- * replaces this engine wholesale — no API change required for the caller.
+ * Pitch/rate are dialled slightly toward the EDI register as a stand-in direction. Phase 2b's
+ * KokoroVoiceEngine implements the same VoiceEngine contract, so the swap needs no caller change.
  *
  * Thread safety: speak() is called from a coroutine; TTS callbacks arrive on TTS's internal
  * thread. The `gate` monitor keeps the pending-utterance state consistent.
  */
-class QuarkVoiceEngine(context: Context) {
+class QuarkVoiceEngine(context: Context) : VoiceEngine {
 
     private val appContext = context.applicationContext
 
     private val _readyState = MutableStateFlow(VoiceReadyState.INITIALIZING)
-    val readyState: StateFlow<VoiceReadyState> = _readyState.asStateFlow()
-    val isReady get() = _readyState.value == VoiceReadyState.READY
+    override val readyState: StateFlow<VoiceReadyState> = _readyState.asStateFlow()
+    override val isReady get() = _readyState.value == VoiceReadyState.READY
 
     private var tts: TextToSpeech? = null
 
@@ -89,7 +87,7 @@ class QuarkVoiceEngine(context: Context) {
      * the settle callback fires — even on error or before initialization.
      * QUEUE_FLUSH replaces any currently-playing utterance.
      */
-    fun speak(text: String, onStart: (Long) -> Unit, onDone: () -> Unit) {
+    override fun speak(text: String, onStart: (Long) -> Unit, onDone: () -> Unit) {
         if (!isReady) { onDone(); return }
         val id = System.nanoTime().toString()
         synchronized(gate) {
@@ -104,7 +102,7 @@ class QuarkVoiceEngine(context: Context) {
      * Stop any in-flight utterance without firing the settle callback. Used on a clean close
      * (e.g. Activity finish) where the posture settle would be spurious.
      */
-    fun stop() {
+    override fun stop() {
         synchronized(gate) {
             pendingId = ""
             pendingOnStart = null
@@ -113,7 +111,7 @@ class QuarkVoiceEngine(context: Context) {
         tts?.stop()
     }
 
-    fun shutdown() {
+    override fun shutdown() {
         stop()
         tts?.shutdown()
         tts = null

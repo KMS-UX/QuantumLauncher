@@ -73,6 +73,11 @@ dependencies {
     // Never in the production scripted-brain path; lives entirely behind the triple-tap debug toggle.
     implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
 
+    // QUARK Phase 2b — custom voice. ONNX Runtime for on-device Kokoro (kokoro-v1.0) inference of
+    // the locked QUARK-H2 blend. Debug-gated behind the same // VOICE toggle; falls back to the
+    // Phase 2a Android-TTS placeholder when the model/phonemizer aren't present. See KokoroVoiceEngine.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+
     // Pure-logic unit tests (no emulator) — runbook Step 4.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation(kotlin("test"))
