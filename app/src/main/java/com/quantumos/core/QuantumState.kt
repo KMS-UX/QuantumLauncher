@@ -392,6 +392,10 @@ class QuantumStateEngine(
             .getOrNull()?.ifBlank { null } ?: GENERIC_CRISIS_FALLBACK
     }
 
+    // Phase 2a: external callers (e.g. voice engine latency reporting) append to the system log
+    // without access to the private logEvent format. Thin public wrapper only.
+    fun appendSystemLog(message: String) = logEvent(message)
+
     fun executeCosmeticLockSequence() {
         // Cosmetic only — does NOT grab Device Admin (Bible decision 56). Real lockNow() arrives in kiosk.
         if (_masterState.value.bootLifecycle != BootLifecycleState.ACTIVE) return
