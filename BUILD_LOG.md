@@ -121,6 +121,30 @@ compiling behind the existing 2a `// VOICE` toggle; two seams remain that need t
 
 **Voice identity is locked; on-device custom voice is NOT yet audible** until those two seams land.
 
+### QUARK Phase 2b — fix: crash on custom-voice import/toggle (2026-07-04)
+
+**Director report from the Fold 6:** native libs built and installed fine (previous session's ABI
+fix confirmed), but importing the `kokoro-multi-lang-v1_0` tarball crashed QUARK straight back to
+the home screen — and the crash recurred just from toggling `// VOICE-ID` to `QUARK-H2` again, even
+without re-importing.
+
+**Root cause:** sherpa's kokoro model bakes a fixed speaker count (`n_speakers`) into its ONNX
+metadata, and validates the `voices` file's float count against `n_speakers × 510 × 256` exactly
+(confirmed in `offline-tts-kokoro-model.cc`). A mismatch hits `SHERPA_ONNX_EXIT(-1)`, which is a
+literal `_Exit(-1)` — an **immediate, uncatchable process kill**, not a Kotlin exception. The
+previous `SherpaKokoroVoiceEngine` handed sherpa our H2 embedding **alone** (one speaker's worth of
+floats) as the entire `voices` file, so every construction attempt hit this fatal check. It recurred
+on toggle-without-reimport because the mismatched file just stayed on disk from the first crash.
+
+**Fix — `VoiceModelProvisioner.ensureVoicesFile`:** no longer copies the H2 asset out as a
+standalone file. Instead it copies the tarball's own `voices.bin` (already extracted, correctly
+sized) and overwrites the **last** speaker slot's bytes with our owned H2 embedding, preserving the
+model's expected total size. Returns `VoicesResult(file, sid)`; `SherpaKokoroVoiceEngine` now uses
+that `sid` (not a hardcoded `0`) in every `GenerationConfig`. `status()` also now requires the
+original `voices.bin` be present. Self-healing: since the tarball's `voices.bin` was already
+extracted correctly the first time (the old code just never referenced it), no re-download/re-import
+should be needed — installing the fixed APK alone should resolve it.
+
 ### QUARK Phase 2b — on-device engine wired on sherpa-onnx (2026-07-03)
 
 Replaced the raw-onnxruntime scaffold (which still needed a hand-built on-device phonemizer) with

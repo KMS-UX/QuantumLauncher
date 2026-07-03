@@ -46,8 +46,12 @@ On the Fold 6: download that `.tar.bz2` to the phone, then in the QUARK assistan
    `filesDir/quark_voice/kokoro/` and the status shows `MODEL READY`.
 4. Tap **`// VOICE: OFF`** → `ON`. Type a line → QUARK speaks in **her** voice.
 
-`VoiceModelProvisioner` also copies the bundled H2 embedding into sherpa's `voices` slot
-(`voices-quark-h2.bin`) automatically, so `sid = 0` is QUARK-H2 — never a stock speaker.
+`VoiceModelProvisioner` builds sherpa's `voices` file automatically: a copy of the tarball's own
+`voices.bin` (same total size the model expects) with one speaker slot overwritten by our owned H2
+embedding (`voices-quark-h2.bin`), and reports back the `sid` that slot lives at. **Do not** point
+sherpa at the raw H2 embedding alone — its float count won't match what the model's ONNX metadata
+demands, which is a fatal, uncatchable native `_Exit()`, not a recoverable error (this was the cause
+of the crash-on-import / crash-on-toggle bug fixed 2026-07-04 — see BUILD_LOG).
 
 ## Step 3 — the latency re-check (the actual Phase 2b acceptance)
 
