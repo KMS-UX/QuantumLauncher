@@ -110,13 +110,20 @@ object QuantumRuntime {
     }
 
     /**
-     * Rebuild the voice engine after a change (voice identity flip, model just provisioned). Shuts
-     * the current one down and re-selects on next enable; if voice is on, rebuilds immediately.
+     * Rebuild the voice engine after a change (voice identity flip, model just provisioned).
+     * Builds — and so warms — the engine for the current identity immediately, regardless of
+     * whether voice is currently switched on: the Director's usual flow picks `VOICE-ID: QUARK-H2`
+     * a beat before flipping `VOICE: ON`, and the model-load cost is the single biggest chunk of
+     * the reported cold-start latency, so paying it as early as possible (while they're still
+     * poking at the debug menu) is what actually shrinks perceived latency — waiting for the ON
+     * toggle just relocates the same cost to the worst possible moment, right before the first
+     * line speaks. The observer (what makes speech audible) still only starts if voice is enabled.
      */
     fun rebuildVoiceEngine() {
         val ctx = appContext ?: return
         _voiceEngine?.shutdown()
-        _voiceEngine = if (_voiceEnabled.value) buildVoiceEngine(ctx).also { startVoiceObserver() } else null
+        _voiceEngine = buildVoiceEngine(ctx)
+        if (_voiceEnabled.value) startVoiceObserver()
     }
 
     // Status line for the QUARK-H2 model import (debug UI). Empty when idle.
@@ -146,12 +153,16 @@ object QuantumRuntime {
     fun toggleVoice() {
         _voiceEnabled.value = !_voiceEnabled.value
         if (_voiceEnabled.value) {
-            // Lazy-init: create and start the observer the first time voice is enabled.
+            // The engine may already exist — rebuildVoiceEngine() (identity pick, model import) now
+            // builds+warms eagerly regardless of this toggle, precisely so the load cost is paid
+            // before this moment rather than here. Build only if nothing exists yet (e.g. voice
+            // switched straight on with the default identity, no prior pick); always (re)start the
+            // observer on enable — it's idempotent, guarded by voiceObserverStarted.
             val ctx = requireNotNull(appContext) { "QuantumRuntime.boot() must be called first" }
             if (_voiceEngine == null) {
                 _voiceEngine = buildVoiceEngine(ctx)
-                startVoiceObserver()
             }
+            startVoiceObserver()
         }
     }
 

@@ -80,7 +80,11 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
                         dataDir = status.dataDirPath,
                         lang = "en-us",
                     ),
-                    numThreads = 2,   // tune during the Fold 6 latency pass
+                    // sherpa's own Kokoro examples use 4 threads (vs. 2 default) since the model
+                    // benefits from more parallelism than most sherpa models; the Fold 6's SoC has
+                    // cores to spare. Confirmed via Fold 6 latency test to shrink inference time
+                    // (2026-07-04 Director test: ~7000ms cold @ 2 threads).
+                    numThreads = 4,
                     debug = false,
                     provider = "cpu",
                 ),

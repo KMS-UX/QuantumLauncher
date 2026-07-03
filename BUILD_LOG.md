@@ -11,23 +11,23 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 2b — custom voice — **VOICE LOCKED (2026-07-01); on-device
-integration NOT yet done.** The Director chose the canonical QUARK voice from a real Kokoro-engine
-audition (candidate **H2**); the blend recipe + exported embedding are committed under
-`voice/quark-phase2b/`. Phase 2a pipeline (Android TTS placeholder) remains code-complete and is
-still pending its own Fold 6 latency confirmation.
+**Current milestone:** QUARK Phase 2b — custom voice — **CONFIRMED LIVE on the Fold 6 (2026-07-04).**
+QUARK-H2 is audible, correct, and offline via sherpa-onnx; the Director judged the ~7000ms cold-start
+(for a ~3500ms line) understandable and warm calls acceptable — the Phase 2b acceptance bar (Synthetic-
+Seed note §3: deliberate not broken) is met. `numThreads` bumped 2→4 and the engine now warms as soon
+as `VOICE-ID: QUARK-H2` is picked (not deferred to the `VOICE: ON` toggle) to shrink that further.
 
-> **Next session (Phase 2b — finish on the Fold 6). The engine is now fully wired on sherpa-onnx**
-> (see the 2b entry below). Turnkey steps in `voice/quark-phase2b/HANDOFF.md`; two drop-ins remain:
-> 1. **Native libs** (build machine w/ github release egress) — copy sherpa v1.13.2 android `.so`
->    into `app/src/main/jniLibs/` (no Maven artifact exists; the authoring session's egress blocked
->    the github release download). Vendored `Tts.kt` is pinned to the same tag.
-> 2. **Model import** (on-device, one time) — download `kokoro-multi-lang-v1_0.tar.bz2` to the Fold 6,
->    then debug: triple-tap QUARK → `// VOICE-ID: QUARK-H2` → `// [IMPORT VOICE MODEL]` → pick it.
->    The H2 embedding is auto-copied as sherpa's `voices` (`sid = 0`).
-> 3. `// VOICE: ON` and **run the latency re-check** — warm start (via `warmUp()`) should hide cold
->    cost in the Scan beat. Deliberate → ship H2 live; broken-feeling → reserve H2 for set-pieces
->    (documented split, not silent degradation). Confirm state-sync, Stealth-mute, Scan sequencing.
+> **Open items, not blocking:**
+> - **Further latency polish, optional:** if ~7000ms cold still feels long after the thread-count +
+>   earlier-warm changes, the documented fallback (Piper/placeholder for real-time lines, H2 reserved
+>   for set-pieces) remains available — only pursue if a future session/Director flags it as still
+>   too slow after these changes land on-device.
+> - **Phase 1 (separate system) finding, fixed this session:** the on-device Gemma brain had no
+>   clock and fabricated an answer when asked the date — `QuarkOnDeviceBrain.reply()` now injects a
+>   live `[Current date/time: ...]` line every turn. Worth confirming on the Fold 6 that this resolves
+>   it and doesn't destabilize persona retention (the first-turn injection format changed slightly).
+> - Phase 2a pipeline (Android TTS placeholder) remains the default `PLACEHOLDER` identity and is
+>   still confirmed working stand-in/fallback.
 
 **Current milestone (prior):** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
 hardware verification on Fold 6.**
@@ -120,6 +120,28 @@ compiling behind the existing 2a `// VOICE` toggle; two seams remain that need t
   **latency re-check** (warm at boot; deliberate-vs-broken; Piper-fallback split only if forced).
 
 **Voice identity is locked; on-device custom voice is NOT yet audible** until those two seams land.
+
+### QUARK Phase 2b — confirmed live on Fold 6; latency tuning + a Phase 1 finding (2026-07-04c)
+
+**Director confirmation:** QUARK-H2 is audible and correct on the Fold 6. Cold start measured ~7000ms
+for a ~3500ms line; the Director judged the cold beat understandable and warm calls acceptable —
+**Phase 2b's acceptance bar is met** (deliberate not broken, offline, owned, Happy/Warn registers
+differ). Two small follow-ups from that session:
+
+- **TTS latency tuning** (`SherpaKokoroVoiceEngine`): `numThreads` 2 → 4 (matches sherpa's own Kokoro
+  examples; the model benefits from more parallelism than most sherpa models, and the Fold 6 has
+  cores to spare). **`QuantumRuntime.rebuildVoiceEngine()` now builds+warms the engine as soon as
+  `VOICE-ID` is set to `QUARK-H2`, regardless of whether `VOICE` is on** — previously the engine (and
+  the ~7s model-load cost) was deferred until the `VOICE: ON` toggle, i.e. relocated to the worst
+  possible moment (right before the first line speaks) rather than paid early while the Operator is
+  still in the debug menu. `toggleVoice()` updated to always (re)start the observer on enable rather
+  than only on first build, since the engine may now already exist.
+- **Phase 1 finding (separate system):** the Director asked QUARK the current date and got a
+  fabricated/placeholder answer — the on-device Gemma brain has no clock and, per the Persona Pack's
+  "never invent a reading" rule, should have said so rather than guessed. Fixed in
+  `QuarkOnDeviceBrain.reply()`: every turn now carries a fresh `[Current date/time: ...]` line
+  (`java.time`, formatted "EEEE, MMMM d yyyy, h:mm a"), recomputed per call rather than baked into the
+  once-only persona injection, so a long-open conversation doesn't go stale.
 
 ### QUARK Phase 2b — fix: audio cut off instantly (silent H2 playback) (2026-07-04b)
 
