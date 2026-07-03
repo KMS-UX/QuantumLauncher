@@ -17,7 +17,7 @@ import java.util.Locale
  * the ONNX/Piper→Kokoro voice swap in Phase 2b replaces the timbre, not the pipeline.
  *
  * Pitch/rate are dialled slightly toward the EDI register as a stand-in direction. Phase 2b's
- * KokoroVoiceEngine implements the same VoiceEngine contract, so the swap needs no caller change.
+ * SherpaKokoroVoiceEngine implements the same VoiceEngine contract, so the swap needs no caller change.
  *
  * Thread safety: speak() is called from a coroutine; TTS callbacks arrive on TTS's internal
  * thread. The `gate` monitor keeps the pending-utterance state consistent.

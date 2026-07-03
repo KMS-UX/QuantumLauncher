@@ -17,19 +17,17 @@ audition (candidate **H2**); the blend recipe + exported embedding are committed
 `voice/quark-phase2b/`. Phase 2a pipeline (Android TTS placeholder) remains code-complete and is
 still pending its own Fold 6 latency confirmation.
 
-> **Next session (Phase 2b — finish on the Fold 6). The engine swap is already scaffolded** (see the
-> Phase 2b entry below: `VoiceEngine`/`KokoroVoiceEngine`/`VoiceIdentity`, onnxruntime-android). Two
-> seams remain before the custom voice is audible:
-> 1. **Fetch the model** — `kokoro-v1.0.onnx` (~325 MB, gitignored) into `filesDir/quark_voice/`
->    (reuse the Phase 1 PICK-FILE acquisition). The voice embedding + vocab already ship as assets.
-> 2. **Wire an on-device `Phonemizer`** (espeak-ng / bundled G2P) — the one genuinely hard piece;
->    `UnavailablePhonemizer` is the default, which keeps `KokoroVoiceEngine` UNAVAILABLE (→ placeholder)
->    until a real G2P lands. This is what flips `isSupported()` true.
-> 3. `QuantumRuntime.setVoiceIdentity(QUARK_H2)` and **run the latency re-check** — warm at boot so
->    cold cost hides in the Scan beat; record warm spoken-reply latency.
-> 4. If too slow to read as *deliberate*: keep the fast engine for real-time lines, reserve QUARK-H2
->    for set-pieces — a **documented** split, not a silent degradation. Confirm reactive-state sync,
->    Stealth-mute respect, and Scan-beat sequencing carry over unchanged.
+> **Next session (Phase 2b — finish on the Fold 6). The engine is now fully wired on sherpa-onnx**
+> (see the 2b entry below). Turnkey steps in `voice/quark-phase2b/HANDOFF.md`; two drop-ins remain:
+> 1. **Native libs** (build machine w/ github release egress) — copy sherpa v1.13.2 android `.so`
+>    into `app/src/main/jniLibs/` (no Maven artifact exists; the authoring session's egress blocked
+>    the github release download). Vendored `Tts.kt` is pinned to the same tag.
+> 2. **Model import** (on-device, one time) — download `kokoro-multi-lang-v1_0.tar.bz2` to the Fold 6,
+>    then debug: triple-tap QUARK → `// VOICE-ID: QUARK-H2` → `// [IMPORT VOICE MODEL]` → pick it.
+>    The H2 embedding is auto-copied as sherpa's `voices` (`sid = 0`).
+> 3. `// VOICE: ON` and **run the latency re-check** — warm start (via `warmUp()`) should hide cold
+>    cost in the Scan beat. Deliberate → ship H2 live; broken-feeling → reserve H2 for set-pieces
+>    (documented split, not silent degradation). Confirm state-sync, Stealth-mute, Scan sequencing.
 
 **Current milestone (prior):** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
 hardware verification on Fold 6.**
@@ -122,6 +120,37 @@ compiling behind the existing 2a `// VOICE` toggle; two seams remain that need t
   **latency re-check** (warm at boot; deliberate-vs-broken; Piper-fallback split only if forced).
 
 **Voice identity is locked; on-device custom voice is NOT yet audible** until those two seams land.
+
+### QUARK Phase 2b — on-device engine wired on sherpa-onnx (2026-07-03)
+
+Replaced the raw-onnxruntime scaffold (which still needed a hand-built on-device phonemizer) with
+**sherpa-onnx**, whose Kokoro path does espeak-ng phonemization internally — the cleanest offline
+route and it dissolves the hard G2P problem. Fully wired and compiling behind the 2a `// VOICE`
+toggle; falls back to the placeholder until native libs + model are supplied (see RESUME HERE +
+`voice/quark-phase2b/HANDOFF.md`).
+
+- **`SherpaKokoroVoiceEngine`** (`shell.ai`, implements `VoiceEngine`): builds `OfflineTts` from a
+  provisioned Kokoro model dir + our H2 embedding as the `voices` file, `generateWithConfig(sid=0,
+  speed=1.02)`, `AudioTrack` float-PCM playback, `warmUp()`, latency callbacks. Native-lib absence
+  is caught (`UnsatisfiedLinkError` → UNAVAILABLE), never crashes.
+- **Verified fact that makes H2 drop in cleanly:** sherpa's `voices.bin` is float32
+  `[speakers,510,256]` with `sid` selecting the block (read from sherpa's C++). Our
+  `quark_voice_H2.f32` (510×256 float32) IS a valid 1-speaker voices file — `sid = 0` = QUARK-H2.
+- **`VoiceModelProvisioner`** (`shell.ai`): copies the bundled H2 embedding into sherpa's `voices`
+  slot; extracts the sherpa Kokoro model `*.tar.bz2` (commons-compress) to `filesDir/quark_voice/
+  kokoro/` with a zip-slip guard; reports model readiness.
+- **Vendored API:** `com/k2fsa/sherpa/onnx/Tts.kt` (verbatim, sherpa v1.13.2, Apache-2.0). Native
+  libs come via `jniLibs/` (gitignored) — **sherpa publishes no Maven artifact** (verified against
+  repo1.maven.org). Removed the `onnxruntime-android` dep and the old `KokoroVoiceEngine` +
+  `Phonemizer` seam.
+- **Dependency:** `org.apache.commons:commons-compress:1.27.1` (on-device tar.bz2 extraction).
+- **UI (debug only):** `// VOICE-ID: PLACEHOLDER/QUARK-H2` selector + `// [IMPORT VOICE MODEL]`
+  (SAF picker → extract → auto-rebuild). `QuantumRuntime` gains `VoiceIdentity`, `setVoiceIdentity`,
+  `rebuildVoiceEngine`, `importVoiceModel`, `voiceModelStatus`.
+- **Env constraint (why not finished here):** this session's egress blocks external github release
+  downloads ("GitHub access to this repository is not enabled for this session") and there's no
+  device/emulator, so the native `.so` libs + on-device audio test can't be done here — they're the
+  documented remaining drop-ins.
 
 **Build note (proxy):** HuggingFace and `download.pytorch.org` are blocked by this environment's
 egress policy, so the audition used the ONNX engine (weights from GitHub release assets) rather than

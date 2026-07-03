@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.Uri
 import android.os.BatteryManager
 import android.os.SystemClock
 import com.quantumos.core.BootLifecycleState
@@ -13,8 +14,8 @@ import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
 import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.shell.ai.QuarkOnDeviceBrain
-import com.quantumos.shell.ai.KokoroVoiceEngine
 import com.quantumos.shell.ai.QuarkVoiceEngine
+import com.quantumos.shell.ai.SherpaKokoroVoiceEngine
 import com.quantumos.shell.ai.VoiceEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.quantumos.shell.ai.VoiceModelProvisioner
 
 /*
  * QuantumRuntime — the process-level home of the ONE QuantumStateEngine (M5).
@@ -80,7 +83,7 @@ object QuantumRuntime {
     private var voiceObserverStarted = false
 
     // Which voice identity to build when voice is first enabled. PLACEHOLDER is the Phase 2a Android
-    // TTS stand-in (always available); QUARK_H2 is the Phase 2b custom voice (KokoroVoiceEngine) and
+    // TTS stand-in (always available); QUARK_H2 is the Phase 2b custom voice (SherpaKokoroVoiceEngine) and
     // is used only when its model + phonemizer are present — otherwise we fall back to PLACEHOLDER so
     // the voice loop never goes mute. Default stays PLACEHOLDER until the Fold 6 latency pass signs
     // QUARK_H2 off (see BUILD_LOG Phase 2b RESUME HERE).
@@ -88,18 +91,56 @@ object QuantumRuntime {
     private val _voiceIdentity = MutableStateFlow(VoiceIdentity.PLACEHOLDER)
     val voiceIdentity: StateFlow<VoiceIdentity> = _voiceIdentity.asStateFlow()
 
-    /** Select the voice identity. Takes effect on the next voice engine (re)build. */
-    fun setVoiceIdentity(identity: VoiceIdentity) { _voiceIdentity.value = identity }
+    /** Select the voice identity and rebuild the engine so the change takes effect immediately. */
+    fun setVoiceIdentity(identity: VoiceIdentity) {
+        if (_voiceIdentity.value == identity) return
+        _voiceIdentity.value = identity
+        rebuildVoiceEngine()
+    }
 
     /** Build the engine for the current identity, falling back to the placeholder if unavailable. */
     private fun buildVoiceEngine(ctx: Context): VoiceEngine {
         val engine: VoiceEngine =
-            if (_voiceIdentity.value == VoiceIdentity.QUARK_H2 && KokoroVoiceEngine.isSupported(ctx))
-                KokoroVoiceEngine(ctx)
+            if (_voiceIdentity.value == VoiceIdentity.QUARK_H2 && SherpaKokoroVoiceEngine.isSupported(ctx))
+                SherpaKokoroVoiceEngine(ctx)
             else
                 QuarkVoiceEngine(ctx)
         engine.warmUp()   // hide any cold cost inside the reactive beat
         return engine
+    }
+
+    /**
+     * Rebuild the voice engine after a change (voice identity flip, model just provisioned). Shuts
+     * the current one down and re-selects on next enable; if voice is on, rebuilds immediately.
+     */
+    fun rebuildVoiceEngine() {
+        val ctx = appContext ?: return
+        _voiceEngine?.shutdown()
+        _voiceEngine = if (_voiceEnabled.value) buildVoiceEngine(ctx).also { startVoiceObserver() } else null
+    }
+
+    // Status line for the QUARK-H2 model import (debug UI). Empty when idle.
+    private val _voiceModelStatus = MutableStateFlow("")
+    val voiceModelStatus: StateFlow<String> = _voiceModelStatus.asStateFlow()
+
+    /**
+     * Import a sherpa Kokoro model tarball (`*.tar.bz2`) the Operator picked, extract it on IO, and
+     * rebuild the engine so QUARK-H2 goes live. Failures are surfaced in [voiceModelStatus], never
+     * crash. See VoiceModelProvisioner / voice/quark-phase2b/HANDOFF.md.
+     */
+    fun importVoiceModel(context: Context, uri: Uri) {
+        appScope.launch {
+            _voiceModelStatus.value = "EXTRACTING…"
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use {
+                        VoiceModelProvisioner.importModelTarBz2(context, it)
+                    } ?: false
+                }.getOrDefault(false)
+            }
+            _voiceModelStatus.value = if (ok) "MODEL READY" else "IMPORT FAILED"
+            if (ok) rebuildVoiceEngine()
+        }
     }
 
     fun toggleVoice() {

@@ -1,17 +1,18 @@
 # `quark_voice/` — on-device assets for QUARK's custom voice (Phase 2b)
 
-Consumed by `KokoroVoiceEngine`. The voice identity is owned and locked; only the (large) model
-weights are fetched rather than bundled.
+The custom voice runs on **sherpa-onnx** (`SherpaKokoroVoiceEngine`), which does Kokoro inference
+**and** espeak-ng phonemization internally. The voice identity is owned and small; only the large
+model is provisioned on-device.
 
 | Asset | Committed? | What |
 |---|---|---|
-| `quark_voice_H2.f32` | ✅ yes (~512 KB) | The locked **QUARK-H2** speaker embedding — 510×256 little-endian float32. This *is* the voice. |
-| `kokoro_vocab.json` | ✅ yes | Phoneme→token-id map for kokoro-v1.0 (114 entries). |
-| `kokoro-v1.0.onnx` | ❌ no (~325 MB) | Kokoro model weights — **fetched to `filesDir/quark_voice/` at first run**, gitignored. |
+| `quark_voice_H2.f32` | ✅ yes (~512 KB) | The locked **QUARK-H2** embedding — 510×256 little-endian float32. This is a valid **1-speaker sherpa `voices.bin`** as-is; the engine copies it into place and uses `sid = 0`. |
+| `kokoro_vocab.json` | ✅ yes | Kept for reference (the old raw-ONNX path's phoneme map). sherpa uses its own `tokens.txt` from the model dir, so this is not read at runtime. |
 
-Fetch the model from the [kokoro-onnx model release](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0)
-(`kokoro-v1.0.onnx`) — same weights the build-machine audition used.
+**Not here (provisioned on-device):** the sherpa Kokoro model dir — `model.onnx`, `tokens.txt`,
+`espeak-ng-data/` — imported from the `kokoro-multi-lang-v1_0` tarball via the debug
+`[IMPORT VOICE MODEL]` action (extracted to `filesDir/quark_voice/kokoro/` by
+`VoiceModelProvisioner`).
 
-`KokoroVoiceEngine.isSupported()` gates on the model file being present **and** an on-device
-phonemizer being wired; until both land it returns false and the runtime falls back to the Phase 2a
-Android-TTS placeholder. See `voice/quark-phase2b/` for the recipe and reference master.
+Also required (build-time, not here): the sherpa native libs in `app/src/main/jniLibs/`. See
+`voice/quark-phase2b/HANDOFF.md` for the full turnkey steps.

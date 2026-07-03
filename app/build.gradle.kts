@@ -73,10 +73,13 @@ dependencies {
     // Never in the production scripted-brain path; lives entirely behind the triple-tap debug toggle.
     implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
 
-    // QUARK Phase 2b — custom voice. ONNX Runtime for on-device Kokoro (kokoro-v1.0) inference of
-    // the locked QUARK-H2 blend. Debug-gated behind the same // VOICE toggle; falls back to the
-    // Phase 2a Android-TTS placeholder when the model/phonemizer aren't present. See KokoroVoiceEngine.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // QUARK Phase 2b — custom voice. The on-device engine is sherpa-onnx (Kokoro + built-in
+    // espeak-ng phonemization), which is native-only: its Kotlin API is source-vendored
+    // (com.k2fsa.sherpa.onnx.Tts) and its native libs (libsherpa-onnx-jni.so) are supplied via
+    // src/main/jniLibs/ from the pinned v1.13.2 android release tarball — NOT a Maven dependency
+    // (sherpa-onnx publishes no Maven artifact). See voice/quark-phase2b/HANDOFF.md.
+    // commons-compress unpacks the sherpa Kokoro model tarball on-device (tar.bz2).
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     // Pure-logic unit tests (no emulator) — runbook Step 4.
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

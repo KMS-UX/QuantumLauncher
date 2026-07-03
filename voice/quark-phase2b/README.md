@@ -42,19 +42,21 @@ and **Warn** (grave, no-wit) must sound audibly different — they do.
 3. **Warn** — "Power critical, 8 percent. Charge now or we go dark soon…"
 4. **Refusal / boundary** — "…I just won't tell you it's safe when it's not."
 
-## Integration — NOT yet done (the remaining Phase 2b on-device work)
+## Integration — wired on sherpa-onnx; two drop-ins remain
 
-Per the Synthetic-Seed note §3, still to do on the Fold 6:
+The on-device engine is **`SherpaKokoroVoiceEngine`** (sherpa-onnx: Kokoro + built-in espeak-ng
+phonemization), behind the same 2a `// VOICE` toggle, with a `VOICE-ID: PLACEHOLDER/QUARK-H2`
+selector and an in-app model importer. Our `quark_voice_H2.f32` embedding is used directly as a
+1-speaker sherpa `voices.bin` (`sid = 0`), so H2 — not a stock speaker — is what plays.
 
-1. **On-device runtime.** Swap the Phase 2a placeholder (`QuarkVoiceEngine`, Android
-   `TextToSpeech`) for a Kokoro ONNX runtime that consumes `quark_voice_H2.f32.bin`,
-   behind the **same 2a debug/voice toggle**. Caller API is unchanged by design.
-2. **Latency re-check on hardware.** Kokoro runs slower than Piper/Android-TTS. Measure
-   warm spoken-reply latency on the Fold 6; warm the engine at boot / first Scan so cold
-   cost hides in the reactive beat.
-3. **Fallback decision (only if measured latency forces it).** If too slow to read as
-   *deliberate*, keep the fast engine for real-time lines and reserve QUARK-H2 for
-   set-pieces (boot greeting, status reports). Record as a decision, not a silent
-   degradation.
-4. Confirm reactive-state sync, Stealth-mute respect, and Scan-beat sequencing carry over
-   from 2a unchanged.
+**Turnkey finish steps are in [`HANDOFF.md`](HANDOFF.md):**
+1. Drop the sherpa **native libs** (v1.13.2) into `app/src/main/jniLibs/` (build-time; no Maven
+   artifact exists).
+2. **Import the model** on the Fold 6 (`kokoro-multi-lang-v1_0` tarball) via the debug
+   `[IMPORT VOICE MODEL]` action.
+3. Run the **latency re-check** on hardware (warm start hides cold cost in the Scan beat); ship H2
+   live, or reserve it for set-pieces if measured latency forces it — a documented split, not a
+   silent degradation.
+
+Until the native libs + model are present the engine reports UNAVAILABLE and the runtime falls back
+to the Phase 2a placeholder — the voice loop never goes mute.
