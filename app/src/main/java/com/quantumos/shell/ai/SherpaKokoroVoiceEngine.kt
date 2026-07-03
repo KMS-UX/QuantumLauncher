@@ -153,7 +153,23 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
             if (n <= 0) break
             off += n
         }
-        if (currentId == id) t.stop()   // blocks until the buffered tail drains
+        // WRITE_BLOCKING only blocks while the internal buffer is full — with the buffer sized to
+        // hold the whole clip (above), the loop above returns almost instantly after one big memcpy,
+        // well before the hardware has actually rendered any of it. AudioTrack.stop() on a streaming
+        // track halts immediately rather than draining the buffer, so calling it right after the
+        // write loop cut playback off within a millisecond of starting. Poll playbackHeadPosition
+        // (frames actually rendered) until it reaches what we wrote — mono, so frames == samples —
+        // with a generous timeout as a safety net against a device that never reports completion.
+        if (currentId == id) {
+            val deadline = System.currentTimeMillis() + (samples.size * 1000L / sr) + 2_000L
+            while (currentId == id &&
+                t.playbackHeadPosition < off &&
+                System.currentTimeMillis() < deadline
+            ) {
+                Thread.sleep(20)
+            }
+        }
+        if (currentId == id) t.stop()
         t.release()
         if (track === t) track = null
     }
