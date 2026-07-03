@@ -262,20 +262,33 @@ Stay in character at all times. Keep the Operator vital.
     // Generate one reply on a background dispatcher. On the first call, prepends the full Persona
     // Pack system prompt to the user turn — Gemma 4 reads first-turn context reliably even when
     // ConversationConfig.systemInstruction alone doesn't take hold.
+    //
+    // Every turn also carries a fresh [Current date/time: ...] context line. The model has no clock
+    // of its own — without a live reading it either guesses from training data or admits it doesn't
+    // know (the "placeholder" the Director hit asking today's date) — and per the Persona Pack's
+    // "never invent a reading" rule, a guess would be worse than a plain gap. This gives her the
+    // real thing instead. Recomputed per call (not baked into the once-only persona injection) so a
+    // conversation left open doesn't go stale.
     suspend fun reply(userInput: String): String = withContext(Dispatchers.Default) {
         val conv = _conversation ?: return@withContext "[ERR: model not loaded]"
         return@withContext try {
+            val dateTimeContext = "[Current date/time: ${currentDateTimeString()}]"
             val message = if (!_personaInjected) {
                 _personaInjected = true
-                "$systemPrompt\n\n---\n\nOperator: $userInput"
+                "$systemPrompt\n\n$dateTimeContext\n\n---\n\nOperator: $userInput"
             } else {
-                userInput
+                "$dateTimeContext\n$userInput"
             }
             conv.sendMessage(message).toString().trim()
         } catch (e: Exception) {
             "[ERR: ${e.message?.take(100)}]"
         }
     }
+
+    private fun currentDateTimeString(): String =
+        java.time.LocalDateTime.now().format(
+            java.time.format.DateTimeFormatter.ofPattern("EEEE, MMMM d yyyy, h:mm a")
+        )
 
     // Reset conversation history while keeping the engine loaded — creates a fresh Conversation
     // with the same system prompt so QUARK starts clean without reloading the model weights.
