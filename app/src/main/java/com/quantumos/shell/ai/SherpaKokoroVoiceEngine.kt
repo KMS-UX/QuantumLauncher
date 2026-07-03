@@ -22,15 +22,19 @@ import java.util.concurrent.Executors
  * problem entirely (the audition used espeak-ng on the build machine; sherpa carries espeak-ng-data
  * on the device). See voice/quark-phase2b/HANDOFF.md for the full rationale and provisioning steps.
  *
- * How QUARK-H2 plays instead of a stock speaker: sherpa's `voices.bin` is float32
- * `[num_speakers, 510, 256]` and `sid` selects the speaker block (verified against sherpa's C++).
- * Our locked H2 embedding is exactly one such block, so we point `voices` at it and use `sid = 0` —
- * QUARK-H2 is speaker 0, no stock voice involved.
+ * How QUARK-H2 plays instead of a stock speaker: sherpa's kokoro model bakes a fixed speaker count
+ * into its ONNX metadata and demands a `voices.bin` with exactly that many `[510,256]` float32
+ * blocks — handing it a differently-sized file is a **fatal, uncatchable native `_Exit()`**, not a
+ * Kotlin exception (verified against sherpa's C++, `offline-tts-kokoro-model.cc`). So we don't hand
+ * it our lone H2 block directly: [VoiceModelProvisioner] patches a *copy of the model's own*
+ * `voices.bin` — same total size, one slot overwritten with our owned H2 embedding — and reports
+ * back the `sid` that slot lives at ([h2Sid]).
  *
  * Two things must be present on-device for this to go READY (else it reports UNAVAILABLE and the
  * runtime falls back to the Phase 2a placeholder — the voice loop never goes mute):
- *   1. The sherpa Kokoro model dir in filesDir (`model.onnx`, `tokens.txt`, `espeak-ng-data/`),
- *      provisioned by [VoiceModelProvisioner]. Not bundled (~large); fetched on-device.
+ *   1. The sherpa Kokoro model dir in filesDir (`model.onnx`, `tokens.txt`, `espeak-ng-data/`,
+ *      `voices.bin`), provisioned by [VoiceModelProvisioner]. Not bundled (~large); fetched
+ *      on-device.
  *   2. The sherpa native libs (`libsherpa-onnx-jni.so`) in the APK's jniLibs — added from the
  *      pinned v1.13.2 android release tarball at build time (see HANDOFF.md). Their absence is
  *      caught here as an UnsatisfiedLinkError → UNAVAILABLE, so a build without them still runs.
@@ -46,6 +50,7 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
     private val worker = Executors.newSingleThreadExecutor()
     private var tts: OfflineTts? = null
     private var sampleRate = 24_000
+    private var h2Sid = 0   // set in initialise() from VoiceModelProvisioner's patched voices file
     @Volatile private var track: AudioTrack? = null
     @Volatile private var currentId = 0L
 
@@ -55,18 +60,22 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
 
     private fun initialise() {
         try {
-            // The owned H2 embedding ships as an asset; copy it into place as sherpa's voices file.
-            val voices = VoiceModelProvisioner.ensureVoicesFile(appContext)
             val status = VoiceModelProvisioner.status(appContext)
+            // The patched voices file is the model's own voices.bin with one slot overwritten by our
+            // owned H2 embedding — required so its float count still matches what the model's ONNX
+            // metadata demands (a mismatch there is a fatal, uncatchable native exit, not a Kotlin
+            // exception — see VoiceModelProvisioner's doc comment).
+            val voices = VoiceModelProvisioner.ensureVoicesFile(appContext)
             if (!status.modelReady || voices == null) {
                 _readyState.value = VoiceReadyState.UNAVAILABLE
                 return
             }
+            h2Sid = voices.sid
             val config = OfflineTtsConfig(
                 model = OfflineTtsModelConfig(
                     kokoro = OfflineTtsKokoroModelConfig(
                         model = status.modelPath,
-                        voices = voices.absolutePath,
+                        voices = voices.file.absolutePath,
                         tokens = status.tokensPath,
                         dataDir = status.dataDirPath,
                         lang = "en-us",
@@ -91,7 +100,7 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
         worker.execute {
             if (!isReady) return@execute
             // Throwaway synth so the first real line pays no cold cost (hides in the Scan beat).
-            runCatching { tts?.generateWithConfig(".", GenerationConfig(sid = 0, speed = SPEED)) }
+            runCatching { tts?.generateWithConfig(".", GenerationConfig(sid = h2Sid, speed = SPEED)) }
         }
     }
 
@@ -101,7 +110,7 @@ class SherpaKokoroVoiceEngine(context: Context) : VoiceEngine {
         currentId = id
         worker.execute {
             try {
-                val audio = tts?.generateWithConfig(text, GenerationConfig(sid = 0, speed = SPEED))
+                val audio = tts?.generateWithConfig(text, GenerationConfig(sid = h2Sid, speed = SPEED))
                     ?: return@execute
                 if (currentId != id) return@execute            // superseded by a newer line
                 playBlocking(audio.samples, audio.sampleRate, id, onStart)
