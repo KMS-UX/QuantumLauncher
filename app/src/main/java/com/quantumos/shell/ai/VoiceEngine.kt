@@ -14,7 +14,7 @@ enum class VoiceReadyState { INITIALIZING, READY, UNAVAILABLE }
 /**
  * The contract the voice observer in [com.quantumos.shell.ui.QuantumRuntime] speaks to. Both the
  * Phase 2a placeholder ([QuarkVoiceEngine], Android TextToSpeech) and the Phase 2b custom voice
- * ([KokoroVoiceEngine], the locked QUARK-H2 blend on an ONNX runtime) implement it, so swapping the
+ * ([SherpaKokoroVoiceEngine], the locked QUARK-H2 blend on sherpa-onnx) implement it, so swapping the
  * timbre never touches the caller — exactly the "replaces the engine wholesale, no API change"
  * design the Phase 2a engine was written toward.
  */
@@ -43,24 +43,4 @@ interface VoiceEngine {
     fun stop()
 
     fun shutdown()
-}
-
-/**
- * Text → phoneme string in the register Kokoro's tokenizer expects (espeak-style IPA). This is the
- * one genuinely hard on-device piece of Phase 2b: Kokoro consumes phonemes, not graphemes, and the
- * audition used espeak-ng on the build machine. Bringing espeak-ng (or a bundled G2P) onto the Fold
- * 6 is the work that flips [KokoroVoiceEngine] from UNAVAILABLE to READY.
- */
-interface Phonemizer {
-    /** IPA/espeak phoneme string for [text], or null if phonemization is unavailable on this device. */
-    fun phonemize(text: String): String?
-}
-
-/**
- * The default until an on-device G2P is wired. Returns null, which keeps [KokoroVoiceEngine]
- * honestly UNAVAILABLE (→ runtime falls back to the placeholder) instead of speaking garbage.
- * Replace with an espeak-ng-backed implementation to light up the custom voice on-device.
- */
-object UnavailablePhonemizer : Phonemizer {
-    override fun phonemize(text: String): String? = null
 }

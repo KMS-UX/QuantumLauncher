@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -152,6 +153,15 @@ class QuarkAssistantActivity : ComponentActivity() {
                 ActivityResultContracts.OpenDocument()
             ) { uri: Uri? -> uri?.let { onDeviceBrain.importFromUri(it) } }
 
+            // Phase 2b: voice identity + QUARK-H2 model import (debug only). The custom voice runs on
+            // sherpa-onnx; picking the sherpa Kokoro model tarball extracts it and flips H2 live.
+            val voiceId by QuantumRuntime.voiceIdentity.collectAsState()
+            val voiceModelStatus by QuantumRuntime.voiceModelStatus.collectAsState()
+            val ctx = LocalContext.current
+            val voiceModelLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument()
+            ) { uri: Uri? -> uri?.let { QuantumRuntime.importVoiceModel(ctx, it) } }
+
             // Auto-load when model is present on disk and debug mode just activated.
             LaunchedEffect(debugMode) {
                 if (debugMode && onDeviceBrain.isPresent && !onDeviceBrain.isLoaded) {
@@ -229,6 +239,36 @@ class QuarkAssistantActivity : ComponentActivity() {
                                             .clickable { QuantumRuntime.toggleVoice() }
                                             .padding(top = 2.dp)
                                     )
+                                    // Phase 2b: pick the custom voice identity. PLACEHOLDER = Android
+                                    // TTS (2a); QUARK-H2 = her locked sherpa-onnx voice (needs model).
+                                    val isH2 = voiceId == QuantumRuntime.VoiceIdentity.QUARK_H2
+                                    Text(
+                                        "// VOICE-ID: ${if (isH2) "QUARK-H2" else "PLACEHOLDER"}",
+                                        color = dimColor, fontFamily = font, fontSize = 9.sp,
+                                        modifier = Modifier
+                                            .clickable {
+                                                QuantumRuntime.setVoiceIdentity(
+                                                    if (isH2) QuantumRuntime.VoiceIdentity.PLACEHOLDER
+                                                    else QuantumRuntime.VoiceIdentity.QUARK_H2
+                                                )
+                                            }
+                                            .padding(top = 2.dp)
+                                    )
+                                    // When H2 is selected, offer to import the sherpa Kokoro model
+                                    // tarball (once). Shows extract status.
+                                    if (isH2) {
+                                        Text(
+                                            "// [IMPORT VOICE MODEL] ${voiceModelStatus}",
+                                            color = dimColor, fontFamily = font, fontSize = 9.sp,
+                                            modifier = Modifier
+                                                .clickable {
+                                                    voiceModelLauncher.launch(
+                                                        arrayOf("application/x-bzip2", "application/octet-stream", "*/*")
+                                                    )
+                                                }
+                                                .padding(top = 2.dp)
+                                        )
+                                    }
                                 }
                             }
                             Spacer(Modifier.weight(1f))

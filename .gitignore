@@ -16,6 +16,10 @@ local.properties
 app/release.keystore
 keystore.properties
 
-# QUARK Phase 2b — Kokoro model weights are fetched at runtime, never committed (~325MB).
+# QUARK Phase 2b — Kokoro model weights are provisioned on-device, never committed (~325MB).
 app/src/main/assets/quark_voice/*.onnx
 app/src/main/assets/quark_voice/voices-*.bin
+
+# QUARK Phase 2b — sherpa-onnx native libs (~tens of MB) are dropped in from the pinned v1.13.2
+# android release tarball at build time (see voice/quark-phase2b/HANDOFF.md), not committed.
+app/src/main/jniLibs/**/*.so
