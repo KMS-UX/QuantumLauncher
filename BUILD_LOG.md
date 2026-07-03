@@ -121,6 +121,26 @@ compiling behind the existing 2a `// VOICE` toggle; two seams remain that need t
 
 **Voice identity is locked; on-device custom voice is NOT yet audible** until those two seams land.
 
+### QUARK Phase 2b — fix: audio cut off instantly (silent H2 playback) (2026-07-04b)
+
+**Director report from the Fold 6, after the crash fix:** import succeeded, no crash, but no audio —
+the LOG channel showed `VOICE: TTS_START 2698ms · PLAYBACK 1ms` (inference took ~2.7s as expected,
+but "played" for 1ms).
+
+**Root cause, in `SherpaKokoroVoiceEngine.playBlocking`:** the `AudioTrack` buffer was sized to hold
+the *entire* clip (`.coerceAtLeast(samples.size * 4)`). With a buffer that large, `write(...,
+WRITE_BLOCKING)` never actually blocks — it copies everything in one shot and returns almost
+instantly, well before the hardware has rendered any of it. The code then immediately called
+`t.stop()`, which — for a streaming `AudioTrack` — halts playback **immediately**, not after the
+buffered audio drains (the old inline comment claiming otherwise was simply wrong). Net effect: the
+whole clip got buffered and cut off within about a millisecond, every time — silent by construction,
+not a device/config issue.
+
+**Fix:** after the write loop, poll `t.playbackHeadPosition` (frames actually rendered — mono, so
+frames == samples) until it catches up to the frames written, with a generous timeout (clip duration
++ 2s) as a safety net, *before* calling `stop()`. `PLAYBACK` in the LOG channel now reflects real
+audio duration.
+
 ### QUARK Phase 2b — fix: crash on custom-voice import/toggle (2026-07-04)
 
 **Director report from the Fold 6:** native libs built and installed fine (previous session's ABI
