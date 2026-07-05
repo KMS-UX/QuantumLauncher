@@ -810,8 +810,20 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   intended — this is a pure extraction. **Could not verify locally**: this cloud session has no
   Android SDK and the sandboxed network policy blocks `dl.google.com` (AGP plugin resolution), so
   not even `:core`'s plain-JVM `gradle test` can run here (confirmed via proxy status: `connect_
-  rejected` to `dl.google.com:443`) — same constraint every prior session hit. **Director/CI must
-  confirm:** push this branch, watch `.github/workflows/build.yml` go green (`gradle test` +
-  `assembleDebug`), then sideload to the Fold 6 and confirm the launcher looks and behaves
-  identically to before the extraction (proof point per the brief §2) before Step 2 (docking Optics)
-  starts.
+  rejected` to `dl.google.com:443`) — same constraint every prior session hit.
+  - **First CI push (run #66) failed** — `:app-shell:compileDebugKotlin` errored with `Unresolved
+    reference 'RuntimeShader'` (+ 4 related errors). Root cause: the extraction imported
+    `RenderEffect`/`RuntimeShader` from `androidx.compose.ui.graphics` instead of `android.graphics`
+    (the real platform classes the AGSL shader code needs) while moving the CRT shader code into
+    `app-shell/AppShell.kt`. Fixed by restoring the original `android.graphics.RenderEffect` /
+    `android.graphics.RuntimeShader` imports (`androidx.compose.ui.graphics.asComposeRenderEffect`
+    stays, for the Android→Compose RenderEffect conversion) — same imports the pre-extraction
+    `LauncherUi.kt` used.
+  - **CI run #67 (fix) is green**: `gradle test` + `assembleDebug` + `assembleRelease` all passed,
+    debug and signed-release APKs uploaded as artifacts. The three-module split (`:core`, `:app-shell`,
+    `:app`) compiles clean.
+  - **Still needed — the brief's actual proof point:** CI green proves it *compiles*; it does not
+    prove "identical look and behaviour" (brief §2). **Director must** sideload the CI debug APK to
+    the Fold 6 and confirm the launcher renders/behaves exactly as before the extraction (phosphor
+    hue switch, CRT treatment, nameplate + channel strip, HOME/APPS/STATUS/LOG, Vitality panel, QUARK
+    trigger/Assistant View) before Step 2 (docking Optics) starts.
