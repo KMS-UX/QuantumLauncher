@@ -58,16 +58,16 @@ import android.net.Uri
 import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.crtShader
 import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
 import com.quantumos.shell.ai.BrainReadyState
 import com.quantumos.shell.ai.QuarkModelConfig
-import com.quantumos.shell.ui.Fonts
-import com.quantumos.shell.ui.Phosphor
-import com.quantumos.shell.ui.PleaseStandbyCard
 import com.quantumos.shell.ui.QuantumRuntime
-import com.quantumos.shell.ui.crtShader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 

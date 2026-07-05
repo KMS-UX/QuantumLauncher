@@ -785,3 +785,33 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   (2) add the three secrets in GitHub repo settings; (3) re-run CI to produce the signed release
   APK artifact; (4) complete the Step 3 field-test on the Fold 6.** Checkpoint β is confirmed when
   all field-test items pass.
+- **App Shell Integration — Step 1 session (2026-07-05):** extracted the launcher's shared chrome
+  into a standalone `app-shell` library module per the App Shell Integration Task Brief v1.0
+  (companion to Build Bible v0.31, decision 60). No Optics/Nav work — launcher-only, per the brief's
+  scope. Split the single `:app` module into three Gradle modules:
+  - **`:core`** (new, pure Kotlin/JVM, no Android dep) — `QuantumState.kt` + its unit tests moved
+    here unchanged (still `com.quantumos.core`). Needed so `:app-shell` (a library) can depend on
+    `PhosphorHue`/`NavigationChannel` without a circular dependency back onto `:app`.
+  - **`:app-shell`** (new, Android library, `com.quantumos.appshell`) — the actual chrome, moved
+    verbatim out of `LauncherUi.kt`/`Typography.kt`: the `Phosphor` token object, bundled `Fonts`
+    (+ the four `.ttf` files), `TerminalConstraints` + `QuantumOSLayoutShell` (the CRT container),
+    the AGSL `crtShader()`/`crtOverlay()` fallback pair, `NameplateHeader`, `ChannelStrip`, and
+    `PleaseStandbyCard` (made `public` so cross-module callers can use them). Depends on `:core`
+    only — no knowledge of any single app's screens.
+  - **`:app`** — now depends on `project(":core")` + `project(":app-shell")`. `LauncherUi.kt` keeps
+    `QuantumAppShell` (the launcher's own screen assembly: nameplate + channel strip + per-channel
+    content + Lock overlay + BootSplash) unchanged in shape, just importing the chrome pieces
+    instead of defining them. `QuarkAssistantActivity.kt` (which already reused `Phosphor`/`Fonts`/
+    `PleaseStandbyCard`/`crtShader` from the pre-extraction `shell.ui` package) updated to import
+    from `com.quantumos.appshell` instead — confirms the module boundary is real, not just moved
+    code that only the launcher touches.
+  Root `build.gradle.kts`/`settings.gradle.kts` updated for the two new modules (`com.android.library`
+  + `org.jetbrains.kotlin.jvm` plugins declared, both new modules included). No behavior change
+  intended — this is a pure extraction. **Could not verify locally**: this cloud session has no
+  Android SDK and the sandboxed network policy blocks `dl.google.com` (AGP plugin resolution), so
+  not even `:core`'s plain-JVM `gradle test` can run here (confirmed via proxy status: `connect_
+  rejected` to `dl.google.com:443`) — same constraint every prior session hit. **Director/CI must
+  confirm:** push this branch, watch `.github/workflows/build.yml` go green (`gradle test` +
+  `assembleDebug`), then sideload to the Fold 6 and confirm the launcher looks and behaves
+  identically to before the extraction (proof point per the brief §2) before Step 2 (docking Optics)
+  starts.
