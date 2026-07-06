@@ -293,6 +293,38 @@ class QuantumStateEngineTest {
         assertTrue(line.contains("Hong Kong"), "region ack must name the new region")
     }
 
+    // ---------- Launcher Restructure Phase 1 — HOME instrument console ----------
+
+    // The console is fixed at exactly eight instruments, per the House Style module identities.
+    @Test
+    fun instrumentConsole_hasExactlyEightUniqueInstruments() {
+        val specs = InstrumentConsole.INSTRUMENTS
+        assertEquals(8, specs.size)
+        assertEquals(InstrumentId.entries.toSet(), specs.map { it.id }.toSet())
+    }
+
+    // CAM/MAPS hand off to the standalone Optics/Nav apps; every other instrument has no app
+    // handoff and no in-app hop except CONFIG (which opens the STATUS channel).
+    @Test
+    fun instrumentConsole_camAndMapsTargetOpticsAndNav() {
+        val specs = InstrumentConsole.INSTRUMENTS
+        assertEquals("Optics", specs.single { it.id == InstrumentId.CAM }.targetAppLabel)
+        assertEquals("Nav", specs.single { it.id == InstrumentId.MAPS }.targetAppLabel)
+        assertEquals(NavigationChannel.STATUS, specs.single { it.id == InstrumentId.CONFIG }.opensChannel)
+        val standby = specs.filter { it.targetAppLabel == null && it.opensChannel == null }
+        assertEquals(setOf(InstrumentId.COMMS, InstrumentId.FILES, InstrumentId.AUDIO,
+            InstrumentId.RADIO, InstrumentId.SIGNAL), standby.map { it.id }.toSet())
+    }
+
+    // Label match is case-insensitive and exact — no accidental substring hits on unrelated apps.
+    @Test
+    fun findByLabel_matchesCaseInsensitively_andOnlyExact() {
+        val installed = listOf("Optics", "Files Manager", "Settings")
+        assertEquals("Optics", InstrumentConsole.findByLabel(installed, "optics"))
+        assertEquals(null, InstrumentConsole.findByLabel(installed, "Nav"))
+        assertEquals(null, InstrumentConsole.findByLabel(installed, "File"))
+    }
+
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.
     @Test
     fun conversationLog_isDistinctFromSystemLogs() = runTest {

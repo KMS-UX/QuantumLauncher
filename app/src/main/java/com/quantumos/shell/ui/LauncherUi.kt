@@ -22,6 +22,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,10 +69,13 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
@@ -95,6 +99,9 @@ import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegions
 import com.quantumos.core.EnvironmentProfile
+import com.quantumos.core.InstrumentConsole
+import com.quantumos.core.InstrumentId
+import com.quantumos.core.InstrumentSpec
 import com.quantumos.core.NavigationChannel
 import com.quantumos.core.PhosphorHue
 import com.quantumos.core.QuantumLauncherState
@@ -179,12 +186,15 @@ class QuantumViewModel : ViewModel() {
 
     fun boot(context: Context) = QuantumRuntime.boot(context)
 
-    fun setHue(hue: PhosphorHue) = engine.updateEnvironmentProfile { it.copy(activeHue = hue) }
-
     fun navigate(target: NavigationChannel) {
         engine.transitionNavigation(target)
         QuantumRuntime.playCue(SoundCue.UI_CLUNK)        // UI-select clunk on channel change
     }
+
+    // Launcher Restructure Phase 1 — tapping a not-yet-built HOME instrument. Reuses the
+    // access-denied cue bank entry (previously unwired — BUILD_LOG "known issues"): the Operator
+    // attempted a real action and it didn't happen, which is exactly what buzz_denied is for.
+    fun signalInstrumentOffline() = QuantumRuntime.playCue(SoundCue.BUZZ_DENIED)
 
     // M6 STATUS toggles — cycle + persist + (region) QUARK ack, all via the runtime.
     fun cycleDeploymentRegion() = QuantumRuntime.cycleDeploymentRegion()
@@ -498,7 +508,7 @@ fun QuantumAppShell(
                     .fillMaxWidth()
             ) {
                 when (state.currentNavigation) {
-                    NavigationChannel.HOME -> HomeChannelBody(vm = vm, state = state, panelOpen = panelOpen, color = color, dimColor = dimColor, font = font, constraints = constraints, canOverlay = canOverlay, onRequestOverlay = onRequestOverlay)
+                    NavigationChannel.HOME -> HomeChannelBody(vm = vm, state = state, panelOpen = panelOpen, color = color, dimColor = dimColor, font = font, canOverlay = canOverlay, onRequestOverlay = onRequestOverlay)
                     NavigationChannel.APPS -> AppsChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
                     NavigationChannel.STATUS -> StatusChannelScreen(vm = vm, state = state, color = color, dimColor = dimColor, font = font)
                     NavigationChannel.LOG -> LogChannelScreen(vm = vm, color = color, dimColor = dimColor, font = font)
@@ -707,7 +717,18 @@ private fun ChannelStrip(
     }
 }
 
-// ---------- HOME channel body (M0 readout + M3 Vitality atom-mark / roll-down panel) ----------
+// ---------- HOME channel body ----------
+// Launcher Restructure Phase 1 (Build Brief v1.0): HOME's centrepiece is now the static
+// eight-instrument console, not a debug readout. The M3/M4 cross-cutting controls (Vitality
+// atom-mark pull, Beacon field-flag, QUARK trigger affordance) are untouched — this brief only
+// restructures HOME's own content, not those separately-milestoned features.
+//
+// Judgment calls flagged for the Director (BUILD_LOG has the full note):
+//  - The old M0-era hue-chip row + system readout text are removed here: both are fully
+//    superseded by real UI (Vitality panel's Phosphor action; STATUS/LOG channels) and were
+//    debug scaffolding, not a locked surface.
+//  - CONFIG hops to the STATUS channel (its function already lives there) rather than showing
+//    STANDBY — treated as "the app already exists," just not as a separate module yet.
 @Composable
 private fun HomeChannelBody(
     vm: QuantumViewModel,
@@ -716,12 +737,13 @@ private fun HomeChannelBody(
     color: Color,
     dimColor: Color,
     font: FontFamily,
-    constraints: TerminalConstraints,
     canOverlay: Boolean,
     onRequestOverlay: () -> Unit
 ) {
-    val logs by vm.engine.systemLogs.collectAsState()
     val conn by vm.connectivity.collectAsState()
+    val apps by vm.installedApps.collectAsState()
+    val context = LocalContext.current
+    var offlineInstrument by remember { mutableStateOf<InstrumentSpec?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -742,15 +764,7 @@ private fun HomeChannelBody(
                     vm.toggleVitalityPanel()
                 }
             }
-            Spacer(Modifier.height(12.dp))
-            Row {
-                HueChip("GREEN", color) { vm.setHue(PhosphorHue.GREEN) }
-                Spacer(Modifier.width(12.dp))
-                HueChip("AMBER", color) { vm.setHue(PhosphorHue.AMBER) }
-                Spacer(Modifier.width(12.dp))
-                HueChip("CYAN", color) { vm.setHue(PhosphorHue.CYAN) }
-            }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(6.dp))
             // Deployment Region status line — terse, utilitarian status text (NOT QUARK speaking).
             Text(
                 text = "DEPLOYMENT: ${DeploymentRegions.label(state.deploymentRegion)}",
@@ -758,14 +772,27 @@ private fun HomeChannelBody(
                 fontFamily = font,
                 fontSize = 11.sp
             )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = buildReadout(state, logs, constraints),
+            Spacer(Modifier.height(10.dp))
+
+            // ---------- the static instrument console (Phase 1 centrepiece) ----------
+            HomeInstrumentConsole(
+                apps = apps,
                 color = color,
-                fontFamily = font,
-                fontSize = 13.sp
+                dimColor = dimColor,
+                font = font,
+                onLaunch = { app ->
+                    context.packageManager.getLaunchIntentForPackage(app.packageName)
+                        ?.let { context.startActivity(it) }
+                },
+                onNavigate = { vm.navigate(it) },
+                onOffline = { spec ->
+                    vm.signalInstrumentOffline()
+                    offlineInstrument = spec
+                },
+                modifier = Modifier.weight(1f)
             )
-            Spacer(Modifier.height(12.dp))
+
+            Spacer(Modifier.height(10.dp))
             // M4 — the floating QUARK trigger's enable/status affordance lives on HOME.
             QuarkTriggerControl(
                 canOverlay = canOverlay,
@@ -791,6 +818,268 @@ private fun HomeChannelBody(
             onBeacon = { vm.toggleBeacon() },
             onLock = { vm.engageLock() }
         )
+
+        // Tapping a not-yet-built instrument surfaces this — a correct-looking "not online" state,
+        // never faked functionality (Build Brief Phase 1).
+        offlineInstrument?.let { spec ->
+            InstrumentOfflineOverlay(
+                instrument = spec,
+                dimColor = dimColor,
+                font = font,
+                onDismiss = { offlineInstrument = null }
+            )
+        }
+    }
+}
+
+// ---------- Launcher Restructure Phase 1 — the static eight-instrument console ----------
+
+// What tapping an instrument actually does, resolved once per recomposition from live installed-
+// apps data — never a second state path (SESSION-PLAYBOOK reuse rule).
+private sealed class InstrumentAction {
+    data class Launch(val app: AppInfo) : InstrumentAction()
+    data class Navigate(val channel: NavigationChannel) : InstrumentAction()
+    object Offline : InstrumentAction()
+}
+
+private fun resolveInstrumentAction(spec: InstrumentSpec, apps: List<AppInfo>): InstrumentAction {
+    spec.opensChannel?.let { return InstrumentAction.Navigate(it) }
+    spec.targetAppLabel?.let { target ->
+        val matchedLabel = InstrumentConsole.findByLabel(apps.map { it.label }, target)
+        val app = matchedLabel?.let { lbl -> apps.firstOrNull { it.label == lbl } }
+        if (app != null) return InstrumentAction.Launch(app)
+    }
+    return InstrumentAction.Offline
+}
+
+// Fixed 2-column, 4-row grid — all eight instruments visible at once, no scroll, no paging.
+@Composable
+private fun HomeInstrumentConsole(
+    apps: List<AppInfo>,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onLaunch: (AppInfo) -> Unit,
+    onNavigate: (NavigationChannel) -> Unit,
+    onOffline: (InstrumentSpec) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        InstrumentConsole.INSTRUMENTS.chunked(2).forEach { rowSpecs ->
+            Row(
+                Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowSpecs.forEach { spec ->
+                    val action = remember(spec, apps) { resolveInstrumentAction(spec, apps) }
+                    InstrumentTile(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        spec = spec,
+                        available = action !is InstrumentAction.Offline,
+                        color = color,
+                        dimColor = dimColor,
+                        font = font,
+                        onClick = {
+                            when (val a = action) {
+                                is InstrumentAction.Navigate -> onNavigate(a.channel)
+                                is InstrumentAction.Launch -> onLaunch(a.app)
+                                InstrumentAction.Offline -> onOffline(spec)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// One instrument tile: house-style bordered box, line-icon + label + function sub-label. Bright
+// phosphor when its target is real and reachable; dim + STANDBY caption when not yet built —
+// mirrors the ActionCell active/inactive convention already established in the Vitality panel.
+@Composable
+private fun InstrumentTile(
+    modifier: Modifier,
+    spec: InstrumentSpec,
+    available: Boolean,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onClick: () -> Unit
+) {
+    val edge = if (available) color else dimColor
+    Column(
+        modifier
+            .clickable { onClick() }
+            .border(BorderStroke(1.dp, edge))
+            .padding(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(Modifier.weight(1f))
+        InstrumentIcon(id = spec.id, tint = edge, size = 26.dp)
+        Spacer(Modifier.height(6.dp))
+        Text(spec.label, color = edge, fontFamily = font, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(spec.function, color = dimColor, fontFamily = font, fontSize = 9.sp)
+        if (!available) {
+            Spacer(Modifier.height(3.dp))
+            Text("STANDBY", color = dimColor, fontFamily = font, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.weight(1f))
+    }
+}
+
+// Original SVG-in-spirit line-icons drawn on the GPU-cheap Canvas path (house stroke language:
+// consistent weight, themed with the active phosphor, no platform emoji). Pixel-level icon masters
+// are a later identity/polish pass (House Style skill) — these are the working set for Phase 1.
+@Composable
+private fun InstrumentIcon(id: InstrumentId, tint: Color, size: Dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val stroke = Stroke(width = w * 0.09f)
+        when (id) {
+            InstrumentId.COMMS -> {
+                // transmission thread: a speech-frame with a tail.
+                val path = Path().apply {
+                    moveTo(w * 0.15f, h * 0.2f)
+                    lineTo(w * 0.85f, h * 0.2f)
+                    lineTo(w * 0.85f, h * 0.65f)
+                    lineTo(w * 0.45f, h * 0.65f)
+                    lineTo(w * 0.3f, h * 0.85f)
+                    lineTo(w * 0.3f, h * 0.65f)
+                    lineTo(w * 0.15f, h * 0.65f)
+                    close()
+                }
+                drawPath(path, tint, style = stroke)
+            }
+            InstrumentId.FILES -> {
+                // field file manager: a folder outline.
+                val path = Path().apply {
+                    moveTo(w * 0.15f, h * 0.28f)
+                    lineTo(w * 0.42f, h * 0.28f)
+                    lineTo(w * 0.5f, h * 0.4f)
+                    lineTo(w * 0.85f, h * 0.4f)
+                    lineTo(w * 0.85f, h * 0.78f)
+                    lineTo(w * 0.15f, h * 0.78f)
+                    close()
+                }
+                drawPath(path, tint, style = stroke)
+            }
+            InstrumentId.AUDIO -> {
+                // field recorder: a small waveform.
+                val xs = listOf(0.22f, 0.39f, 0.56f, 0.73f, 0.9f)
+                val topFrac = listOf(0.4f, 0.2f, 0.1f, 0.3f, 0.45f)
+                xs.forEachIndexed { i, x ->
+                    drawLine(
+                        tint,
+                        Offset(w * x, h * topFrac[i]),
+                        Offset(w * x, h * 0.9f),
+                        strokeWidth = stroke.width
+                    )
+                }
+            }
+            InstrumentId.CAM -> {
+                // Optics: phosphor viewfinder + reticle.
+                drawRect(
+                    tint,
+                    topLeft = Offset(w * 0.12f, h * 0.22f),
+                    size = Size(w * 0.76f, h * 0.62f),
+                    style = stroke
+                )
+                drawLine(tint, Offset(w * 0.38f, h * 0.1f), Offset(w * 0.62f, h * 0.1f), strokeWidth = stroke.width)
+                val r = w * 0.16f
+                val c = Offset(w * 0.5f, h * 0.53f)
+                drawCircle(tint, radius = r, center = c, style = stroke)
+                drawLine(tint, c - Offset(r * 1.6f, 0f), c + Offset(r * 1.6f, 0f), strokeWidth = stroke.width * 0.7f)
+                drawLine(tint, c - Offset(0f, r * 1.6f), c + Offset(0f, r * 1.6f), strokeWidth = stroke.width * 0.7f)
+            }
+            InstrumentId.MAPS -> {
+                // Nav: a field waypoint pin.
+                val r = w * 0.24f
+                val c = Offset(w * 0.5f, h * 0.35f)
+                drawCircle(tint, radius = r, center = c, style = stroke)
+                drawCircle(tint, radius = r * 0.35f, center = c)
+                val path = Path().apply {
+                    moveTo(w * 0.5f - r * 0.55f, h * 0.5f)
+                    lineTo(w * 0.5f, h * 0.9f)
+                    lineTo(w * 0.5f + r * 0.55f, h * 0.5f)
+                }
+                drawPath(path, tint, style = stroke)
+            }
+            InstrumentId.RADIO -> {
+                // broadcast receiver: nested incoming-signal arcs over an antenna dot.
+                val origin = Offset(w * 0.22f, h * 0.78f)
+                drawCircle(tint, radius = w * 0.05f, center = origin)
+                for (i in 1..3) {
+                    val r = w * 0.18f * i
+                    drawArc(
+                        tint,
+                        startAngle = -60f,
+                        sweepAngle = 60f,
+                        useCenter = false,
+                        topLeft = Offset(origin.x - r, origin.y - r),
+                        size = Size(r * 2f, r * 2f),
+                        style = stroke
+                    )
+                }
+            }
+            InstrumentId.SIGNAL -> {
+                // link diagnostics: ascending measured-out bars.
+                val xs = listOf(0.28f, 0.5f, 0.72f)
+                val heights = listOf(0.3f, 0.55f, 0.8f)
+                xs.forEachIndexed { i, x ->
+                    drawLine(
+                        tint,
+                        Offset(w * x, h * (0.85f - heights[i])),
+                        Offset(w * x, h * 0.85f),
+                        strokeWidth = stroke.width * 1.4f
+                    )
+                }
+            }
+            InstrumentId.CONFIG -> {
+                // field-unit console: a dial with four radial ticks.
+                val r = w * 0.28f
+                val c = Offset(w * 0.5f, h * 0.5f)
+                drawCircle(tint, radius = r, center = c, style = stroke)
+                listOf(0f, 90f, 180f, 270f).forEach { deg ->
+                    val rad = Math.toRadians(deg.toDouble())
+                    val inner = c + Offset((r * 1.15f * kotlin.math.cos(rad)).toFloat(), (r * 1.15f * kotlin.math.sin(rad)).toFloat())
+                    val outer = c + Offset((r * 1.5f * kotlin.math.cos(rad)).toFloat(), (r * 1.5f * kotlin.math.sin(rad)).toFloat())
+                    drawLine(tint, inner, outer, strokeWidth = stroke.width)
+                }
+            }
+        }
+    }
+}
+
+// Full-screen "correct-looking not-yet-online state" — never a fake feature. Reuses the same
+// full-screen overlay shape as the cosmetic Lock beat; tap anywhere (or the explicit line) returns.
+@Composable
+private fun InstrumentOfflineOverlay(
+    instrument: InstrumentSpec,
+    dimColor: Color,
+    font: FontFamily,
+    onDismiss: () -> Unit
+) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Phosphor.Crt)
+            .clickable { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "${instrument.label} // INSTRUMENT OFFLINE",
+                color = dimColor, fontFamily = font, fontSize = 16.sp, fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(10.dp))
+            Text("MODULE NOT YET DEPLOYED", color = dimColor, fontFamily = font, fontSize = 12.sp)
+            Spacer(Modifier.height(24.dp))
+            Text("◄ TAP TO RETURN, OPERATOR", color = dimColor, fontFamily = font, fontSize = 11.sp)
+        }
     }
 }
 
@@ -840,17 +1129,6 @@ private fun BeaconFlag(font: FontFamily) {
     )
 }
 
-@Composable
-private fun HueChip(label: String, color: Color, onClick: () -> Unit) {
-    Text(
-        text = "[$label]",
-        color = color,
-        fontFamily = Fonts.ChakraPetch,
-        fontSize = 13.sp,
-        modifier = Modifier.clickable { onClick() }.padding(4.dp)
-    )
-}
-
 // M4 trigger control: when the overlay permission isn't granted, a tappable line opens the system
 // settings screen (the only path — this permission has no runtime dialog). Once granted, the service
 // is already deployed (see LauncherActivity) and this reads as a static, dim confirmation.
@@ -886,22 +1164,6 @@ private fun QuarkTriggerControl(
         }
     }
 }
-
-private fun buildReadout(state: QuantumLauncherState, logs: List<String>, c: TerminalConstraints): String =
-    buildString {
-        appendLine("=== QUANTUMOS CORE PHOSPHOR DRIVER ===")
-        appendLine("LIFECYCLE   : ${state.bootLifecycle}")
-        appendLine("CONTAINER   : ${c.containerWidth} x ${c.containerHeight}  fill=${!c.isLetterboxed}")
-        appendLine("HUE         : ${state.environment.activeHue}  LOCKED=${state.environment.isSystemLocked}")
-        appendLine("VITALITY    : ${state.vitality.batteryPercentage}%  ${state.vitality.coreTempCelsius}C  ${state.vitality.readiness}")
-        appendLine("----------------------------------------")
-        if (state.quarkBrain.responseTextSnippet.isNotEmpty()) {
-            appendLine("QUARK       : \"${state.quarkBrain.responseTextSnippet}\"")
-            appendLine("----------------------------------------")
-        }
-        appendLine("CONSOLE REEL:")
-        logs.takeLast(6).forEach { appendLine(" > ${it.substringAfter("] ")}") }
-    }
 
 // ---------- M3 Vitality panel (rolls down from the atom mark, Home-channel-only) ----------
 @Composable

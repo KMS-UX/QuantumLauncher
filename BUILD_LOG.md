@@ -11,7 +11,84 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 2b — custom voice — **CONFIRMED LIVE on the Fold 6 (2026-07-04).**
+**Current milestone:** Launcher Restructure Phase 1 — console-as-HOME (Build Brief v1.0) —
+**CODE COMPLETE (2026-07-06), pending Fold 6 confirmation.** HOME now renders the static
+eight-instrument console (COMMS / FILES / AUDIO / CAM / MAPS / RADIO / SIGNAL / CONFIG) in place of
+the old M0-era debug readout. **STOP here per the brief** — do not start Phase 2 (gear-reel APPS
+browser) or Phase 3 (Optics/Nav shell integration) until the Director confirms Phase 1 on hardware.
+
+**What changed:**
+- `com.quantumos.core`: new `InstrumentId` / `InstrumentSpec` / `InstrumentConsole` (pure, no Android
+  deps — same "logic in core" pattern as `OverlayGeometry`). `InstrumentConsole.INSTRUMENTS` is the
+  single source of truth for the eight tiles; `findByLabel` is the pure, unit-tested match used to
+  detect whether a target app is installed. Unit tests added in `QuantumStateEngineTest.kt`.
+- `LauncherUi.kt`: `HomeChannelBody` restructured — `HomeInstrumentConsole` renders a fixed 2-column
+  × 4-row grid (no scroll, no paging, all eight always visible); `InstrumentTile` (house-style
+  bordered box, bright when reachable / dim + `STANDBY` caption when not) and `InstrumentIcon`
+  (original Canvas-drawn line-icons, one per instrument, GPU-cheap, phosphor-tinted — the House
+  Style "line-icons are the working set" rule, not platform emoji) back each tile.
+  `InstrumentOfflineOverlay` is the full-screen "correct-looking not-yet-online state" for
+  not-yet-built instruments (`◄ TAP TO RETURN, OPERATOR`, same visual language as the Lock overlay).
+  The M3 Vitality atom-mark/roll-down, the Beacon field-flag, the deployment status line, and the M4
+  QUARK-trigger control are all **untouched** — this brief only restructures HOME's own content.
+- **Launch wiring:** CAM and MAPS resolve against the already-loaded `installedApps` list (the same
+  seam the APPS grid uses) for an installed app labeled exactly "Optics" / "Nav" (case-insensitive);
+  if found, tapping launches it directly — no shell/console integration yet (that's Phase 3, per the
+  brief). CONFIG hops to the STATUS channel, where its settings (Deployment Region, Boot Pace)
+  already live. COMMS, FILES, AUDIO, RADIO, SIGNAL have no target yet and always show STANDBY.
+- **Standby wiring:** tapping any STANDBY instrument now emits `SoundCue.BUZZ_DENIED` — the
+  access-denied cue that's existed in the sound bank since M6 but was never wired to a real denial
+  path (closes that "Known issues" item below) — then shows the offline overlay.
+
+> **Director action required — Fold 6 verify (Launcher Restructure Phase 1):**
+> 1. Install the CI build, open HOME.
+> 2. Confirm all eight instrument tiles render in the fixed 2×4 grid, no scrolling — COMMS, FILES,
+>    AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG — each with its line-icon, label, and function sub-label,
+>    and that it reads as an instrument deck, not a debug screen or a grid (the headline call).
+> 3. Tap CONFIG → lands on the STATUS channel; Back/HOME returns to the console.
+> 4. Tap COMMS, FILES, AUDIO, RADIO, SIGNAL → each plays the access-denied buzz and shows
+>    `// INSTRUMENT OFFLINE` + `MODULE NOT YET DEPLOYED`; tap anywhere returns to HOME.
+> 5. Tap CAM and MAPS: if a standalone app labeled exactly "Optics"/"Nav" is installed on the test
+>    device, confirm the tile is BRIGHT and tapping launches it; if neither is installed on this
+>    Fold 6, confirm both instead show the same OFFLINE state (expected — Phase 1 only wires the
+>    hand-off, it installs nothing).
+> 6. Confirm the FIELD OPS header (atom mark + Beacon flag), the DEPLOYMENT line, and the QUARK
+>    TRIGGER control still behave exactly as before (M3/M4 — untouched by this brief).
+>
+> **Judgment calls flagged, not locked (Director/Clara to confirm or override):**
+> - **CONFIG → STATUS hop**, not STANDBY: read as "the app already exists" since its function is
+>   already built, just not as a separate module. Trivial to flip to STANDBY instead if that's not
+>   the intended reading of "for instruments whose app exists, launch it."
+> - **CAM/MAPS match by exact display label**, not package name — neither Optics' nor Nav's real
+>   package ID was available in this repo/session, so the match reuses the existing `installedApps`
+>   seam (same list the APPS grid already loads) with zero new plumbing. If the real APKs use a
+>   different display label, the tile will read OFFLINE on the Fold 6 — flag it and the fix is a
+>   one-line label change (or swap to an exact package-name check for something more robust).
+> - **Removed the M0-era HOME hue-chip row + the lifecycle/container/vitality debug-readout text** to
+>   make room for the console. Both were debug scaffolding: the hue chips duplicated the Vitality
+>   panel's Phosphor action (now the one hue-switch surface, matching the design-tokens
+>   "never hard-code/duplicate" rule), and the readout text is fully covered by the real STATUS + LOG
+>   channels that didn't exist yet when it was written. Flag if either is missed on-device.
+> - **Offline overlay uses dim phosphor text, not `--warn` red**, even though it's paired with the
+>   access-denied sound — this is "not built yet," not an alert/danger tier, so it stays off the warn
+>   color per the design-tokens rule ("never decorative"). Flag if the Director wants it to read more
+>   urgently.
+>
+> **Not started (per the brief — do not start until the Director confirms Phase 1 on the Fold 6):**
+> - **Phase 2** — the gear-reel browser replacing the flat APPS grid (thumb-scrub momentum, ratchet
+>   detents, tuned on-device).
+> - **Phase 3** — Optics/Nav deep shell integration (separate brief; cross-repo, heavier).
+
+**Build note:** this cloud session still has no Android SDK (`gradle test` fails at
+`com.android.application` plugin resolution, as SESSION-PLAYBOOK documents) and no local Fold 6, so
+neither `gradle test`/`assembleDebug` nor the on-device pass could run here. The new
+`InstrumentConsole` logic is pure Kotlin with unit tests added; CI (`.github/workflows/build.yml`)
+is the real compiler for both tasks on push — watch it go green, then the Director's Fold 6 pass
+above is what actually closes this milestone.
+
+---
+
+**Previous milestone:** QUARK Phase 2b — custom voice — **CONFIRMED LIVE on the Fold 6 (2026-07-04).**
 QUARK-H2 is audible, correct, and offline via sherpa-onnx; the Director judged the ~7000ms cold-start
 (for a ~3500ms line) understandable and warm calls acceptable — the Phase 2b acceptance bar (Synthetic-
 Seed note §3: deliberate not broken) is met. `numThreads` bumped 2→4 and the engine now warms as soon
@@ -537,6 +614,13 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
 
+### Launcher Restructure Phase 1 — console-as-HOME (this session)
+- [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested (see RESUME HERE)
+- [x] HOME renders the fixed 2×4 static instrument console; CAM/MAPS hand off to installed
+  Optics/Nav by label match; CONFIG hops to STATUS; COMMS/FILES/AUDIO/RADIO/SIGNAL show STANDBY
+- [ ] **Confirmed on Fold 6** — all eight tiles render, launch wiring works, offline state reads
+  correctly, feel judged as "instrument deck not grid"  ← **Director action**, see RESUME HERE
+
 ### M4 — floating QUARK trigger (this session)
 - [x] **Step 0 — permission walkthrough:** `LauncherActivity` checks `Settings.canDrawOverlays`,
   re-checks on `ON_RESUME` (grant happens outside the app, then return — no restart). Ungranted →
@@ -636,10 +720,10 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   cue via `AudioTrack` (the spirit of the prototype Web-Audio synth) — NOT professionally produced
   audio files. That's a future identity/polish refinement, explicitly out of M6 scope. Tune the synth
   recipes if the Director wants a different character.
-- **`buzz_denied` (access-denied) is synthesised but not yet emitted anywhere** — there is no
-  "access-denied" flow in the app today (no feature refuses an action). The cue is in the bank ready;
-  wire it the moment a real denial path exists. The other three signature sounds DO fire (boot sweep,
-  access-granted via Stealth confirm, keypad tick on boot steps + text send).
+- **`buzz_denied` (access-denied) — now wired (Launcher Restructure Phase 1).** Tapping a STANDBY
+  HOME instrument is the first real denial path; `QuantumViewModel.signalInstrumentOffline()` fires
+  it. The other three signature sounds also fire (boot sweep, access-granted via Stealth confirm,
+  keypad tick on boot steps + text send).
 - **M6 CRT shader is judged on hardware for the first time** — the AGSL `RuntimeShader` look (scanline
   /vignette/glow intensities) is tuned by eye in code; the Fold 6 pass is the real judgement. If it
   reads wrong, tune the constants in `CRT_AGSL_SHADER` (LauncherUi.kt). The cheap overlay remains the

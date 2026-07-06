@@ -71,6 +71,46 @@ object DeploymentRegions {
 }
 
 /*
+ * Launcher Restructure Phase 1 (Build Brief v1.0) — the HOME instrument console. The eight core
+ * field-tool instruments, per the House Style Skill's locked module identities (COMMS/FILES/AUDIO/
+ * CAM/MAPS/RADIO/SIGNAL/CONFIG).
+ *   - targetAppLabel: for CAM/MAPS, the label of the already-installed standalone Optics/Nav app to
+ *     hand off to. Phase 1 scope only — docking them into the shared shell is Phase 3, a separate brief.
+ *   - opensChannel: for CONFIG, whose function already lives on the STATUS channel's own
+ *     "CONFIG // FIELD SETTINGS" section — an in-app hop rather than a standalone app. This mapping
+ *     is a Director-flag, not a locked call (see BUILD_LOG).
+ *   - Instruments with neither field are not yet built: the console shows them STANDBY.
+ */
+enum class InstrumentId { COMMS, FILES, AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG }
+
+data class InstrumentSpec(
+    val id: InstrumentId,
+    val label: String,
+    val function: String,
+    val targetAppLabel: String? = null,
+    val opensChannel: NavigationChannel? = null
+)
+
+object InstrumentConsole {
+    val INSTRUMENTS: List<InstrumentSpec> = listOf(
+        InstrumentSpec(InstrumentId.COMMS, "COMMS", "CHANNELS"),
+        InstrumentSpec(InstrumentId.FILES, "FILES", "STORAGE"),
+        InstrumentSpec(InstrumentId.AUDIO, "AUDIO", "RECORDER"),
+        InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", targetAppLabel = "Optics"),
+        InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", targetAppLabel = "Nav"),
+        InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER"),
+        InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS"),
+        InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", opensChannel = NavigationChannel.STATUS)
+    )
+
+    // Pure, unit-tested label match — no Android/PackageManager dep here (the UI passes real
+    // installed-app labels in). Case-insensitive exact match; same "logic lives in core" pattern
+    // as OverlayGeometry's edge-snap math.
+    fun findByLabel(installedLabels: List<String>, targetLabel: String): String? =
+        installedLabels.firstOrNull { it.equals(targetLabel, ignoreCase = true) }
+}
+
+/*
  * SoundCue — the canonical audio-cue token registry (M6 Step 4). The engine and the scripted library
  * emit these string tokens onto audioCueStream; the UI-side SoundEngine synthesises a distinct,
  * functional cue for each. Kept as plain string constants (no Android/audio deps) so core stays pure.
