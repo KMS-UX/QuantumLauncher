@@ -59,6 +59,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -93,6 +94,7 @@ import com.quantumos.core.QuantumLauncherState
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -119,11 +121,14 @@ private fun firstFlashCameraId(cm: CameraManager?): String? {
 }
 
 // ---------- installed-app entry (UI layer only; no PackageManager dep in core) ----------
+// `icon` is decoded once, off the main thread, in loadApps() below — never per-item at scroll
+// time (see BUILD_LOG: Apps-menu scroll-stutter diagnosis/fix).
 @Immutable
 data class AppInfo(
     val label: String,
     val packageName: String,
-    val activityName: String
+    val activityName: String,
+    val icon: ImageBitmap?
 )
 
 // ---------- connectivity readout (UI layer only; core's VitalityState has no transport field) ----------
@@ -179,17 +184,27 @@ class QuantumViewModel : ViewModel() {
     fun engageLock() = engine.executeCosmeticLockSequence()
     fun releaseLock() = engine.unlockDeviceProfile()
 
+    // Runs entirely off the main thread: PackageManager queries + icon decode/compositing are not
+    // free, and AppCell used to pay that cost per-item, synchronously, the first time each cell
+    // scrolled into view — the cause of the Apps-menu scroll stutter (see BUILD_LOG). Decoding
+    // every icon once here, up front, means AppCell only ever renders an already-decoded bitmap.
     fun loadApps(pm: PackageManager) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             @Suppress("DEPRECATION")
             val resolved = pm.queryIntentActivities(intent, 0)
+            val iconCache = mutableMapOf<String, ImageBitmap?>()
             _installedApps.value = resolved
                 .map { ri ->
+                    val pkg = ri.activityInfo.packageName
+                    val icon = iconCache.getOrPut(pkg) {
+                        runCatching { pm.getApplicationIcon(pkg).toBitmapCompat()?.asImageBitmap() }.getOrNull()
+                    }
                     AppInfo(
                         label = ri.loadLabel(pm).toString(),
-                        packageName = ri.activityInfo.packageName,
-                        activityName = ri.activityInfo.name
+                        packageName = pkg,
+                        activityName = ri.activityInfo.name,
+                        icon = icon
                     )
                 }
                 .sortedBy { it.label.lowercase() }
@@ -988,16 +1003,6 @@ private fun AppCell(
     font: FontFamily,
     onClick: () -> Unit
 ) {
-    val context = LocalContext.current
-    val iconBitmap = remember(app.packageName) {
-        runCatching {
-            context.packageManager
-                .getApplicationIcon(app.packageName)
-                .toBitmapCompat()
-                ?.asImageBitmap()
-        }.getOrNull()
-    }
-
     Column(
         modifier = Modifier
             .clickable { onClick() }
@@ -1005,9 +1010,9 @@ private fun AppCell(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-            if (iconBitmap != null) {
+            if (app.icon != null) {
                 Image(
-                    bitmap = iconBitmap,
+                    bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier.size(40.dp)
                 )

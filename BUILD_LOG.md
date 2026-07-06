@@ -910,3 +910,49 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
       camera preview + capture + film filter still work, the floating QUARK trigger doesn't block
       the shutter, and it *reads* as native to QuantumOS rather than a foreign app — the brief's own
       subjective bar. Nav is next, only after this reads good on-device.
+- **Apps-menu scroll-stutter — diagnosis + fix (2026-07-06):** per the Scroll-Stutter Diagnosis
+  Task Brief v1.0 (decision 72). Brief is diagnosis-only by default; **the Director explicitly asked
+  for a fix too this session**, so both are recorded here instead of a diagnosis-only report.
+  - **Could not run the brief's prescribed Layout Inspector / system-trace profiling pass** — this
+    is a cloud session with no attached Fold 6 or emulator. Diagnosis instead comes from direct code
+    inspection of the Apps-menu's actual composables and data flow, which was conclusive enough to
+    not need the trace to confirm the call.
+  - **Cause: (a) per-item icon loading — confirmed.** `AppCell` (`LauncherUi.kt`) called
+    `context.packageManager.getApplicationIcon(app.packageName)` synchronously, inside
+    `remember(app.packageName)`, in the composable body itself — i.e. on the compose/main thread,
+    the first time each grid cell entered composition, with no cache. `LazyVerticalGrid` only keeps
+    a small pool of composed-but-off-screen items alive; a fast/wide scroll brings a burst of
+    brand-new cells into composition within one or two frames, and every one of them paid a
+    synchronous `PackageManager` + `Drawable`→`Bitmap` decode/composite cost inline — the classic
+    list-jank pattern, and it reads exactly like "system struggling" rather than the intentional
+    stepped-motion language, matching the Director's description.
+  - **(b) LazyGrid recomposition scaling — ruled out.** `AppInfo` is already `@Immutable`; the grid
+    already uses a stable `key = { it.packageName + it.activityName }`; and `installedApps` is a
+    `StateFlow` that only ever emits once (at launch — `loadApps` is not re-triggered by scroll or
+    anything else), so there's no repeated-emission or unstable-key pressure driving broad
+    recomposition during scroll. Nothing in the code path points to (b).
+  - **Rotary-inheritance answer (the brief's load-bearing question): would inherit it, not
+    sidestep it.** The defect is per-item and lives in `AppCell`/icon-sourcing, not in
+    `LazyVerticalGrid`'s scroll machinery specifically. A discrete paged/gear browser rendering the
+    same app data through the same (or an equivalent) per-item icon path would pay the identical
+    synchronous decode cost for each page's newly-revealed items on every flip — a hitch on page
+    turn instead of a stutter mid-scroll, same root cause. **The gear dial should not be built on
+    top of this without the fix**, per decision 72's own logic.
+  - **Fix applied** (recommended direction was "cache decoded icons + load off the main thread" —
+    implemented, not just described, per this session's explicit ask): `AppInfo` now carries a
+    pre-decoded `icon: ImageBitmap?` field. `QuantumViewModel.loadApps()` — already a background
+    `viewModelScope.launch`, now pinned to `Dispatchers.Default` — decodes each distinct package's
+    icon exactly once (a small local `iconCache` map covers apps with multiple launcher activities
+    sharing one icon) as part of the existing single load pass, before `installedApps` is even
+    emitted. `AppCell` no longer touches `PackageManager` or `remember`-memoizes anything itself —
+    it just renders `app.icon`, an already-decoded bitmap, so there is no per-item work left for the
+    grid to pay during scroll at all. The existing "SCANNING PACKAGE REGISTRY…" empty-state absorbs
+    the (slightly longer, still one-time, background, pre-navigation) load — the Operator is
+    normally still on HOME when this runs, never watching it.
+  - **Does it worsen with app count?** Yes, but the cost moved from "per scroll burst, on the main
+    thread" to "once, in the background, before the grid is ever shown" — a real device with many
+    installed apps takes proportionally longer to populate `installedApps`, not to scroll it.
+  - **Could not verify locally** (same constraint as Steps 1–2 — no Android SDK/emulator in this
+    sandbox) — pushed to CI for compile/test verification. **Director must confirm on the Fold 6**
+    that a fast/wide scroll through the real APPS grid no longer stutters, and that icons still
+    render correctly (including apps with no icon, which still fall back to the `◈` glyph).
