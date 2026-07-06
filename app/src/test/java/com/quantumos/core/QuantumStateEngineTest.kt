@@ -325,6 +325,54 @@ class QuantumStateEngineTest {
         assertEquals(null, InstrumentConsole.findByLabel(installed, "File"))
     }
 
+    // ---------- Launcher Restructure Phase 2 — gear-reel physics ----------
+
+    @Test
+    fun clampOffset_neverWraps_andCollapsesToZeroForOneOrFewerPages() {
+        assertEquals(0f, GearReelPhysics.clampOffset(-3f, pageCount = 5))
+        assertEquals(4f, GearReelPhysics.clampOffset(99f, pageCount = 5))
+        assertEquals(0f, GearReelPhysics.clampOffset(2f, pageCount = 1))
+        assertEquals(0f, GearReelPhysics.clampOffset(2f, pageCount = 0))
+    }
+
+    @Test
+    fun applyDrag_movesByDeltaAndClampsHardAtEitherEnd() {
+        val moved = GearReelPhysics.applyDrag(offset = 1f, deltaDp = -50f, pageCount = 5)
+        assertTrue(moved > 1f, "dragging left should advance the reel forward")
+        // Repeated forward drags never exceed the last page (no wraparound).
+        var offset = 0f
+        repeat(50) { offset = GearReelPhysics.applyDrag(offset, deltaDp = -1000f, pageCount = 5) }
+        assertEquals(4f, offset)
+    }
+
+    @Test
+    fun coastTick_decelerates_andStopsDeadAtTheEnd_neverBouncing() {
+        var offset = 3.5f
+        var velocity = 5f // pages/sec, coasting forward
+        repeat(200) {
+            val (o, v) = GearReelPhysics.coastTick(offset, velocity, dtSeconds = 0.016f, pageCount = 5)
+            offset = o; velocity = v
+        }
+        assertEquals(4f, offset) // hard stop at the last page
+        assertEquals(0f, velocity) // killed outright, no bounce back into negative territory
+    }
+
+    @Test
+    fun nearestDetent_roundsToClosestPage_andClamps() {
+        assertEquals(2, GearReelPhysics.nearestDetent(1.6f, pageCount = 5))
+        assertEquals(1, GearReelPhysics.nearestDetent(1.4f, pageCount = 5))
+        assertEquals(4, GearReelPhysics.nearestDetent(99f, pageCount = 5))
+        assertEquals(0, GearReelPhysics.nearestDetent(-3f, pageCount = 5))
+        assertEquals(0, GearReelPhysics.nearestDetent(0.5f, pageCount = 1))
+    }
+
+    @Test
+    fun clickGain_scalesWithSpeed_butNeverBelowTheAudibleFloor() {
+        assertTrue(GearReelPhysics.clickGain(0.01f) >= 0.35f, "even a slow crawl must click")
+        assertEquals(1f, GearReelPhysics.clickGain(50f)) // fast flick caps at full gain
+        assertTrue(GearReelPhysics.clickGain(4f) > GearReelPhysics.clickGain(1f), "faster spin clicks louder")
+    }
+
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.
     @Test
     fun conversationLog_isDistinctFromSystemLogs() = runTest {

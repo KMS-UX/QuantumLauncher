@@ -260,8 +260,10 @@ object QuantumRuntime {
     }
 
     // Direct cue for pure-UI feedback (keypad tick, select clunk) — still routed through the same
-    // Stealth gate as the stream so muting stays consistent.
-    fun playCue(token: String) = sound.play(token, engine.masterState.value.environment.isStealthMode)
+    // Stealth gate as the stream so muting stays consistent. Optional gain (0..1): the gear-reel's
+    // detent click is the first caller to use it (Launcher Restructure Phase 2 ratchet feel).
+    fun playCue(token: String, gain: Float = 1f) =
+        sound.play(token, engine.masterState.value.environment.isStealthMode, gain)
 
     // ---------- M6 persistent settings — cycle + persist + acknowledge in one place ----------
     fun cycleDeploymentRegion() {

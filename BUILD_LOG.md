@@ -11,80 +11,89 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Launcher Restructure Phase 1 — console-as-HOME (Build Brief v1.0) —
-**CODE COMPLETE (2026-07-06), pending Fold 6 confirmation.** HOME now renders the static
-eight-instrument console (COMMS / FILES / AUDIO / CAM / MAPS / RADIO / SIGNAL / CONFIG) in place of
-the old M0-era debug readout. **STOP here per the brief** — do not start Phase 2 (gear-reel APPS
-browser) or Phase 3 (Optics/Nav shell integration) until the Director confirms Phase 1 on hardware.
+**Current milestone:** Launcher Restructure Phase 2 — the gear-reel APPS browser (Build Brief v1.0) —
+**CODE COMPLETE (2026-07-06), CI-green, pending Fold 6 tuning.** The flat APPS grid is replaced by a
+paged app grid above a half-recessed, thumb-scrubbed **gear dial** with momentum coast, per-page
+detent clicks (loudness scaling with spin speed), and a hard clamp at the first/last page (no
+wraparound). **Phase 3 (Optics/Nav shell integration) is a separate brief — NOT started.**
 
-**What changed:**
-- `com.quantumos.core`: new `InstrumentId` / `InstrumentSpec` / `InstrumentConsole` (pure, no Android
-  deps — same "logic in core" pattern as `OverlayGeometry`). `InstrumentConsole.INSTRUMENTS` is the
-  single source of truth for the eight tiles; `findByLabel` is the pure, unit-tested match used to
-  detect whether a target app is installed. Unit tests added in `QuantumStateEngineTest.kt`.
-- `LauncherUi.kt`: `HomeChannelBody` restructured — `HomeInstrumentConsole` renders a fixed 2-column
-  × 4-row grid (no scroll, no paging, all eight always visible); `InstrumentTile` (house-style
-  bordered box, bright when reachable / dim + `STANDBY` caption when not) and `InstrumentIcon`
-  (original Canvas-drawn line-icons, one per instrument, GPU-cheap, phosphor-tinted — the House
-  Style "line-icons are the working set" rule, not platform emoji) back each tile.
-  `InstrumentOfflineOverlay` is the full-screen "correct-looking not-yet-online state" for
-  not-yet-built instruments (`◄ TAP TO RETURN, OPERATOR`, same visual language as the Lock overlay).
-  The M3 Vitality atom-mark/roll-down, the Beacon field-flag, the deployment status line, and the M4
-  QUARK-trigger control are all **untouched** — this brief only restructures HOME's own content.
-- **Launch wiring:** CAM and MAPS resolve against the already-loaded `installedApps` list (the same
-  seam the APPS grid uses) for an installed app labeled exactly "Optics" / "Nav" (case-insensitive);
-  if found, tapping launches it directly — no shell/console integration yet (that's Phase 3, per the
-  brief). CONFIG hops to the STATUS channel, where its settings (Deployment Region, Boot Pace)
-  already live. COMMS, FILES, AUDIO, RADIO, SIGNAL have no target yet and always show STANDBY.
-- **Standby wiring:** tapping any STANDBY instrument now emits `SoundCue.BUZZ_DENIED` — the
-  access-denied cue that's existed in the sound bank since M6 but was never wired to a real denial
-  path (closes that "Known issues" item below) — then shows the offline overlay.
+> **Phase 1 (console-as-HOME) is CI-green and banked** (run #73, `success`). The Director opted to
+> rely on CI rather than a local build and greenlit Phase 2, so it proceeded on top of Phase 1 in the
+> same branch. Phase 1's own Fold 6 verify checklist (console renders, instruments launch/standby)
+> still applies and moves down to the "previous milestone" note below.
 
-> **Director action required — Fold 6 verify (Launcher Restructure Phase 1):**
-> 1. Install the CI build, open HOME.
-> 2. Confirm all eight instrument tiles render in the fixed 2×4 grid, no scrolling — COMMS, FILES,
->    AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG — each with its line-icon, label, and function sub-label,
->    and that it reads as an instrument deck, not a debug screen or a grid (the headline call).
-> 3. Tap CONFIG → lands on the STATUS channel; Back/HOME returns to the console.
-> 4. Tap COMMS, FILES, AUDIO, RADIO, SIGNAL → each plays the access-denied buzz and shows
->    `// INSTRUMENT OFFLINE` + `MODULE NOT YET DEPLOYED`; tap anywhere returns to HOME.
-> 5. Tap CAM and MAPS: if a standalone app labeled exactly "Optics"/"Nav" is installed on the test
->    device, confirm the tile is BRIGHT and tapping launches it; if neither is installed on this
->    Fold 6, confirm both instead show the same OFFLINE state (expected — Phase 1 only wires the
->    hand-off, it installs nothing).
-> 6. Confirm the FIELD OPS header (atom mark + Beacon flag), the DEPLOYMENT line, and the QUARK
->    TRIGGER control still behave exactly as before (M3/M4 — untouched by this brief).
->
-> **Judgment calls flagged, not locked (Director/Clara to confirm or override):**
-> - **CONFIG → STATUS hop**, not STANDBY: read as "the app already exists" since its function is
->   already built, just not as a separate module. Trivial to flip to STANDBY instead if that's not
->   the intended reading of "for instruments whose app exists, launch it."
-> - **CAM/MAPS match by exact display label**, not package name — neither Optics' nor Nav's real
->   package ID was available in this repo/session, so the match reuses the existing `installedApps`
->   seam (same list the APPS grid already loads) with zero new plumbing. If the real APKs use a
->   different display label, the tile will read OFFLINE on the Fold 6 — flag it and the fix is a
->   one-line label change (or swap to an exact package-name check for something more robust).
-> - **Removed the M0-era HOME hue-chip row + the lifecycle/container/vitality debug-readout text** to
->   make room for the console. Both were debug scaffolding: the hue chips duplicated the Vitality
->   panel's Phosphor action (now the one hue-switch surface, matching the design-tokens
->   "never hard-code/duplicate" rule), and the readout text is fully covered by the real STATUS + LOG
->   channels that didn't exist yet when it was written. Flag if either is missed on-device.
-> - **Offline overlay uses dim phosphor text, not `--warn` red**, even though it's paired with the
->   access-denied sound — this is "not built yet," not an alert/danger tier, so it stays off the warn
->   color per the design-tokens rule ("never decorative"). Flag if the Director wants it to read more
->   urgently.
->
-> **Not started (per the brief — do not start until the Director confirms Phase 1 on the Fold 6):**
-> - **Phase 2** — the gear-reel browser replacing the flat APPS grid (thumb-scrub momentum, ratchet
->   detents, tuned on-device).
-> - **Phase 3** — Optics/Nav deep shell integration (separate brief; cross-repo, heavier).
+**What changed (Phase 2):**
+- `com.quantumos.core`: new **`GearReelPhysics`** — pure, unit-tested reel math (no Android/Compose
+  deps, same "logic in core" pattern as `OverlayGeometry`). Owns `clampOffset` (hard clamp, no
+  wraparound), `applyDrag` (1:1 scrub), `coastTick` (friction coast, dead-stops at the ends),
+  `nearestDetent`, and `clickGain` (ratchet loudness). The UI drives one float `offset` in page units
+  through these; it owns no math. New `SoundCue.REEL_DETENT`. Unit tests added.
+- `LauncherUi.kt`: `AppsChannelScreen` rebuilt as the reel — `ReelPageGrid` (a plain non-lazy grid of
+  exactly one page) above `GearDial` (a phosphor-line cog, top arc peeking from the bottom recess,
+  static at rest, turned by thumb-scrub via `detectHorizontalDragGestures`). Drag → live 1:1 gear
+  turn + discrete page flips (slide-projector); release → momentum coast (hard flick) or straight
+  stepped snap (gentle nudge) onto the nearest detent; each page passing the pawl fires a
+  velocity-scaled `REEL_DETENT` click.
+- `SoundEngine`: added the `REEL_DETENT` tooth-click recipe and a per-call **`gain`** param;
+  `QuantumRuntime.playCue(token, gain)` forwards it (default 1f — every other caller unaffected).
+
+**Tunable constants — the Fold-tuning surface (Build Brief: "tune on the Fold, hardware is the final
+judge"). Starting values, NOT hardware-confirmed (no Fold 6 in this session):**
+- `GearReelPhysics.SCRUB_SENSITIVITY_PAGES_PER_DP = 0.020f` — reel travel per dp of thumb drag.
+- `GearReelPhysics.COAST_FRICTION_PAGES_PER_S2 = 3.2f` — how fast a flick decelerates.
+- `GearReelPhysics.FLICK_VELOCITY_THRESHOLD_PAGES_PER_S = 1.2f` — below this, skip coast, snap straight.
+- `GearReelPhysics.SNAP_STEP_MS = 35L` / `SNAP_STEP_COUNT = 5` — the stepped settle timing.
+- (UI) `REEL_COLUMNS = 4`, `REEL_ROWS = 5` → `REEL_PAGE_CAPACITY = 20` per page; `REEL_DEGREES_PER_TOOTH
+  = 24f`, `REEL_GEAR_TEETH = 15` — grid shape + gear geometry.
+
+**Which stutter fix the reel inherits (Build Brief asks explicitly) — the honest answer:**
+The brief states the Apps-menu scroll stutter is "diagnosed and fixed (decision 72 thread closed)."
+**There is no distinct decision-72 fix commit in this repo/history** — I searched the log and code.
+What the pre-Phase-2 APPS grid actually had was **stable grid keys** (`key = { packageName +
+activityName }`) plus a per-cell `remember(packageName)` icon decode — and that per-cell `remember` is
+*re-decoded every time a `LazyVerticalGrid` cell is recycled*, i.e. it is NOT a durable cache and is a
+plausible stutter source, not a fix. **So Phase 2 establishes the real fix rather than inheriting a
+prior one:** a process-scoped **`AppIconCache`** (decode-once, keyed by package name) plus a
+**non-lazy one-page grid** (no view recycling to jank on a flip). If the Director considers "decision
+72" to be a design-doc/Bible decision that was never actually landed in code, this is where it lands;
+if there's a fix elsewhere I couldn't see, flag it and I'll reconcile.
+
+> **Director action required — Fold 6 tuning pass (Launcher Restructure Phase 2):**
+> 1. Open APPS → confirm the paged grid + the half-recessed gear at the bottom edge.
+> 2. **Thumb-scrub the gear:** a gentle nudge moves one page; a hard flick coasts through several and
+>    settles on a detent. Pages snap cleanly; the gear turns continuously under the thumb.
+> 3. **Detents:** each page passing the pawl clicks; the click is louder on a fast flick than a slow
+>    crawl (ratchet feel).
+> 4. **Clamp:** scrub hard past the first and last page — it must stop firmly, no wraparound.
+> 5. **No stutter on flip** — the headline check; confirm paging stays smooth (this is what the
+>    `AppIconCache` + non-lazy page grid are for).
+> 6. **Report the feel**, then tune the five `GearReelPhysics` constants above until the scrub, coast,
+>    and snap feel right on hardware (they're named + isolated for exactly this).
+
+**Judgment calls flagged (Phase 2):**
+- **Drag direction:** left-drag advances the reel forward (spin-toward-you). One-line flip in
+  `applyDrag` if the Director wants it reversed.
+- **Fixed 20-per-page (4×5)** so the tooth count/detents stay stable regardless of fold state, rather
+  than adaptive columns (which would make the page count — and thus the reel's teeth — change when you
+  unfold). Flag if you'd rather more columns on the unfolded inner display.
+- **The stepped snap interpolates over 5 discrete steps**, matching the shell's stepped-motion rule;
+  if it reads too slow/fast on hardware, `SNAP_STEP_MS`/`SNAP_STEP_COUNT` are the knobs.
 
 **Build note:** this cloud session still has no Android SDK (`gradle test` fails at
 `com.android.application` plugin resolution, as SESSION-PLAYBOOK documents) and no local Fold 6, so
-neither `gradle test`/`assembleDebug` nor the on-device pass could run here. The new
-`InstrumentConsole` logic is pure Kotlin with unit tests added; CI (`.github/workflows/build.yml`)
-is the real compiler for both tasks on push — watch it go green, then the Director's Fold 6 pass
-above is what actually closes this milestone.
+neither `gradle test`/`assembleDebug` nor the on-device pass could run here. All new reel physics is
+pure Kotlin with unit tests added; CI (`.github/workflows/build.yml`) is the real compiler on push.
+
+---
+
+**Previous milestone:** Launcher Restructure Phase 1 — console-as-HOME — **CI-GREEN (2026-07-06),
+pending Fold 6 confirmation.** HOME renders the static eight-instrument console (COMMS / FILES / AUDIO
+/ CAM / MAPS / RADIO / SIGNAL / CONFIG); CAM/MAPS hand off to installed Optics/Nav by label match;
+CONFIG hops to STATUS; the other five show a STANDBY state (access-denied buzz + offline overlay).
+Fold 6 verify: all eight tiles render, installed instruments launch, not-yet-built ones show standby,
+and it reads as an instrument deck not a grid. Judgment calls flagged (CONFIG→STATUS hop; CAM/MAPS
+label-vs-package match; removed M0-era hue chips + debug readout; offline overlay stays off `--warn`
+red) — see the Phase 1 commit and the git history for the full notes.
 
 ---
 
@@ -614,12 +623,19 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
 
-### Launcher Restructure Phase 1 — console-as-HOME (this session)
-- [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested (see RESUME HERE)
+### Launcher Restructure Phase 2 — gear-reel APPS browser (this session)
+- [x] `GearReelPhysics` (scrub/coast/snap/clamp/detent-gain) added to core, unit-tested
+- [x] `SoundCue.REEL_DETENT` + gain-scaled `SoundEngine.play`/`QuantumRuntime.playCue`
+- [x] APPS rebuilt: `ReelPageGrid` (non-lazy one-page grid) + `GearDial` (thumb-scrub, momentum,
+  stepped snap, hard clamp); `AppIconCache` (decode-once) as the real stutter fix
+- [ ] **Tuned + confirmed on Fold 6** — scrub/coast/snap feel; detent ratchet; clamp; no flip
+  stutter; report final `GearReelPhysics` constants  ← **Director action**, see RESUME HERE
+
+### Launcher Restructure Phase 1 — console-as-HOME (prior session)
+- [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested
 - [x] HOME renders the fixed 2×4 static instrument console; CAM/MAPS hand off to installed
   Optics/Nav by label match; CONFIG hops to STATUS; COMMS/FILES/AUDIO/RADIO/SIGNAL show STANDBY
-- [ ] **Confirmed on Fold 6** — all eight tiles render, launch wiring works, offline state reads
-  correctly, feel judged as "instrument deck not grid"  ← **Director action**, see RESUME HERE
+- [x] CI-green (run #73); [ ] **Confirmed on Fold 6** ← **Director action** (Phase 1 checklist)
 
 ### M4 — floating QUARK trigger (this session)
 - [x] **Step 0 — permission walkthrough:** `LauncherActivity` checks `Settings.canDrawOverlays`,

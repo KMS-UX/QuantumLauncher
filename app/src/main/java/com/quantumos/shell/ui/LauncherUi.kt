@@ -44,12 +44,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -60,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -78,8 +77,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -99,6 +100,7 @@ import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegions
 import com.quantumos.core.EnvironmentProfile
+import com.quantumos.core.GearReelPhysics
 import com.quantumos.core.InstrumentConsole
 import com.quantumos.core.InstrumentId
 import com.quantumos.core.InstrumentSpec
@@ -108,10 +110,12 @@ import com.quantumos.core.QuantumLauncherState
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -1425,7 +1429,52 @@ fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: Font
     }
 }
 
-// ---------- APPS channel (Step 3) ----------
+// ---------- APPS channel — Launcher Restructure Phase 2: the gear-reel browser ----------
+//
+// The flat LazyVerticalGrid is replaced by a PAGED grid above a half-recessed, thumb-scrubbed gear
+// dial (Gear Dial Lab v3). All physics live in the pure, unit-tested `GearReelPhysics` (core); this
+// composable only wires gestures → those functions → the visuals. Motion is stepped/mechanical:
+// the grid flips one whole page at a time (slide-projector), the gear turns continuously under the
+// thumb (the one allowed real-time follow, same exception the M4 overlay-drag makes), and each page
+// that passes the pawl fires a detent click whose loudness scales with spin speed.
+//
+// STUTTER-FIX INHERITANCE (Build Brief asks which fix this reuses — see BUILD_LOG for the full,
+// honest note): the paged grid is a plain non-lazy Row/Column of exactly one page of cells (no
+// LazyGrid view-recycling to jank on a flip) and every icon is decoded ONCE into the process-scoped
+// `AppIconCache` below, keyed by package name. The pre-existing code had stable grid keys but only a
+// per-cell `remember(packageName)` — which is re-decoded whenever a lazy cell is recycled, i.e. NOT
+// a durable cache. This session establishes the real icon cache; that is the fix the reel inherits.
+
+// Fixed page capacity so detents (and therefore page count) are stable regardless of screen width —
+// a reel needs predictable teeth. Columns × rows.
+private const val REEL_COLUMNS = 4
+private const val REEL_ROWS = 5
+private const val REEL_PAGE_CAPACITY = REEL_COLUMNS * REEL_ROWS
+// Gear geometry (UI-only): how many degrees the gear turns per page/tooth, and how many teeth to cut.
+private const val REEL_DEGREES_PER_TOOTH = 24f
+private const val REEL_GEAR_TEETH = 15
+
+/*
+ * AppIconCache — process-scoped, decode-once cache of launcher icons as Compose ImageBitmaps, keyed
+ * by package name. THE durable stutter fix the reel's paging rides on: an icon is rasterised from the
+ * PackageManager drawable exactly once per session, then every page flip just hands back the cached
+ * bitmap — no re-decode on the UI thread mid-scrub. Lives outside composition (a plain object) so it
+ * survives recomposition, config change, and channel switches alike.
+ */
+object AppIconCache {
+    private val cache = HashMap<String, ImageBitmap?>()
+
+    fun get(context: Context, packageName: String): ImageBitmap? {
+        cache[packageName]?.let { return it }
+        if (cache.containsKey(packageName)) return null   // cached miss — don't retry the decode
+        val bmp = runCatching {
+            context.packageManager.getApplicationIcon(packageName).toBitmapCompat()?.asImageBitmap()
+        }.getOrNull()
+        cache[packageName] = bmp
+        return bmp
+    }
+}
+
 @Composable
 private fun AppsChannelScreen(
     vm: QuantumViewModel,
@@ -1448,24 +1497,159 @@ private fun AppsChannelScreen(
         return
     }
 
-    // M2 Step 0: adaptive columns from a target cell width — column count follows screen width
-    // (more columns on the unfolded Fold 6, fewer when narrow), not a hardcoded count.
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 88.dp),
-        contentPadding = PaddingValues(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxSize()
+    val pageCount = (apps.size + REEL_PAGE_CAPACITY - 1) / REEL_PAGE_CAPACITY
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+
+    // offset is in PAGE UNITS (survives fold/rotate); velocity + the coast job are transient motion.
+    var offset by rememberSaveable { mutableStateOf(0f) }
+    var velocity by remember { mutableStateOf(0f) }   // pages/sec, signed
+    var coastJob by remember { mutableStateOf<Job?>(null) }
+    var lastPage by remember { mutableIntStateOf(GearReelPhysics.nearestDetent(offset, pageCount)) }
+
+    // Fire a detent click when the reel passes a whole page (the tooth passing the pawl), loudness
+    // scaled by current spin speed. Called from both the live drag and the coast loop.
+    fun clickIfPageChanged() {
+        val page = GearReelPhysics.nearestDetent(offset, pageCount)
+        if (page != lastPage) {
+            lastPage = page
+            QuantumRuntime.playCue(SoundCue.REEL_DETENT, GearReelPhysics.clickGain(velocity))
+        }
+    }
+
+    // The stepped settle onto the nearest detent — a handful of discrete clicks, not an eased glide.
+    suspend fun snapToDetent() {
+        val target = GearReelPhysics.nearestDetent(offset, pageCount).toFloat()
+        val start = offset
+        for (s in 1..GearReelPhysics.SNAP_STEP_COUNT) {
+            offset = start + (target - start) * s / GearReelPhysics.SNAP_STEP_COUNT
+            clickIfPageChanged()
+            delay(GearReelPhysics.SNAP_STEP_MS)
+        }
+        offset = target
+        clickIfPageChanged()
+        velocity = 0f
+    }
+
+    val displayedPage = GearReelPhysics.nearestDetent(offset, pageCount)
+    val pageApps = remember(apps, displayedPage) {
+        apps.drop(displayedPage * REEL_PAGE_CAPACITY).take(REEL_PAGE_CAPACITY)
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        // ---- the paged grid (above) ----
+        ReelPageGrid(
+            pageApps = pageApps,
+            color = color,
+            dimColor = dimColor,
+            font = font,
+            onLaunch = { app ->
+                context.packageManager.getLaunchIntentForPackage(app.packageName)
+                    ?.let { context.startActivity(it) }
+            },
+            modifier = Modifier.weight(1f).fillMaxWidth()
+        )
+
+        // ---- page ordinal readout (terse status microcopy) ----
+        Text(
+            text = "REEL ${displayedPage + 1} / $pageCount",
+            color = dimColor,
+            fontFamily = font,
+            fontSize = 11.sp,
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            textAlign = TextAlign.Center
+        )
+
+        // ---- the half-recessed gear dial (thumb-scrub surface, at the bottom edge) ----
+        GearDial(
+            rotationDegrees = offset * REEL_DEGREES_PER_TOOTH,
+            color = color,
+            dimColor = dimColor,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp)
+                .clipToBounds()          // recesses the gear: only its top half shows above the edge
+                .pointerInput(pageCount) {
+                    var lastNanos = 0L
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            coastJob?.cancel()
+                            velocity = 0f
+                            lastNanos = System.nanoTime()
+                        },
+                        onHorizontalDrag = { change, dragAmount ->
+                            change.consume()
+                            val now = System.nanoTime()
+                            val dtSec = ((now - lastNanos).coerceAtLeast(1)).toFloat() / 1_000_000_000f
+                            lastNanos = now
+                            val dpDelta = with(density) { dragAmount.toDp().value }
+                            val prev = offset
+                            offset = GearReelPhysics.applyDrag(offset, dpDelta, pageCount)
+                            // Instantaneous velocity in pages/sec, lightly smoothed for a steadier flick read.
+                            val instant = (offset - prev) / dtSec
+                            velocity = velocity * 0.6f + instant * 0.4f
+                            clickIfPageChanged()
+                        },
+                        onDragEnd = {
+                            coastJob?.cancel()
+                            coastJob = scope.launch {
+                                // Below the flick threshold → settle straight onto the nearest detent.
+                                if (kotlin.math.abs(velocity) >= GearReelPhysics.FLICK_VELOCITY_THRESHOLD_PAGES_PER_S) {
+                                    // Coast with friction until it runs out, then settle onto a detent.
+                                    while (isActive && velocity != 0f) {
+                                        val (o, v) = GearReelPhysics.coastTick(
+                                            offset, velocity,
+                                            GearReelPhysics.COAST_TICK_MS / 1000f, pageCount
+                                        )
+                                        offset = o
+                                        velocity = v
+                                        clickIfPageChanged()
+                                        delay(GearReelPhysics.COAST_TICK_MS)
+                                    }
+                                }
+                                snapToDetent()
+                            }
+                        },
+                        onDragCancel = {
+                            coastJob?.cancel()
+                            coastJob = scope.launch { snapToDetent() }
+                        }
+                    )
+                }
+        )
+    }
+}
+
+// A single page of apps, rendered as a plain (non-lazy) grid — no view recycling to stutter on a
+// flip; icons come straight from AppIconCache. Fixed REEL_COLUMNS across; short pages just leave
+// the trailing cells empty so the gear's teeth stay evenly spaced.
+@Composable
+private fun ReelPageGrid(
+    pageApps: List<AppInfo>,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onLaunch: (AppInfo) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier.padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        gridItems(apps, key = { it.packageName + it.activityName }) { app ->
-            AppCell(
-                app = app,
-                color = color,
-                dimColor = dimColor,
-                font = font
+        for (row in 0 until REEL_ROWS) {
+            Row(
+                Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                launchIntent?.let { context.startActivity(it) }
+                for (col in 0 until REEL_COLUMNS) {
+                    val index = row * REEL_COLUMNS + col
+                    val app = pageApps.getOrNull(index)
+                    Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.TopCenter) {
+                        if (app != null) {
+                            AppCell(app = app, color = color, dimColor = dimColor, font = font) { onLaunch(app) }
+                        }
+                    }
+                }
             }
         }
     }
@@ -1480,14 +1664,7 @@ private fun AppCell(
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
-    val iconBitmap = remember(app.packageName) {
-        runCatching {
-            context.packageManager
-                .getApplicationIcon(app.packageName)
-                .toBitmapCompat()
-                ?.asImageBitmap()
-        }.getOrNull()
-    }
+    val iconBitmap = remember(app.packageName) { AppIconCache.get(context, app.packageName) }
 
     Column(
         modifier = Modifier
@@ -1518,6 +1695,63 @@ private fun AppCell(
             lineHeight = 11.sp,
             modifier = Modifier.width(68.dp)
         )
+    }
+}
+
+// The gear dial — a phosphor-line cog half-sunk into the bottom chassis: only its TOP arc shows
+// above the recess edge (the clip hides the lower half, the caller's .height() sets the recess).
+// Static at rest; it only turns while the Operator scrubs or it coasts. GPU-cheap Canvas, tinted
+// with the active phosphor. rotationDegrees is driven by the reel offset.
+@Composable
+private fun GearDial(
+    rotationDegrees: Float,
+    color: Color,
+    dimColor: Color,
+    modifier: Modifier = Modifier
+) {
+    // Top-aligned so the clip keeps the gear's upper arc; the gear's centre sits at the recess edge.
+    Box(modifier, contentAlignment = Alignment.TopCenter) {
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(192.dp)       // taller than the recess; the clip shows only its top half
+                .rotate(rotationDegrees)
+        ) {
+            val cx = size.width / 2f
+            val cy = size.height / 2f
+            val outer = size.height * 0.46f
+            val inner = outer * 0.72f
+            val hub = outer * 0.3f
+            val stroke = Stroke(width = outer * 0.05f)
+
+            // teeth — short radial spokes at the rim (the pawl "reads" these passing).
+            for (i in 0 until REEL_GEAR_TEETH) {
+                val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i)
+                val p0 = Offset(cx + (inner * kotlin.math.cos(a)).toFloat(), cy + (inner * kotlin.math.sin(a)).toFloat())
+                val p1 = Offset(cx + (outer * kotlin.math.cos(a)).toFloat(), cy + (outer * kotlin.math.sin(a)).toFloat())
+                drawLine(color, p0, p1, strokeWidth = stroke.width)
+            }
+            drawCircle(dimColor, radius = inner, center = Offset(cx, cy), style = stroke)
+            drawCircle(color, radius = hub, center = Offset(cx, cy), style = stroke)
+            // a single index mark so the rotation is legible as motion.
+            drawLine(
+                color,
+                Offset(cx, cy),
+                Offset(cx, cy - inner),
+                strokeWidth = stroke.width
+            )
+        }
+        // the fixed pawl — a small marker at the recess edge the teeth pass under (does not rotate),
+        // apex pointing down at the rim below it.
+        Canvas(Modifier.size(14.dp)) {
+            val p = Path().apply {
+                moveTo(size.width / 2f, size.height)   // apex — bottom-centre, points at the teeth
+                lineTo(0f, 0f)
+                lineTo(size.width, 0f)
+                close()
+            }
+            drawPath(p, color)
+        }
     }
 }
 
