@@ -6,4 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.2.21" apply false
     id("org.jetbrains.kotlin.jvm") version "2.2.21" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.2.21" apply false
+    // Optics (Room's @Database/@Dao annotation processing) — pinned to the KSP release paired
+    // with Kotlin 2.2.21.
+    id("com.google.devtools.ksp") version "2.2.21-2.0.5" apply false
 }

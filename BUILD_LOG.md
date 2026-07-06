@@ -827,3 +827,73 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
     the Fold 6 and confirm the launcher renders/behaves exactly as before the extraction (phosphor
     hue switch, CRT treatment, nameplate + channel strip, HOME/APPS/STATUS/LOG, Vitality panel, QUARK
     trigger/Assistant View) before Step 2 (docking Optics) starts.
+- **App Shell Integration — Step 2 session (2026-07-06):** docked Optics ("Blackhole") to the shared
+  shell as its own module, per the Task Brief §3. Optics-only — Nav untouched. The **original
+  standalone repo (`kms-ux/quantumoptics-blackhole`) was only read from, never pushed to** — cloned
+  read-only into this session's workspace as the source to copy from; it remains the untouched
+  rollback (brief §0).
+  - **New `:optics` module** (Android application, its own APK/`applicationId` —
+    `com.quantumos.optics` — so it keeps installing, launching, and showing up in the launcher's
+    APPS grid exactly like any other app on the device; nothing folds it into the launcher's own
+    process). Source is a straight copy of the standalone app's `app/src/main/java/com/example/**`,
+    mechanically repackaged to `com.quantumos.optics` (was the placeholder `com.example` from the AI
+    Studio scaffold) and rebuilt on this repo's pinned toolchain (AGP 8.7.2 / Kotlin 2.2.21 /
+    compileSdk 35 / JVM 17) instead of the standalone project's own newer, unpinned one (it was on
+    AGP 9.1.1, Kotlin 2.2.10, compileSdk 36, JVM 11). Added `com.google.devtools.ksp` (version
+    `2.2.21-2.0.5`, the release paired with this repo's pinned Kotlin) for Room's annotation
+    processing — the one new plugin this module needed.
+  - **Chrome replaced (the audit-located ownership: `ui/components/AppShell.kt` + `ui/theme/*`):**
+    the private nameplate/header row and the private, never-wired-up `QuarkTrigger` placeholder
+    composable are gone; Optics now renders inside `QuantumOSLayoutShell` + `NameplateHeader` from
+    `:app-shell` — nameplate on top, camera content in the body below, the same Column-based
+    chrome-then-content structure the launcher itself uses (not the old floating-transparent-overlay
+    style). `ui/theme/Color.kt` (a byte-for-byte duplicate of `app-shell`'s `Phosphor` hex values) is
+    deleted; every hue reference now routes through `com.quantumos.appshell.Phosphor`. `ui/theme/
+    Type.kt` now builds its `Typography` from the shared bundled `Fonts.ChakraPetch` instead of its
+    own Google-Fonts-provider setup — which, per its own TODO comment, never actually resolved at
+    runtime (the cert-fingerprint array was a placeholder stub), so Optics had silently been running
+    on the platform default font the whole time. `Theme.kt` drops Material-You dynamic color and the
+    light scheme (the phosphor CRT look is dark-only by design) in favor of one `Phosphor`-sourced
+    `darkColorScheme`.
+  - **The shutter (the audit-located primary control) is functionally untouched** — same knurled-rim
+    Canvas art, same tap target/press-scale feedback, same `onShutterClick` wiring into
+    `MainActivity`'s real `ImageCapture.takePicture` / double-exposure / simulated-capture paths.
+    It only moved from "floating over full-bleed content" to "bottom-center of the body area below
+    the nameplate," which is *less* exposed to being covered, not more.
+  - **Floating-QUARK-trigger-vs-shutter routing:** Optics's own placeholder trigger is deleted
+    outright — the *real* trigger (`QuarkTriggerService`, M4) is a system-wide
+    `TYPE_APPLICATION_OVERLAY` owned by the launcher that already floats above every app on screen,
+    Optics included, so there is nothing left for Optics to fake. Checked whether that real trigger
+    can rest on top of Optics's bottom-center shutter: `OverlayGeometry.nearestEdgeX` only ever
+    settles a released trigger at the left or right screen edge (`x = 0` or `x = screenWidth -
+    viewSize`) — never at horizontal center, which is where a bottom-center control necessarily
+    sits — so a resting trigger structurally cannot cover it, regardless of `y`. This was already
+    true before this session (the M4-era code comment just hadn't been confirmed against a real
+    companion app yet); updated the doc comments on `OverlayGeometry` in `:core` to record that the
+    forward-concern is resolved rather than leaving the stale "those apps don't exist yet" note. No
+    behavior change to `OverlayGeometry` itself.
+  - **Preserved as-is (real "working features," not chrome):** camera preview/capture via CameraX
+    (`ViewfinderFoundation.kt`), the procedural film-emulation pipeline (B&W/color grain, vignette,
+    vintage-degradation, EXIF-driven databack burn-in — `FilmProcessing.kt`), double exposure,
+    simulated-capture fallback when no camera is granted, the procedural mechanical-shutter sound
+    (`AudioTrack`-synthesized, no asset), the rotary dial (EXP/AST/NAV/SYS telemetry HUD), the
+    reticle overlay, the settings panel, and the Room-backed spool log / chemical-developing console
+    (`SpoolDatabase.kt`, `ChemicalDevelopingConsole.kt`).
+  - **Dropped as dead scaffold weight, not "working features":** Firebase AI / `google-services`,
+    Retrofit + Moshi + OkHttp, the Secrets Gradle plugin (`.env`/`GEMINI_API_KEY`), Robolectric +
+    Roborazzi screenshot testing, and the Material icons-extended dependency — grepped the whole
+    standalone source tree first to confirm zero call sites for any of them (this was leftover AI
+    Studio scaffold, not wired to any real Optics feature). Their three template test files
+    (`ExampleInstrumentedTest`, `ExampleRobolectricTest`, `GreetingScreenshotTest`) were dropped for
+    the same reason. `LeicaEmulationUnitTest.kt` — a genuine pure-JVM test of `DialMode`/
+    `FilmProfile`/the color-matrix math, no Android/Robolectric dependency — was kept and moved to
+    `:optics`'s test source set, matching this repo's "pure-logic tests need no emulator" convention.
+  - CI workflow: added an "Upload Optics debug APK" step (`optics/build/outputs/apk/debug/
+    optics-debug.apk`) alongside the launcher's, since the Director has no local Android SDK either
+    and needs a CI-built artifact to sideload for the Fold 6 verification pass.
+  - **Could not verify locally** (same constraint as Step 1 — no Android SDK, `dl.google.com`
+    blocked in this sandbox) — pushed to CI. **Director must, on the Fold 6:** install both APKs,
+    confirm Optics launches from the QuantumOS launcher's APPS grid, wears the shared shell (not its
+    own), camera preview + capture + film filter still work, the floating QUARK trigger doesn't
+    block the shutter, and it *reads* as native to QuantumOS rather than a foreign app — the brief's
+    own subjective bar. Nav is next, only after this reads good on-device.

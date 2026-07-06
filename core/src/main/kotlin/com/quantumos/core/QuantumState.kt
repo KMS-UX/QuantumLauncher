@@ -470,6 +470,14 @@ object OverlayGeometry {
     /**
      * Snap target X for release: the left edge (0) or the right edge, whichever the view's
      * horizontal centre is nearer. A decisive left/right settle, never a free-floating rest spot.
+     *
+     * App Shell Integration Step 2 (parking-lot floating-QUARK rule): this is also what keeps the
+     * trigger off Optics's shutter. The shutter sits at Alignment.BottomCenter — horizontally in
+     * the middle of the screen — while this rule only ever settles the trigger at X=0 or
+     * X=screenWidth-viewSize, i.e. flush against a side edge. A resting trigger can never land at
+     * horizontal center, so it can never cover a bottom-center primary control, regardless of Y.
+     * The M4-era NOTE that used to sit here ("those apps don't exist yet") is resolved: Optics is
+     * that app now, and this geometry was already compatible without needing a change.
      */
     fun nearestEdgeX(currentX: Int, viewSize: Int, screenWidth: Int): Int {
         val center = currentX + viewSize / 2
@@ -478,9 +486,9 @@ object OverlayGeometry {
 
     /**
      * Default park (first launch, before the Operator has ever dragged it): right edge, roughly
-     * mid-height — clear of the bottom-centre system gesture area and the top status bar.
-     * NOTE (M4 brief §2): avoiding a future companion app's primary control (e.g. a camera
-     * shutter) is a forward concern — those apps don't exist yet, so it isn't encoded here.
+     * mid-height — clear of the bottom-centre system gesture area and the top status bar, and (per
+     * the note on [nearestEdgeX]) clear of any bottom-center primary control a docked companion
+     * app may have, such as Optics's shutter.
      */
     fun defaultPark(viewSize: Int, screenWidth: Int, screenHeight: Int): Pair<Int, Int> =
         (screenWidth - viewSize) to ((screenHeight - viewSize) / 2)
