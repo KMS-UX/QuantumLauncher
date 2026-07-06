@@ -892,8 +892,21 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
     optics-debug.apk`) alongside the launcher's, since the Director has no local Android SDK either
     and needs a CI-built artifact to sideload for the Fold 6 verification pass.
   - **Could not verify locally** (same constraint as Step 1 — no Android SDK, `dl.google.com`
-    blocked in this sandbox) — pushed to CI. **Director must, on the Fold 6:** install both APKs,
-    confirm Optics launches from the QuantumOS launcher's APPS grid, wears the shared shell (not its
-    own), camera preview + capture + film filter still work, the floating QUARK trigger doesn't
-    block the shutter, and it *reads* as native to QuantumOS rather than a foreign app — the brief's
-    own subjective bar. Nav is next, only after this reads good on-device.
+    blocked in this sandbox) — pushed to CI.
+    - **First CI push (run #69) failed** — `:optics:compileDebugKotlin`/`compileReleaseKotlin`
+      errored on two bugs in the port itself: `CrtShaderEffect.kt` (the phosphor CRT shader applied
+      to the live camera feed, `ui/effects/`) was never actually copied over from the standalone
+      repo, so `ViewfinderFoundation.kt`'s import of it was unresolved; and the rewritten
+      `AppShell.kt` was missing `import androidx.compose.runtime.getValue`, which the `by
+      collectIsPressedAsState()` / `by animateFloatAsState()` property delegates need. Neither
+      `:app`, `:core`, nor `:app-shell` regressed — isolated to the new module.
+    - **CI run #70 (fix) is green**: `gradle test` + `assembleDebug` + `assembleRelease` all passed;
+      both the launcher's and Optics's debug APKs uploaded as artifacts (`quantumos-debug-apk`,
+      `quantumos-optics-debug-apk`), plus the signed release APK.
+    - **Still needed — the brief's actual proof point:** CI green proves it *compiles*; it does not
+      prove Optics "renders through the shared shell, camera intact, feels native, shutter
+      unobstructed" (brief §3). **Director must, on the Fold 6:** install both APKs, confirm Optics
+      launches from the QuantumOS launcher's APPS grid, wears the shared shell (not its own),
+      camera preview + capture + film filter still work, the floating QUARK trigger doesn't block
+      the shutter, and it *reads* as native to QuantumOS rather than a foreign app — the brief's own
+      subjective bar. Nav is next, only after this reads good on-device.
