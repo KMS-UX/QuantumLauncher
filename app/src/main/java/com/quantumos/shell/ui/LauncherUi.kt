@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -111,12 +112,10 @@ import com.quantumos.core.QuantumLauncherState
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -1502,39 +1501,64 @@ private fun AppsChannelScreen(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
 
-    // offset is in PAGE UNITS (survives fold/rotate); velocity + the coast job are transient motion.
-    var offset by rememberSaveable { mutableStateOf(0f) }
-    var velocity by remember { mutableStateOf(0f) }   // pages/sec, signed
-    var coastJob by remember { mutableStateOf<Job?>(null) }
-    var lastPage by remember { mutableIntStateOf(GearReelPhysics.nearestDetent(offset, pageCount)) }
+    // v4 discrete ratchet (Build Brief v1.0.1 — supersedes the v3 flywheel model). settledPage is
+    // the committed page (survives fold/rotate); rotationDeg is the gear's live visual angle, driven
+    // only by the queued catch/settle beats below — there is no continuous velocity/coast anymore.
+    var settledPage by rememberSaveable { mutableStateOf(GearReelPhysics.clampPage(0, pageCount)) }
+    var rotationDeg by remember { mutableStateOf(settledPage * REEL_DEGREES_PER_TOOTH) }
+    var leftoverDragDp by remember { mutableStateOf(0f) }
+    val stepQueue = remember { ArrayDeque<Int>() }
+    var draining by remember { mutableStateOf(false) }
 
-    // Fire a detent click when the reel passes a whole page (the tooth passing the pawl), loudness
-    // scaled by current spin speed. Called from both the live drag and the coast loop.
-    fun clickIfPageChanged() {
-        val page = GearReelPhysics.nearestDetent(offset, pageCount)
-        if (page != lastPage) {
-            lastPage = page
-            QuantumRuntime.playCue(SoundCue.REEL_DETENT, GearReelPhysics.clickGain(velocity))
+    // Safety re-clamp if the installed-apps count (and so pageCount) shrinks mid-session — rare,
+    // but keeps settledPage from ever pointing past the end (no crash risk either way; this just
+    // avoids a confusing blank page).
+    LaunchedEffect(pageCount) {
+        val clamped = GearReelPhysics.clampPage(settledPage, pageCount)
+        if (clamped != settledPage) {
+            settledPage = clamped
+            rotationDeg = clamped * REEL_DEGREES_PER_TOOTH
         }
     }
 
-    // The stepped settle onto the nearest detent — a handful of discrete clicks, not an eased glide.
-    suspend fun snapToDetent() {
-        val target = GearReelPhysics.nearestDetent(offset, pageCount).toFloat()
-        val start = offset
-        for (s in 1..GearReelPhysics.SNAP_STEP_COUNT) {
-            offset = start + (target - start) * s / GearReelPhysics.SNAP_STEP_COUNT
-            clickIfPageChanged()
-            delay(GearReelPhysics.SNAP_STEP_MS)
+    // Drains the queue one tooth-step at a time. Each step is a complete two-beat event — CATCH
+    // (swing past the target by overshootDeg, sharp click) then SETTLE (ease back to the exact
+    // detent, softer tick) — played fully before the next queued step starts. A fast flick that
+    // queued several steps plays them back-to-back: "clunk-clunk-clunk," never a decelerating spin.
+    fun drainQueue() {
+        if (draining) return
+        draining = true
+        scope.launch {
+            while (stepQueue.isNotEmpty()) {
+                val dir = stepQueue.removeFirst()
+                val target = GearReelPhysics.clampPage(settledPage + dir, pageCount)
+                if (target == settledPage) continue   // hard clamp at the end — nothing to do, no click
+                settledPage = target                   // the page flips at the start of its beat (stepped, not faded)
+
+                val fromDeg = rotationDeg
+                val targetDeg = target * REEL_DEGREES_PER_TOOTH
+                val peakDeg = GearReelPhysics.overshootPeak(fromDeg, targetDeg)
+
+                QuantumRuntime.playCue(SoundCue.REEL_CATCH)
+                val catchTicks = 4
+                repeat(catchTicks) { i ->
+                    rotationDeg = GearReelPhysics.catchAngle(fromDeg, targetDeg, (i + 1f) / catchTicks)
+                    delay(GearReelPhysics.CATCH_MS / catchTicks)
+                }
+                QuantumRuntime.playCue(SoundCue.REEL_DETENT)
+                val settleTicks = 4
+                repeat(settleTicks) { i ->
+                    rotationDeg = GearReelPhysics.settleAngle(peakDeg, targetDeg, (i + 1f) / settleTicks)
+                    delay(GearReelPhysics.SETTLE_MS / settleTicks)
+                }
+                rotationDeg = targetDeg
+            }
+            draining = false
         }
-        offset = target
-        clickIfPageChanged()
-        velocity = 0f
     }
 
-    val displayedPage = GearReelPhysics.nearestDetent(offset, pageCount)
-    val pageApps = remember(apps, displayedPage) {
-        apps.drop(displayedPage * REEL_PAGE_CAPACITY).take(REEL_PAGE_CAPACITY)
+    val pageApps = remember(apps, settledPage) {
+        apps.drop(settledPage * REEL_PAGE_CAPACITY).take(REEL_PAGE_CAPACITY)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -1553,7 +1577,7 @@ private fun AppsChannelScreen(
 
         // ---- page ordinal readout (terse status microcopy) ----
         Text(
-            text = "REEL ${displayedPage + 1} / $pageCount",
+            text = "REEL ${settledPage + 1} / $pageCount",
             color = dimColor,
             fontFamily = font,
             fontSize = 11.sp,
@@ -1562,8 +1586,9 @@ private fun AppsChannelScreen(
         )
 
         // ---- the half-recessed gear dial (thumb-scrub surface, at the bottom edge) ----
+        // Drag RIGHT advances (proceeds) to the next page; drag LEFT reverts (Build Brief v1.0.1).
         GearDial(
-            rotationDegrees = offset * REEL_DEGREES_PER_TOOTH,
+            rotationDegrees = rotationDeg,
             color = color,
             dimColor = dimColor,
             modifier = Modifier
@@ -1571,50 +1596,23 @@ private fun AppsChannelScreen(
                 .height(96.dp)
                 .clipToBounds()          // recesses the gear: only its top half shows above the edge
                 .pointerInput(pageCount) {
-                    var lastNanos = 0L
                     detectHorizontalDragGestures(
-                        onDragStart = {
-                            coastJob?.cancel()
-                            velocity = 0f
-                            lastNanos = System.nanoTime()
-                        },
+                        onDragStart = { },
                         onHorizontalDrag = { change, dragAmount ->
                             change.consume()
-                            val now = System.nanoTime()
-                            val dtSec = ((now - lastNanos).coerceAtLeast(1)).toFloat() / 1_000_000_000f
-                            lastNanos = now
                             val dpDelta = with(density) { dragAmount.toDp().value }
-                            val prev = offset
-                            offset = GearReelPhysics.applyDrag(offset, dpDelta, pageCount)
-                            // Instantaneous velocity in pages/sec, lightly smoothed for a steadier flick read.
-                            val instant = (offset - prev) / dtSec
-                            velocity = velocity * 0.6f + instant * 0.4f
-                            clickIfPageChanged()
-                        },
-                        onDragEnd = {
-                            coastJob?.cancel()
-                            coastJob = scope.launch {
-                                // Below the flick threshold → settle straight onto the nearest detent.
-                                if (kotlin.math.abs(velocity) >= GearReelPhysics.FLICK_VELOCITY_THRESHOLD_PAGES_PER_S) {
-                                    // Coast with friction until it runs out, then settle onto a detent.
-                                    while (isActive && velocity != 0f) {
-                                        val (o, v) = GearReelPhysics.coastTick(
-                                            offset, velocity,
-                                            GearReelPhysics.COAST_TICK_MS / 1000f, pageCount
-                                        )
-                                        offset = o
-                                        velocity = v
-                                        clickIfPageChanged()
-                                        delay(GearReelPhysics.COAST_TICK_MS)
-                                    }
-                                }
-                                snapToDetent()
+                            val (steps, remainder) = GearReelPhysics.consumeDrag(leftoverDragDp, dpDelta)
+                            leftoverDragDp = remainder
+                            if (steps != 0) {
+                                val dir = if (steps > 0) 1 else -1
+                                repeat(kotlin.math.abs(steps)) { stepQueue.addLast(dir) }
+                                drainQueue()
                             }
                         },
-                        onDragCancel = {
-                            coastJob?.cancel()
-                            coastJob = scope.launch { snapToDetent() }
-                        }
+                        // No coast, no momentum: any sub-tooth remainder left at release is simply
+                        // dropped — the ratchet only ever fires on a FULL dragPerTooth crossing.
+                        onDragEnd = { leftoverDragDp = 0f },
+                        onDragCancel = { leftoverDragDp = 0f }
                     )
                 }
         )
@@ -1704,6 +1702,56 @@ private fun AppCell(
 // Static at rest; it only turns while the Operator scrubs or it coasts. GPU-cheap Canvas, tinted
 // with the active phosphor. rotationDegrees is driven by the reel offset.
 @Composable
+// v4 refined gear face (Build Brief v1.0.1): bevelled two-layer teeth, a rivet ring, a hub with an
+// inner ring, and a crank grip nub at the top — the single landmark that makes the ratchet's
+// catch-and-settle read clearly as a real mechanical part turning, not an abstract dial.
+private fun DrawScope.drawGearFace(color: Color, dimColor: Color) {
+    val cx = size.width / 2f
+    val cy = size.height / 2f
+    val outer = size.height * 0.46f
+    val toothBase = outer * 0.84f          // where teeth root into the gear face
+    val bevelBase = toothBase * 0.90f      // the shorter, offset inner bevel layer
+    val rivetRadius = outer * 0.58f
+    val hubOuter = outer * 0.30f
+    val hubInner = outer * 0.17f
+    val stroke = Stroke(width = outer * 0.05f)
+    val bevelStroke = Stroke(width = outer * 0.032f)
+
+    // Outer tooth layer — the main teeth the pawl reads.
+    for (i in 0 until REEL_GEAR_TEETH) {
+        val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i)
+        val p0 = Offset(cx + (toothBase * kotlin.math.cos(a)).toFloat(), cy + (toothBase * kotlin.math.sin(a)).toFloat())
+        val p1 = Offset(cx + (outer * kotlin.math.cos(a)).toFloat(), cy + (outer * kotlin.math.sin(a)).toFloat())
+        drawLine(color, p0, p1, strokeWidth = stroke.width)
+    }
+    // Inner bevel layer — shorter teeth, offset half a tooth-pitch: the "two-layer bevelled" look.
+    val halfPitch = 360.0 / REEL_GEAR_TEETH / 2.0
+    for (i in 0 until REEL_GEAR_TEETH) {
+        val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i + halfPitch)
+        val p0 = Offset(cx + (bevelBase * kotlin.math.cos(a)).toFloat(), cy + (bevelBase * kotlin.math.sin(a)).toFloat())
+        val p1 = Offset(cx + (toothBase * kotlin.math.cos(a)).toFloat(), cy + (toothBase * kotlin.math.sin(a)).toFloat())
+        drawLine(dimColor, p0, p1, strokeWidth = bevelStroke.width)
+    }
+    // Gear-face rim.
+    drawCircle(dimColor, radius = bevelBase, center = Offset(cx, cy), style = bevelStroke)
+    // Rivet ring — small dots between the rim and the hub.
+    val rivetCount = 8
+    for (i in 0 until rivetCount) {
+        val a = Math.toRadians((360.0 / rivetCount) * i)
+        val p = Offset(cx + (rivetRadius * kotlin.math.cos(a)).toFloat(), cy + (rivetRadius * kotlin.math.sin(a)).toFloat())
+        drawCircle(dimColor, radius = stroke.width * 0.55f, center = p)
+    }
+    // Hub — outer ring + a concentric inner ring.
+    drawCircle(color, radius = hubOuter, center = Offset(cx, cy), style = stroke)
+    drawCircle(dimColor, radius = hubInner, center = Offset(cx, cy), style = bevelStroke)
+    // Crank grip nub — a raised knob at the top of the gear face; rotates with it, the one clear
+    // landmark a thumb would grip, and what actually sells the spin as motion.
+    val nub = Offset(cx, cy - bevelBase * 0.78f)
+    drawCircle(color, radius = outer * 0.10f, center = nub)
+    drawCircle(dimColor, radius = outer * 0.05f, center = nub)
+}
+
+@Composable
 private fun GearDial(
     rotationDegrees: Float,
     color: Color,
@@ -1718,29 +1766,7 @@ private fun GearDial(
                 .height(192.dp)       // taller than the recess; the clip shows only its top half
                 .rotate(rotationDegrees)
         ) {
-            val cx = size.width / 2f
-            val cy = size.height / 2f
-            val outer = size.height * 0.46f
-            val inner = outer * 0.72f
-            val hub = outer * 0.3f
-            val stroke = Stroke(width = outer * 0.05f)
-
-            // teeth — short radial spokes at the rim (the pawl "reads" these passing).
-            for (i in 0 until REEL_GEAR_TEETH) {
-                val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i)
-                val p0 = Offset(cx + (inner * kotlin.math.cos(a)).toFloat(), cy + (inner * kotlin.math.sin(a)).toFloat())
-                val p1 = Offset(cx + (outer * kotlin.math.cos(a)).toFloat(), cy + (outer * kotlin.math.sin(a)).toFloat())
-                drawLine(color, p0, p1, strokeWidth = stroke.width)
-            }
-            drawCircle(dimColor, radius = inner, center = Offset(cx, cy), style = stroke)
-            drawCircle(color, radius = hub, center = Offset(cx, cy), style = stroke)
-            // a single index mark so the rotation is legible as motion.
-            drawLine(
-                color,
-                Offset(cx, cy),
-                Offset(cx, cy - inner),
-                strokeWidth = stroke.width
-            )
+            drawGearFace(color, dimColor)
         }
         // the fixed pawl — a small marker at the recess edge the teeth pass under (does not rotate),
         // apex pointing down at the rim below it.

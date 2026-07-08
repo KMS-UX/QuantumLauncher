@@ -116,11 +116,16 @@ class SoundEngine {
                 t.tone(0, 120, 300.0, 280.0, amp = 0.38, wave = Wave.SQUARE, atk = 2, rel = 30, tremoloHz = 20.0)
                 t.tone(130, 120, 240.0, 220.0, amp = 0.38, wave = Wave.SQUARE, atk = 2, rel = 40, tremoloHz = 20.0)
             }
-            // Gear-reel detent = a tight mechanical tooth-click (a tooth passing the fixed pawl).
-            // Loudness is scaled per-call via `play(gain=...)`, not baked in here.
+            // Gear-reel ratchet (v4, discrete two-beat model) — CATCH is the sharp overshoot click;
+            // DETENT is the softer settle tick, the tooth fitting home. Distinct recipes, not a
+            // gain trick, so "clunk-clunk" reads as two different mechanical events.
+            SoundCue.REEL_CATCH -> {
+                t.tone(0, 16, 2200.0, 1500.0, amp = 0.48, wave = Wave.SQUARE, atk = 1, rel = 9)
+                t.tone(0, 12, 220.0, 120.0, amp = 0.26, wave = Wave.NOISE, atk = 0, rel = 7)
+            }
             SoundCue.REEL_DETENT -> {
-                t.tone(0, 14, 1500.0, 1000.0, amp = 0.4, wave = Wave.SQUARE, atk = 1, rel = 8)
-                t.tone(0, 10, 160.0, 90.0, amp = 0.22, wave = Wave.NOISE, atk = 0, rel = 6)
+                t.tone(0, 14, 1200.0, 800.0, amp = 0.30, wave = Wave.SQUARE, atk = 1, rel = 10)
+                t.tone(0, 10, 130.0, 80.0, amp = 0.16, wave = Wave.NOISE, atk = 0, rel = 6)
             }
             // Legacy token aliases (kept so older emit sites still sound through one bank).
             "SND_POWER_UP_SWEEP" -> return synth(SoundCue.BOOT_SWEEP)
@@ -138,6 +143,7 @@ class SoundEngine {
         SoundCue.POWER_ON_FLASH, SoundCue.SWEEP_PHOSPHOR, SoundCue.CHIRP_SCAN -> 240
         SoundCue.DEVICE_SECURED -> 160
         SoundCue.KEY_TICK, SoundCue.UI_CLUNK -> 90
+        SoundCue.REEL_CATCH -> 16
         SoundCue.REEL_DETENT -> 14
         else -> 300
     }

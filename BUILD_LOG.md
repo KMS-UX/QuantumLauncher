@@ -11,78 +11,98 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Launcher Restructure Phase 2 — the gear-reel APPS browser (Build Brief v1.0) —
-**CODE COMPLETE (2026-07-06), CI-green, pending Fold 6 tuning.** The flat APPS grid is replaced by a
-paged app grid above a half-recessed, thumb-scrubbed **gear dial** with momentum coast, per-page
-detent clicks (loudness scaling with spin speed), and a hard clamp at the first/last page (no
-wraparound). **Phase 3 (Optics/Nav shell integration) is a separate brief — NOT started.**
+**Current milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v4 discrete ratchet**
+(Build Brief v1.0.1) — **CODE COMPLETE (2026-07-08), CI-green, pending Fold 6 tuning of this revision.**
 
-> **Phase 1 (console-as-HOME) is CI-green and banked** (run #73, `success`). The Director opted to
-> rely on CI rather than a local build and greenlit Phase 2, so it proceeded on top of Phase 1 in the
-> same branch. Phase 1's own Fold 6 verify checklist (console renders, instruments launch/standby)
-> still applies and moves down to the "previous milestone" note below.
+> **Director tested v3 (the flywheel/momentum reel) on the Fold 6 and asked for a real ratchet feel
+> instead — this session replaces the physics model entirely**, per the v1.0.1 brief (Gear Dial Lab
+> v4, "supersedes v3's flywheel-momentum approach"). Nothing here is additive to v3's tuning; the
+> coast/momentum code is gone, not adjusted.
 
-**What changed (Phase 2):**
-- `com.quantumos.core`: new **`GearReelPhysics`** — pure, unit-tested reel math (no Android/Compose
-  deps, same "logic in core" pattern as `OverlayGeometry`). Owns `clampOffset` (hard clamp, no
-  wraparound), `applyDrag` (1:1 scrub), `coastTick` (friction coast, dead-stops at the ends),
-  `nearestDetent`, and `clickGain` (ratchet loudness). The UI drives one float `offset` in page units
-  through these; it owns no math. New `SoundCue.REEL_DETENT`. Unit tests added.
-- `LauncherUi.kt`: `AppsChannelScreen` rebuilt as the reel — `ReelPageGrid` (a plain non-lazy grid of
-  exactly one page) above `GearDial` (a phosphor-line cog, top arc peeking from the bottom recess,
-  static at rest, turned by thumb-scrub via `detectHorizontalDragGestures`). Drag → live 1:1 gear
-  turn + discrete page flips (slide-projector); release → momentum coast (hard flick) or straight
-  stepped snap (gentle nudge) onto the nearest detent; each page passing the pawl fires a
-  velocity-scaled `REEL_DETENT` click.
-- `SoundEngine`: added the `REEL_DETENT` tooth-click recipe and a per-call **`gain`** param;
-  `QuantumRuntime.playCue(token, gain)` forwards it (default 1f — every other caller unaffected).
+**What changed (v4):**
+- **The model is now DISCRETE, not continuous.** There is no velocity or coast. Drag accumulates in
+  dp; the instant it crosses one whole `dragPerTooth`, a tooth-step is queued. Each queued step plays
+  as its own complete two-beat event — **CATCH** (swing *past* the target detent by `overshootDeg`,
+  sharp click) then **SETTLE** (ease back to the exact detent, softer tick). A fast flick queues
+  several steps that play back-to-back — "clunk-clunk-clunk" — never a decelerating spin.
+- **Drag direction flipped per the brief: right advances, left reverts** (v3 had left-advance).
+- `com.quantumos.core.GearReelPhysics` **rewritten** — `consumeDrag` (whole-tooth extraction + carried
+  remainder, nothing lost mid-drag), `clampPage` (hard, no wraparound), `overshootPeak`/`catchAngle`/
+  `settleAngle` (the two-beat angle math). The old `clampOffset`/`applyDrag`/`coastTick`/
+  `nearestDetent`/`clickGain` are gone, not deprecated — v4 fully replaces v3. Unit tests rewritten to
+  match (whole-tooth extraction incl. the carried remainder, direction sign, clamp, overshoot/catch/
+  settle endpoints).
+- New `SoundCue.REEL_CATCH` (sharp click) alongside the existing `REEL_DETENT`, now repurposed as the
+  softer settle tick — two distinct synth recipes, not a gain trick, so the two beats read as
+  different mechanical events. (The `gain` param added to `SoundEngine.play`/`QuantumRuntime.playCue`
+  last session is unused by v4 but left in place — harmless, default-1f, still a real capability.)
+- `GearDial` visual refined per the brief: bevelled two-layer teeth (main teeth + a shorter, half-
+  pitch-offset inner bevel layer), a rivet ring, a hub with a concentric inner ring, and a **crank
+  grip nub** at the top of the gear face — the one clear landmark that sells the spin as motion under
+  the ratchet's catch/settle. Extracted into `DrawScope.drawGearFace` for a smaller diff next tuning
+  pass.
+- `AppsChannelScreen`: `settledPage`/`rotationDeg` replace v3's `offset`/`velocity`; a small
+  `ArrayDeque<Int>` step queue + a draining coroutine replace the coast loop. `ReelPageGrid`,
+  `AppCell`, and `AppIconCache` are **untouched** — see the stutter-fix note below.
 
-**Tunable constants — the Fold-tuning surface (Build Brief: "tune on the Fold, hardware is the final
-judge"). Starting values, NOT hardware-confirmed (no Fold 6 in this session):**
-- `GearReelPhysics.SCRUB_SENSITIVITY_PAGES_PER_DP = 0.020f` — reel travel per dp of thumb drag.
-- `GearReelPhysics.COAST_FRICTION_PAGES_PER_S2 = 3.2f` — how fast a flick decelerates.
-- `GearReelPhysics.FLICK_VELOCITY_THRESHOLD_PAGES_PER_S = 1.2f` — below this, skip coast, snap straight.
-- `GearReelPhysics.SNAP_STEP_MS = 35L` / `SNAP_STEP_COUNT = 5` — the stepped settle timing.
-- (UI) `REEL_COLUMNS = 4`, `REEL_ROWS = 5` → `REEL_PAGE_CAPACITY = 20` per page; `REEL_DEGREES_PER_TOOTH
-  = 24f`, `REEL_GEAR_TEETH = 15` — grid shape + gear geometry.
+**Tunable constants — named exactly per the Build Brief (`dragPerTooth`/`overshootDeg`/`catchMs`/
+`settleMs`). v4-lab starting values; tune these four on the Fold if the ratchet feels off:**
+- `GearReelPhysics.DRAG_PER_TOOTH_DP = 26f` (dragPerTooth) — dp of drag that fires one tooth-step.
+- `GearReelPhysics.OVERSHOOT_DEG = 8f` (overshootDeg) — how far the catch swings past the detent.
+- `GearReelPhysics.CATCH_MS = 65L` (catchMs) — catch-swing duration.
+- `GearReelPhysics.SETTLE_MS = 85L` (settleMs) — settle-back duration.
+- Unchanged from v3: `REEL_COLUMNS = 4`, `REEL_ROWS = 5` → `REEL_PAGE_CAPACITY = 20`/page;
+  `REEL_DEGREES_PER_TOOTH = 24f`, `REEL_GEAR_TEETH = 15`.
 
-**Which stutter fix the reel inherits (Build Brief asks explicitly) — the honest answer:**
-The brief states the Apps-menu scroll stutter is "diagnosed and fixed (decision 72 thread closed)."
-**There is no distinct decision-72 fix commit in this repo/history** — I searched the log and code.
-What the pre-Phase-2 APPS grid actually had was **stable grid keys** (`key = { packageName +
-activityName }`) plus a per-cell `remember(packageName)` icon decode — and that per-cell `remember` is
-*re-decoded every time a `LazyVerticalGrid` cell is recycled*, i.e. it is NOT a durable cache and is a
-plausible stutter source, not a fix. **So Phase 2 establishes the real fix rather than inheriting a
-prior one:** a process-scoped **`AppIconCache`** (decode-once, keyed by package name) plus a
-**non-lazy one-page grid** (no view recycling to jank on a flip). If the Director considers "decision
-72" to be a design-doc/Bible decision that was never actually landed in code, this is where it lands;
-if there's a fix elsewhere I couldn't see, flag it and I'll reconcile.
+**Which stutter fix the reel inherits — reconfirmed for v4 (unchanged from last session's honest
+note):** the brief again asks the reel to inherit the established scroll-stutter fix. **The
+`ReelPageGrid` (plain non-lazy one-page grid, no view recycling) and `AppIconCache` (process-scoped,
+decode-once icon cache keyed by package name) are untouched by this revision** — v4 only replaced the
+gear's physics/visual and the drag interaction, not the grid or icon path. Restating for the record
+since there's still no separate "decision 72" fix elsewhere in this repo/history: those two pieces
+*are* the fix, established last session, and this session confirms nothing in the v4 change regresses
+them (no new per-cell decode, no Lazy list reintroduced).
 
-> **Director action required — Fold 6 tuning pass (Launcher Restructure Phase 2):**
-> 1. Open APPS → confirm the paged grid + the half-recessed gear at the bottom edge.
-> 2. **Thumb-scrub the gear:** a gentle nudge moves one page; a hard flick coasts through several and
->    settles on a detent. Pages snap cleanly; the gear turns continuously under the thumb.
-> 3. **Detents:** each page passing the pawl clicks; the click is louder on a fast flick than a slow
->    crawl (ratchet feel).
-> 4. **Clamp:** scrub hard past the first and last page — it must stop firmly, no wraparound.
-> 5. **No stutter on flip** — the headline check; confirm paging stays smooth (this is what the
->    `AppIconCache` + non-lazy page grid are for).
-> 6. **Report the feel**, then tune the five `GearReelPhysics` constants above until the scrub, coast,
->    and snap feel right on hardware (they're named + isolated for exactly this).
+> **Director action required — Fold 6 tuning pass (v4 ratchet):**
+> 1. Open APPS → confirm the refined gear: bevelled two-layer teeth, rivet ring, hub inner ring, and
+>    the crank grip nub at the top (the "does it look like a real dial" check).
+> 2. **A single gentle nudge** (one `dragPerTooth` of drag) → one full catch-then-settle beat: a sharp
+>    click on the overshoot, a softer tick as it seats. Confirm it reads as "the tooth caught," not a
+>    twitch or a stutter.
+> 3. **A fast flick across several pages** → several catch+settle beats fire back-to-back —
+>    "clunk-clunk-clunk" — never a smooth spin-down. This is the headline check (it's the whole reason
+>    v3 got replaced).
+> 4. **Direction:** drag right advances, drag left reverts. Confirm it feels natural.
+> 5. **Clamp:** drag hard past the first/last page — it must stop firmly, no wraparound, and no
+>    partial/broken beat at the boundary.
+> 6. **Report the feel**, then tune `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs` until the catch
+>    and settle read as real mechanical engagement (they're named + isolated for exactly this).
 
-**Judgment calls flagged (Phase 2):**
-- **Drag direction:** left-drag advances the reel forward (spin-toward-you). One-line flip in
-  `applyDrag` if the Director wants it reversed.
-- **Fixed 20-per-page (4×5)** so the tooth count/detents stay stable regardless of fold state, rather
-  than adaptive columns (which would make the page count — and thus the reel's teeth — change when you
-  unfold). Flag if you'd rather more columns on the unfolded inner display.
-- **The stepped snap interpolates over 5 discrete steps**, matching the shell's stepped-motion rule;
-  if it reads too slow/fast on hardware, `SNAP_STEP_MS`/`SNAP_STEP_COUNT` are the knobs.
+**Judgment calls flagged (v4):**
+- **Page flips at the START of a step's beat** (the instant CATCH begins), not after SETTLE completes
+  — matches the shell's "stepped, not faded" convention elsewhere (BootSplash, AtomMark), but flag if
+  the Director would rather the grid content flip only once the tooth has fully seated.
+- **Catch/settle each interpolate over 4 discrete ticks** (not exposed as a named brief constant,
+  since the brief only asked for the four duration/distance knobs) — if the motion reads too coarse
+  or too smooth on hardware, this tick count is the next knob to expose.
+- **REEL_CATCH/REEL_DETENT loudness is fixed** (not scaled by anything, since there's no more velocity
+  concept) — the sharp/soft contrast comes entirely from the two synth recipes. Flag if the Director
+  wants per-flick loudness variation back.
 
 **Build note:** this cloud session still has no Android SDK (`gradle test` fails at
 `com.android.application` plugin resolution, as SESSION-PLAYBOOK documents) and no local Fold 6, so
-neither `gradle test`/`assembleDebug` nor the on-device pass could run here. All new reel physics is
-pure Kotlin with unit tests added; CI (`.github/workflows/build.yml`) is the real compiler on push.
+neither `gradle test`/`assembleDebug` nor the on-device pass could run here. All reel physics remains
+pure Kotlin with unit tests updated for v4; CI (`.github/workflows/build.yml`) is the real compiler on
+push — this revision is CI-green (see PR/commit history). The Director's own sideload + Fold 6 tuning
+pass is what actually closes this milestone.
+
+---
+
+**Previous milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v3 flywheel/momentum**
+(Build Brief v1.0) — CI-green, sideloaded and tested on the Fold 6, then **superseded by v4 above**
+per Director feedback (momentum-coast didn't read as a ratchet). v3's `GearReelPhysics` API
+(`clampOffset`/`applyDrag`/`coastTick`/`nearestDetent`/`clickGain`) no longer exists in the codebase;
+kept here only as a paper trail, not a fallback.
 
 ---
 
@@ -623,13 +643,22 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
 
-### Launcher Restructure Phase 2 — gear-reel APPS browser (this session)
-- [x] `GearReelPhysics` (scrub/coast/snap/clamp/detent-gain) added to core, unit-tested
-- [x] `SoundCue.REEL_DETENT` + gain-scaled `SoundEngine.play`/`QuantumRuntime.playCue`
-- [x] APPS rebuilt: `ReelPageGrid` (non-lazy one-page grid) + `GearDial` (thumb-scrub, momentum,
-  stepped snap, hard clamp); `AppIconCache` (decode-once) as the real stutter fix
-- [ ] **Tuned + confirmed on Fold 6** — scrub/coast/snap feel; detent ratchet; clamp; no flip
-  stutter; report final `GearReelPhysics` constants  ← **Director action**, see RESUME HERE
+### Launcher Restructure Phase 2 — gear-reel APPS browser, v4 discrete ratchet (this session)
+- [x] `GearReelPhysics` rewritten for discrete ratchet: `consumeDrag`/`clampPage`/`overshootPeak`/
+  `catchAngle`/`settleAngle`; v3 flywheel API removed; unit tests rewritten to match
+- [x] `SoundCue.REEL_CATCH` added; `REEL_DETENT` repurposed as the softer settle tick (two distinct
+  recipes, not gain-scaled)
+- [x] `AppsChannelScreen` rewired: step queue + draining coroutine (catch→settle per tooth), drag
+  RIGHT advances / LEFT reverts, hard clamp — no coast/velocity code left
+- [x] `GearDial` refined: bevelled two-layer teeth, rivet ring, hub inner ring, crank grip nub
+- [x] `ReelPageGrid`/`AppCell`/`AppIconCache` untouched — stutter fix reconfirmed, not re-derived
+- [ ] **Tuned + confirmed on Fold 6 (v4)** — catch/settle reads as real mechanical engagement, flick
+  produces back-to-back clunks not a spin-down, direction feels natural, clamp is firm; report final
+  `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs`  ← **Director action**, see RESUME HERE
+
+### Launcher Restructure Phase 2 — gear-reel APPS browser, v3 flywheel (superseded)
+- [x] CI-green, sideloaded and tested on the Fold 6 by the Director
+- [x] Feedback: momentum-coast didn't read as a ratchet → **replaced by v4 above**, not iterated on
 
 ### Launcher Restructure Phase 1 — console-as-HOME (prior session)
 - [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested

@@ -132,69 +132,65 @@ object SoundCue {
     const val CHIRP_SCAN = "chirp_scan"
     const val CHIRP_HAPPY = "chirp_happy"
     const val CHIRP_WARN = "chirp_warn"
-    const val REEL_DETENT = "reel_detent_click"        // Launcher Restructure Phase 2 — gear-reel tooth click
+    const val REEL_DETENT = "reel_detent_click"        // gear-reel SETTLE tick (softer — the tooth fitting in)
+    const val REEL_CATCH = "reel_catch_click"          // gear-reel CATCH click (sharper — the overshoot beat)
 }
 
 /*
- * Launcher Restructure Phase 2 (Build Brief v1.0) — the APPS gear-reel browser's pure physics.
- * Pure Kotlin, no Android/Compose deps — same "logic lives in core, unit-tested" pattern as
- * OverlayGeometry's edge-snap math. The UI drives a single float `offset` in PAGE UNITS (0 =
- * first page, pageCount-1 = last) via these functions; it owns no math of its own.
+ * Launcher Restructure Phase 2 (Build Brief v1.0.1, Gear Dial Lab v4) — the APPS gear-reel's
+ * DISCRETE RATCHET physics. **Supersedes the v3 flywheel/momentum model entirely** — the Director
+ * tested v3 on the Fold 6 and asked for a real ratchet feel instead of a decelerating spin. Pure
+ * Kotlin, no Android/Compose deps — same "logic lives in core, unit-tested" pattern as
+ * OverlayGeometry's edge-snap math.
  *
- * Tunable constants (Build Brief: "expose scrub-sensitivity, coast-friction, and snap-timing as
- * named constants, tune on the Fold"). Values below are a reasoned starting point, NOT confirmed
- * on hardware — this session had no Fold 6 access. Director: tune these three first.
+ * The model: there is no continuous velocity/coast. Every tooth-crossing is queued the instant the
+ * drag accumulates one dragPerTooth's worth of travel, and each queued step plays out as its own
+ * complete two-beat event — CATCH (swing past the target detent by overshootDeg, sharp click) then
+ * SETTLE (ease back to the exact detent, softer tick). A fast flick queues several of these beats;
+ * they play back-to-back, never overlapping, producing "clunk-clunk-clunk," not a spin-down.
+ *
+ * Tunables, named exactly per the Build Brief (dragPerTooth/overshootDeg/catchMs/settleMs). v4-lab
+ * starting values — confirmed against this session's Fold 6 tuning pass (see BUILD_LOG).
  */
 object GearReelPhysics {
-    // How far the reel turns per dp of thumb travel (page-units per dp).
-    const val SCRUB_SENSITIVITY_PAGES_PER_DP = 0.020f
-    // Deceleration applied to a coasting flick (page-units per second^2).
-    const val COAST_FRICTION_PAGES_PER_S2 = 3.2f
-    // Below this release speed, skip the coast and snap immediately (page-units per second).
-    const val FLICK_VELOCITY_THRESHOLD_PAGES_PER_S = 1.2f
-    // The final stepped settle onto a detent: a handful of discrete clicks, not an eased slide.
-    const val SNAP_STEP_MS = 35L
-    const val SNAP_STEP_COUNT = 5
-    // Detent-click loudness floor/ceiling (ratchet feel: a slow crawl still clicks, a hard flick is loud).
-    private const val MIN_CLICK_GAIN = 0.35f
-    private const val MAX_CLICK_VELOCITY_PAGES_PER_S = 4.0f
-    // Coast loop tick — ~60fps, matches the frame-paced stepped loops elsewhere in the shell.
-    const val COAST_TICK_MS = 16L
+    // dragPerTooth — dp of drag that advances (or reverts) exactly one tooth/page.
+    const val DRAG_PER_TOOTH_DP = 26f
+    // overshootDeg — how far the catch swings PAST the target detent before settling back.
+    const val OVERSHOOT_DEG = 8f
+    // catchMs — duration of the catch swing (the sharp-click beat).
+    const val CATCH_MS = 65L
+    // settleMs — duration of the settle-back (the softer-tick beat).
+    const val SETTLE_MS = 85L
+
+    // Consumes accumulated drag into whole tooth-steps (signed: positive/right = advance), and the
+    // fractional dp remainder to carry into the next drag event — nothing is ever lost mid-drag.
+    // Truncates toward zero so a step only fires once a FULL dragPerTooth has been travelled.
+    fun consumeDrag(leftoverDp: Float, deltaDp: Float): Pair<Int, Float> {
+        val total = leftoverDp + deltaDp
+        val steps = (total / DRAG_PER_TOOTH_DP).toInt()
+        return steps to (total - steps * DRAG_PER_TOOTH_DP)
+    }
 
     // No wraparound, ever: clamp hard to the first/last page. pageCount<=1 always resolves to 0.
-    fun clampOffset(offset: Float, pageCount: Int): Float =
-        if (pageCount <= 1) 0f else offset.coerceIn(0f, (pageCount - 1).toFloat())
+    fun clampPage(page: Int, pageCount: Int): Int =
+        if (pageCount <= 1) 0 else page.coerceIn(0, pageCount - 1)
 
-    // Live drag: 1:1 real-time follow (the one place this shell's motion isn't stepped — same
-    // exception OverlayGeometry's drag-follow makes). deltaDp is the raw pointer delta; direction
-    // is left-drag = forward a page, matching a reel you spin toward you.
-    fun applyDrag(offset: Float, deltaDp: Float, pageCount: Int): Float =
-        clampOffset(offset - deltaDp * SCRUB_SENSITIVITY_PAGES_PER_DP, pageCount)
-
-    // One coast-loop tick: apply friction against the current direction, advance the offset, and
-    // clamp. Hitting either hard end kills velocity outright (a firm stop, never a bounce).
-    fun coastTick(offset: Float, velocityPagesPerSecond: Float, dtSeconds: Float, pageCount: Int): Pair<Float, Float> {
-        val decel = COAST_FRICTION_PAGES_PER_S2 * dtSeconds
-        val nextVelocity = when {
-            velocityPagesPerSecond > 0f -> (velocityPagesPerSecond - decel).coerceAtLeast(0f)
-            velocityPagesPerSecond < 0f -> (velocityPagesPerSecond + decel).coerceAtMost(0f)
-            else -> 0f
-        }
-        val nextOffset = clampOffset(offset + velocityPagesPerSecond * dtSeconds, pageCount)
-        val hitEnd = nextOffset <= 0f || nextOffset >= (pageCount - 1).toFloat()
-        return nextOffset to if (hitEnd) 0f else nextVelocity
+    // The overshoot peak a catch swings to for a given target angle, in the direction of travel —
+    // the UI reads this once per step so settle knows where to ease back from.
+    fun overshootPeak(fromDeg: Float, targetDeg: Float): Float {
+        val dir = if (targetDeg >= fromDeg) 1f else -1f
+        return targetDeg + dir * OVERSHOOT_DEG
     }
 
-    // The page a settle should land on: nearest whole page, clamped.
-    fun nearestDetent(offset: Float, pageCount: Int): Int {
-        if (pageCount <= 1) return 0
-        return Math.round(clampOffset(offset, pageCount)).coerceIn(0, pageCount - 1)
+    // Catch phase: linear swing from the current angle to the overshoot peak. frac is 0..1 across catchMs.
+    fun catchAngle(fromDeg: Float, targetDeg: Float, frac: Float): Float {
+        val peak = overshootPeak(fromDeg, targetDeg)
+        return fromDeg + (peak - fromDeg) * frac.coerceIn(0f, 1f)
     }
 
-    // Ratchet feel: click loudness scales with spin speed, never below an audible floor.
-    fun clickGain(velocityPagesPerSecond: Float): Float =
-        (kotlin.math.abs(velocityPagesPerSecond) / MAX_CLICK_VELOCITY_PAGES_PER_S)
-            .coerceIn(MIN_CLICK_GAIN, 1f)
+    // Settle phase: linear ease from the overshoot peak back to the exact detent. frac is 0..1 across settleMs.
+    fun settleAngle(peakDeg: Float, targetDeg: Float, frac: Float): Float =
+        peakDeg + (targetDeg - peakDeg) * frac.coerceIn(0f, 1f)
 }
 
 // ---------- state ----------

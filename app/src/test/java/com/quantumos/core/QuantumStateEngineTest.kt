@@ -325,52 +325,62 @@ class QuantumStateEngineTest {
         assertEquals(null, InstrumentConsole.findByLabel(installed, "File"))
     }
 
-    // ---------- Launcher Restructure Phase 2 — gear-reel physics ----------
+    // ---------- Launcher Restructure Phase 2 — gear-reel physics (v4 discrete ratchet) ----------
 
     @Test
-    fun clampOffset_neverWraps_andCollapsesToZeroForOneOrFewerPages() {
-        assertEquals(0f, GearReelPhysics.clampOffset(-3f, pageCount = 5))
-        assertEquals(4f, GearReelPhysics.clampOffset(99f, pageCount = 5))
-        assertEquals(0f, GearReelPhysics.clampOffset(2f, pageCount = 1))
-        assertEquals(0f, GearReelPhysics.clampOffset(2f, pageCount = 0))
+    fun consumeDrag_onlyFiresWholeSteps_andCarriesTheRemainder() {
+        // Half a tooth's worth of drag: no step yet, but the remainder must carry forward exactly.
+        val (steps1, leftover1) = GearReelPhysics.consumeDrag(leftoverDp = 0f, deltaDp = 13f)
+        assertEquals(0, steps1)
+        assertEquals(13f, leftover1)
+        // The rest of that tooth arrives next event -> exactly one step fires, remainder resets near zero.
+        val (steps2, leftover2) = GearReelPhysics.consumeDrag(leftoverDp = leftover1, deltaDp = 13f)
+        assertEquals(1, steps2)
+        assertTrue(kotlin.math.abs(leftover2) < 0.01f)
     }
 
     @Test
-    fun applyDrag_movesByDeltaAndClampsHardAtEitherEnd() {
-        val moved = GearReelPhysics.applyDrag(offset = 1f, deltaDp = -50f, pageCount = 5)
-        assertTrue(moved > 1f, "dragging left should advance the reel forward")
-        // Repeated forward drags never exceed the last page (no wraparound).
-        var offset = 0f
-        repeat(50) { offset = GearReelPhysics.applyDrag(offset, deltaDp = -1000f, pageCount = 5) }
-        assertEquals(4f, offset)
+    fun consumeDrag_dragRightIsPositive_dragLeftIsNegative() {
+        val (right, _) = GearReelPhysics.consumeDrag(0f, deltaDp = GearReelPhysics.DRAG_PER_TOOTH_DP)
+        assertEquals(1, right, "dragging right must advance (positive step)")
+        val (left, _) = GearReelPhysics.consumeDrag(0f, deltaDp = -GearReelPhysics.DRAG_PER_TOOTH_DP)
+        assertEquals(-1, left, "dragging left must revert (negative step)")
     }
 
     @Test
-    fun coastTick_decelerates_andStopsDeadAtTheEnd_neverBouncing() {
-        var offset = 3.5f
-        var velocity = 5f // pages/sec, coasting forward
-        repeat(200) {
-            val (o, v) = GearReelPhysics.coastTick(offset, velocity, dtSeconds = 0.016f, pageCount = 5)
-            offset = o; velocity = v
-        }
-        assertEquals(4f, offset) // hard stop at the last page
-        assertEquals(0f, velocity) // killed outright, no bounce back into negative territory
+    fun consumeDrag_aFastFlickQueuesMultipleWholeSteps() {
+        val (steps, _) = GearReelPhysics.consumeDrag(0f, deltaDp = GearReelPhysics.DRAG_PER_TOOTH_DP * 3.4f)
+        assertEquals(3, steps, "a big flick should queue several whole tooth-steps at once")
     }
 
     @Test
-    fun nearestDetent_roundsToClosestPage_andClamps() {
-        assertEquals(2, GearReelPhysics.nearestDetent(1.6f, pageCount = 5))
-        assertEquals(1, GearReelPhysics.nearestDetent(1.4f, pageCount = 5))
-        assertEquals(4, GearReelPhysics.nearestDetent(99f, pageCount = 5))
-        assertEquals(0, GearReelPhysics.nearestDetent(-3f, pageCount = 5))
-        assertEquals(0, GearReelPhysics.nearestDetent(0.5f, pageCount = 1))
+    fun clampPage_neverWraps_andCollapsesToZeroForOneOrFewerPages() {
+        assertEquals(0, GearReelPhysics.clampPage(-3, pageCount = 5))
+        assertEquals(4, GearReelPhysics.clampPage(99, pageCount = 5))
+        assertEquals(0, GearReelPhysics.clampPage(2, pageCount = 1))
+        assertEquals(0, GearReelPhysics.clampPage(2, pageCount = 0))
     }
 
     @Test
-    fun clickGain_scalesWithSpeed_butNeverBelowTheAudibleFloor() {
-        assertTrue(GearReelPhysics.clickGain(0.01f) >= 0.35f, "even a slow crawl must click")
-        assertEquals(1f, GearReelPhysics.clickGain(50f)) // fast flick caps at full gain
-        assertTrue(GearReelPhysics.clickGain(4f) > GearReelPhysics.clickGain(1f), "faster spin clicks louder")
+    fun overshootPeak_swingsPastTheTarget_inTheDirectionOfTravel() {
+        val peakForward = GearReelPhysics.overshootPeak(fromDeg = 0f, targetDeg = 90f)
+        assertEquals(90f + GearReelPhysics.OVERSHOOT_DEG, peakForward)
+        val peakBackward = GearReelPhysics.overshootPeak(fromDeg = 90f, targetDeg = 0f)
+        assertEquals(0f - GearReelPhysics.OVERSHOOT_DEG, peakBackward)
+    }
+
+    @Test
+    fun catchAngle_startsAtOrigin_andReachesTheOvershootPeakAtFrac1() {
+        val from = 0f; val target = 90f
+        assertEquals(from, GearReelPhysics.catchAngle(from, target, frac = 0f))
+        assertEquals(GearReelPhysics.overshootPeak(from, target), GearReelPhysics.catchAngle(from, target, frac = 1f))
+    }
+
+    @Test
+    fun settleAngle_startsAtThePeak_andLandsExactlyOnTheDetentAtFrac1() {
+        val peak = 98f; val target = 90f
+        assertEquals(peak, GearReelPhysics.settleAngle(peak, target, frac = 0f))
+        assertEquals(target, GearReelPhysics.settleAngle(peak, target, frac = 1f)) // exact detent, no residual overshoot
     }
 
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.
