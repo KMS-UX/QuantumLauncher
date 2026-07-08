@@ -1697,11 +1697,6 @@ private fun AppCell(
     }
 }
 
-// The gear dial — a phosphor-line cog half-sunk into the bottom chassis: only its TOP arc shows
-// above the recess edge (the clip hides the lower half, the caller's .height() sets the recess).
-// Static at rest; it only turns while the Operator scrubs or it coasts. GPU-cheap Canvas, tinted
-// with the active phosphor. rotationDegrees is driven by the reel offset.
-@Composable
 // v4 refined gear face (Build Brief v1.0.1): bevelled two-layer teeth, a rivet ring, a hub with an
 // inner ring, and a crank grip nub at the top — the single landmark that makes the ratchet's
 // catch-and-settle read clearly as a real mechanical part turning, not an abstract dial.
