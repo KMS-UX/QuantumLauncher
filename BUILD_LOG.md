@@ -11,23 +11,22 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 2b — custom voice — **CONFIRMED LIVE on the Fold 6 (2026-07-04).**
-QUARK-H2 is audible, correct, and offline via sherpa-onnx; the Director judged the ~7000ms cold-start
-(for a ~3500ms line) understandable and warm calls acceptable — the Phase 2b acceptance bar (Synthetic-
-Seed note §3: deliberate not broken) is met. `numThreads` bumped 2→4 and the engine now warms as soon
-as `VOICE-ID: QUARK-H2` is picked (not deferred to the `VOICE: ON` toggle) to shrink that further.
+**Current milestone:** QUARK Phase 2b — custom voice — **DONE, confirmed on the Fold 6 (2026-07-04).**
+QUARK-H2 is audible, correct, and offline via sherpa-onnx. Director re-tested after the latency
+tuning + brain fix: **TTS now starts noticeably faster** (numThreads 2→4 + warm-on-identity-pick), and
+**the date/time fix confirmed correct** (QUARK answered the current date/time accurately instead of
+fabricating). Phase 2b's acceptance bar (Synthetic-Seed note §3: deliberate not broken) is met and
+this thread is closed pending the consolidated Bible bump.
 
 > **Open items, not blocking:**
-> - **Further latency polish, optional:** if ~7000ms cold still feels long after the thread-count +
->   earlier-warm changes, the documented fallback (Piper/placeholder for real-time lines, H2 reserved
->   for set-pieces) remains available — only pursue if a future session/Director flags it as still
->   too slow after these changes land on-device.
-> - **Phase 1 (separate system) finding, fixed this session:** the on-device Gemma brain had no
->   clock and fabricated an answer when asked the date — `QuarkOnDeviceBrain.reply()` now injects a
->   live `[Current date/time: ...]` line every turn. Worth confirming on the Fold 6 that this resolves
->   it and doesn't destabilize persona retention (the first-turn injection format changed slightly).
+> - **Further latency polish:** not currently requested — the tuned latency reads as acceptable to
+>   the Director. The documented Piper/placeholder-for-real-time-lines fallback remains available if
+>   a future session ever finds it too slow again (e.g. after a model/device change).
 > - Phase 2a pipeline (Android TTS placeholder) remains the default `PLACEHOLDER` identity and is
 >   still confirmed working stand-in/fallback.
+> - QUARK Phase 2 (voice) as a whole is now done; per the Phase 2 brief §5, the next thread is
+>   **Phase 3 — command execution** (gated on the Kiosk Drill / device-owner mechanism), where the
+>   QUARK brain thread and the Kiosk thread converge.
 
 **Current milestone (prior):** QUARK Phase 2a — voice pipeline — **CODE COMPLETE (2026-06-30), pending
 hardware verification on Fold 6.**
