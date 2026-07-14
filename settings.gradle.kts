@@ -20,4 +20,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "QuantumOS"
-include(":app")
+include(":app", ":core", ":app-shell", ":optics")

@@ -1,9 +1,8 @@
-package com.quantumos.shell.ui
+package com.quantumos.appshell
 
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import com.quantumos.shell.R
 
 /*
  * QuantumOS — bundled type faces (M6 Step 1). Resolves the M0-deferred font placeholder.

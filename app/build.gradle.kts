@@ -55,6 +55,11 @@ android {
 }
 
 dependencies {
+    // App Shell Integration Step 1 — logic and chrome now live in their own modules; the launcher
+    // depends on both instead of owning them.
+    implementation(project(":core"))
+    implementation(project(":app-shell"))
+
     // Compose BOM keeps all Compose library versions aligned with one number.
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.activity:activity-compose:1.9.3")

@@ -784,3 +784,174 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   (2) add the three secrets in GitHub repo settings; (3) re-run CI to produce the signed release
   APK artifact; (4) complete the Step 3 field-test on the Fold 6.** Checkpoint β is confirmed when
   all field-test items pass.
+- **App Shell Integration — Step 1 session (2026-07-05):** extracted the launcher's shared chrome
+  into a standalone `app-shell` library module per the App Shell Integration Task Brief v1.0
+  (companion to Build Bible v0.31, decision 60). No Optics/Nav work — launcher-only, per the brief's
+  scope. Split the single `:app` module into three Gradle modules:
+  - **`:core`** (new, pure Kotlin/JVM, no Android dep) — `QuantumState.kt` + its unit tests moved
+    here unchanged (still `com.quantumos.core`). Needed so `:app-shell` (a library) can depend on
+    `PhosphorHue`/`NavigationChannel` without a circular dependency back onto `:app`.
+  - **`:app-shell`** (new, Android library, `com.quantumos.appshell`) — the actual chrome, moved
+    verbatim out of `LauncherUi.kt`/`Typography.kt`: the `Phosphor` token object, bundled `Fonts`
+    (+ the four `.ttf` files), `TerminalConstraints` + `QuantumOSLayoutShell` (the CRT container),
+    the AGSL `crtShader()`/`crtOverlay()` fallback pair, `NameplateHeader`, `ChannelStrip`, and
+    `PleaseStandbyCard` (made `public` so cross-module callers can use them). Depends on `:core`
+    only — no knowledge of any single app's screens.
+  - **`:app`** — now depends on `project(":core")` + `project(":app-shell")`. `LauncherUi.kt` keeps
+    `QuantumAppShell` (the launcher's own screen assembly: nameplate + channel strip + per-channel
+    content + Lock overlay + BootSplash) unchanged in shape, just importing the chrome pieces
+    instead of defining them. `QuarkAssistantActivity.kt` (which already reused `Phosphor`/`Fonts`/
+    `PleaseStandbyCard`/`crtShader` from the pre-extraction `shell.ui` package) updated to import
+    from `com.quantumos.appshell` instead — confirms the module boundary is real, not just moved
+    code that only the launcher touches.
+  Root `build.gradle.kts`/`settings.gradle.kts` updated for the two new modules (`com.android.library`
+  + `org.jetbrains.kotlin.jvm` plugins declared, both new modules included). No behavior change
+  intended — this is a pure extraction. **Could not verify locally**: this cloud session has no
+  Android SDK and the sandboxed network policy blocks `dl.google.com` (AGP plugin resolution), so
+  not even `:core`'s plain-JVM `gradle test` can run here (confirmed via proxy status: `connect_
+  rejected` to `dl.google.com:443`) — same constraint every prior session hit.
+  - **First CI push (run #66) failed** — `:app-shell:compileDebugKotlin` errored with `Unresolved
+    reference 'RuntimeShader'` (+ 4 related errors). Root cause: the extraction imported
+    `RenderEffect`/`RuntimeShader` from `androidx.compose.ui.graphics` instead of `android.graphics`
+    (the real platform classes the AGSL shader code needs) while moving the CRT shader code into
+    `app-shell/AppShell.kt`. Fixed by restoring the original `android.graphics.RenderEffect` /
+    `android.graphics.RuntimeShader` imports (`androidx.compose.ui.graphics.asComposeRenderEffect`
+    stays, for the Android→Compose RenderEffect conversion) — same imports the pre-extraction
+    `LauncherUi.kt` used.
+  - **CI run #67 (fix) is green**: `gradle test` + `assembleDebug` + `assembleRelease` all passed,
+    debug and signed-release APKs uploaded as artifacts. The three-module split (`:core`, `:app-shell`,
+    `:app`) compiles clean.
+  - **Still needed — the brief's actual proof point:** CI green proves it *compiles*; it does not
+    prove "identical look and behaviour" (brief §2). **Director must** sideload the CI debug APK to
+    the Fold 6 and confirm the launcher renders/behaves exactly as before the extraction (phosphor
+    hue switch, CRT treatment, nameplate + channel strip, HOME/APPS/STATUS/LOG, Vitality panel, QUARK
+    trigger/Assistant View) before Step 2 (docking Optics) starts.
+- **App Shell Integration — Step 2 session (2026-07-06):** docked Optics ("Blackhole") to the shared
+  shell as its own module, per the Task Brief §3. Optics-only — Nav untouched. The **original
+  standalone repo (`kms-ux/quantumoptics-blackhole`) was only read from, never pushed to** — cloned
+  read-only into this session's workspace as the source to copy from; it remains the untouched
+  rollback (brief §0).
+  - **New `:optics` module** (Android application, its own APK/`applicationId` —
+    `com.quantumos.optics` — so it keeps installing, launching, and showing up in the launcher's
+    APPS grid exactly like any other app on the device; nothing folds it into the launcher's own
+    process). Source is a straight copy of the standalone app's `app/src/main/java/com/example/**`,
+    mechanically repackaged to `com.quantumos.optics` (was the placeholder `com.example` from the AI
+    Studio scaffold) and rebuilt on this repo's pinned toolchain (AGP 8.7.2 / Kotlin 2.2.21 /
+    compileSdk 35 / JVM 17) instead of the standalone project's own newer, unpinned one (it was on
+    AGP 9.1.1, Kotlin 2.2.10, compileSdk 36, JVM 11). Added `com.google.devtools.ksp` (version
+    `2.2.21-2.0.5`, the release paired with this repo's pinned Kotlin) for Room's annotation
+    processing — the one new plugin this module needed.
+  - **Chrome replaced (the audit-located ownership: `ui/components/AppShell.kt` + `ui/theme/*`):**
+    the private nameplate/header row and the private, never-wired-up `QuarkTrigger` placeholder
+    composable are gone; Optics now renders inside `QuantumOSLayoutShell` + `NameplateHeader` from
+    `:app-shell` — nameplate on top, camera content in the body below, the same Column-based
+    chrome-then-content structure the launcher itself uses (not the old floating-transparent-overlay
+    style). `ui/theme/Color.kt` (a byte-for-byte duplicate of `app-shell`'s `Phosphor` hex values) is
+    deleted; every hue reference now routes through `com.quantumos.appshell.Phosphor`. `ui/theme/
+    Type.kt` now builds its `Typography` from the shared bundled `Fonts.ChakraPetch` instead of its
+    own Google-Fonts-provider setup — which, per its own TODO comment, never actually resolved at
+    runtime (the cert-fingerprint array was a placeholder stub), so Optics had silently been running
+    on the platform default font the whole time. `Theme.kt` drops Material-You dynamic color and the
+    light scheme (the phosphor CRT look is dark-only by design) in favor of one `Phosphor`-sourced
+    `darkColorScheme`.
+  - **The shutter (the audit-located primary control) is functionally untouched** — same knurled-rim
+    Canvas art, same tap target/press-scale feedback, same `onShutterClick` wiring into
+    `MainActivity`'s real `ImageCapture.takePicture` / double-exposure / simulated-capture paths.
+    It only moved from "floating over full-bleed content" to "bottom-center of the body area below
+    the nameplate," which is *less* exposed to being covered, not more.
+  - **Floating-QUARK-trigger-vs-shutter routing:** Optics's own placeholder trigger is deleted
+    outright — the *real* trigger (`QuarkTriggerService`, M4) is a system-wide
+    `TYPE_APPLICATION_OVERLAY` owned by the launcher that already floats above every app on screen,
+    Optics included, so there is nothing left for Optics to fake. Checked whether that real trigger
+    can rest on top of Optics's bottom-center shutter: `OverlayGeometry.nearestEdgeX` only ever
+    settles a released trigger at the left or right screen edge (`x = 0` or `x = screenWidth -
+    viewSize`) — never at horizontal center, which is where a bottom-center control necessarily
+    sits — so a resting trigger structurally cannot cover it, regardless of `y`. This was already
+    true before this session (the M4-era code comment just hadn't been confirmed against a real
+    companion app yet); updated the doc comments on `OverlayGeometry` in `:core` to record that the
+    forward-concern is resolved rather than leaving the stale "those apps don't exist yet" note. No
+    behavior change to `OverlayGeometry` itself.
+  - **Preserved as-is (real "working features," not chrome):** camera preview/capture via CameraX
+    (`ViewfinderFoundation.kt`), the procedural film-emulation pipeline (B&W/color grain, vignette,
+    vintage-degradation, EXIF-driven databack burn-in — `FilmProcessing.kt`), double exposure,
+    simulated-capture fallback when no camera is granted, the procedural mechanical-shutter sound
+    (`AudioTrack`-synthesized, no asset), the rotary dial (EXP/AST/NAV/SYS telemetry HUD), the
+    reticle overlay, the settings panel, and the Room-backed spool log / chemical-developing console
+    (`SpoolDatabase.kt`, `ChemicalDevelopingConsole.kt`).
+  - **Dropped as dead scaffold weight, not "working features":** Firebase AI / `google-services`,
+    Retrofit + Moshi + OkHttp, the Secrets Gradle plugin (`.env`/`GEMINI_API_KEY`), Robolectric +
+    Roborazzi screenshot testing, and the Material icons-extended dependency — grepped the whole
+    standalone source tree first to confirm zero call sites for any of them (this was leftover AI
+    Studio scaffold, not wired to any real Optics feature). Their three template test files
+    (`ExampleInstrumentedTest`, `ExampleRobolectricTest`, `GreetingScreenshotTest`) were dropped for
+    the same reason. `LeicaEmulationUnitTest.kt` — a genuine pure-JVM test of `DialMode`/
+    `FilmProfile`/the color-matrix math, no Android/Robolectric dependency — was kept and moved to
+    `:optics`'s test source set, matching this repo's "pure-logic tests need no emulator" convention.
+  - CI workflow: added an "Upload Optics debug APK" step (`optics/build/outputs/apk/debug/
+    optics-debug.apk`) alongside the launcher's, since the Director has no local Android SDK either
+    and needs a CI-built artifact to sideload for the Fold 6 verification pass.
+  - **Could not verify locally** (same constraint as Step 1 — no Android SDK, `dl.google.com`
+    blocked in this sandbox) — pushed to CI.
+    - **First CI push (run #69) failed** — `:optics:compileDebugKotlin`/`compileReleaseKotlin`
+      errored on two bugs in the port itself: `CrtShaderEffect.kt` (the phosphor CRT shader applied
+      to the live camera feed, `ui/effects/`) was never actually copied over from the standalone
+      repo, so `ViewfinderFoundation.kt`'s import of it was unresolved; and the rewritten
+      `AppShell.kt` was missing `import androidx.compose.runtime.getValue`, which the `by
+      collectIsPressedAsState()` / `by animateFloatAsState()` property delegates need. Neither
+      `:app`, `:core`, nor `:app-shell` regressed — isolated to the new module.
+    - **CI run #70 (fix) is green**: `gradle test` + `assembleDebug` + `assembleRelease` all passed;
+      both the launcher's and Optics's debug APKs uploaded as artifacts (`quantumos-debug-apk`,
+      `quantumos-optics-debug-apk`), plus the signed release APK.
+    - **Still needed — the brief's actual proof point:** CI green proves it *compiles*; it does not
+      prove Optics "renders through the shared shell, camera intact, feels native, shutter
+      unobstructed" (brief §3). **Director must, on the Fold 6:** install both APKs, confirm Optics
+      launches from the QuantumOS launcher's APPS grid, wears the shared shell (not its own),
+      camera preview + capture + film filter still work, the floating QUARK trigger doesn't block
+      the shutter, and it *reads* as native to QuantumOS rather than a foreign app — the brief's own
+      subjective bar. Nav is next, only after this reads good on-device.
+- **Apps-menu scroll-stutter — diagnosis + fix (2026-07-06):** per the Scroll-Stutter Diagnosis
+  Task Brief v1.0 (decision 72). Brief is diagnosis-only by default; **the Director explicitly asked
+  for a fix too this session**, so both are recorded here instead of a diagnosis-only report.
+  - **Could not run the brief's prescribed Layout Inspector / system-trace profiling pass** — this
+    is a cloud session with no attached Fold 6 or emulator. Diagnosis instead comes from direct code
+    inspection of the Apps-menu's actual composables and data flow, which was conclusive enough to
+    not need the trace to confirm the call.
+  - **Cause: (a) per-item icon loading — confirmed.** `AppCell` (`LauncherUi.kt`) called
+    `context.packageManager.getApplicationIcon(app.packageName)` synchronously, inside
+    `remember(app.packageName)`, in the composable body itself — i.e. on the compose/main thread,
+    the first time each grid cell entered composition, with no cache. `LazyVerticalGrid` only keeps
+    a small pool of composed-but-off-screen items alive; a fast/wide scroll brings a burst of
+    brand-new cells into composition within one or two frames, and every one of them paid a
+    synchronous `PackageManager` + `Drawable`→`Bitmap` decode/composite cost inline — the classic
+    list-jank pattern, and it reads exactly like "system struggling" rather than the intentional
+    stepped-motion language, matching the Director's description.
+  - **(b) LazyGrid recomposition scaling — ruled out.** `AppInfo` is already `@Immutable`; the grid
+    already uses a stable `key = { it.packageName + it.activityName }`; and `installedApps` is a
+    `StateFlow` that only ever emits once (at launch — `loadApps` is not re-triggered by scroll or
+    anything else), so there's no repeated-emission or unstable-key pressure driving broad
+    recomposition during scroll. Nothing in the code path points to (b).
+  - **Rotary-inheritance answer (the brief's load-bearing question): would inherit it, not
+    sidestep it.** The defect is per-item and lives in `AppCell`/icon-sourcing, not in
+    `LazyVerticalGrid`'s scroll machinery specifically. A discrete paged/gear browser rendering the
+    same app data through the same (or an equivalent) per-item icon path would pay the identical
+    synchronous decode cost for each page's newly-revealed items on every flip — a hitch on page
+    turn instead of a stutter mid-scroll, same root cause. **The gear dial should not be built on
+    top of this without the fix**, per decision 72's own logic.
+  - **Fix applied** (recommended direction was "cache decoded icons + load off the main thread" —
+    implemented, not just described, per this session's explicit ask): `AppInfo` now carries a
+    pre-decoded `icon: ImageBitmap?` field. `QuantumViewModel.loadApps()` — already a background
+    `viewModelScope.launch`, now pinned to `Dispatchers.Default` — decodes each distinct package's
+    icon exactly once (a small local `iconCache` map covers apps with multiple launcher activities
+    sharing one icon) as part of the existing single load pass, before `installedApps` is even
+    emitted. `AppCell` no longer touches `PackageManager` or `remember`-memoizes anything itself —
+    it just renders `app.icon`, an already-decoded bitmap, so there is no per-item work left for the
+    grid to pay during scroll at all. The existing "SCANNING PACKAGE REGISTRY…" empty-state absorbs
+    the (slightly longer, still one-time, background, pre-navigation) load — the Operator is
+    normally still on HOME when this runs, never watching it.
+  - **Does it worsen with app count?** Yes, but the cost moved from "per scroll burst, on the main
+    thread" to "once, in the background, before the grid is ever shown" — a real device with many
+    installed apps takes proportionally longer to populate `installedApps`, not to scroll it.
+  - **Could not verify locally** (same constraint as Steps 1–2 — no Android SDK/emulator in this
+    sandbox) — pushed to CI for compile/test verification. **Director must confirm on the Fold 6**
+    that a fast/wide scroll through the real APPS grid no longer stutters, and that icons still
+    render correctly (including apps with no icon, which still fall back to the `◈` glyph).

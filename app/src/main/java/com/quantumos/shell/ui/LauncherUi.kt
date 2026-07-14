@@ -5,11 +5,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.RenderEffect
-import android.graphics.RuntimeShader
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import android.os.Build
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.net.Uri
@@ -28,20 +25,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,26 +56,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -90,6 +75,14 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.quantumos.appshell.ChannelStrip
+import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.NameplateHeader
+import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumOSLayoutShell
+import com.quantumos.appshell.TerminalConstraints
+import com.quantumos.appshell.crtShader
 import com.quantumos.shell.overlay.QuarkTriggerService
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
@@ -101,6 +94,7 @@ import com.quantumos.core.QuantumLauncherState
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -109,24 +103,9 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /*
- * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for all logic.
+ * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for logic and com.quantumos.appshell
+ * for the shared chrome (App Shell Integration Step 1).
  */
-
-// ---------- phosphor token source: one hue switch recolors everything ----------
-object Phosphor {
-    val GreenBright = Color(0xFF00FF00); val GreenDim = Color(0xFF00AA00)
-    val AmberBright = Color(0xFFFFB000); val AmberDim = Color(0xFFA86F00)
-    val CyanBright  = Color(0xFF00E5FF); val CyanDim  = Color(0xFF0090A8)
-    val Warn = Color(0xFFFF3B1F)
-    val Crt  = Color(0xFF020402)
-
-    fun bright(h: PhosphorHue) = when (h) {
-        PhosphorHue.GREEN -> GreenBright; PhosphorHue.AMBER -> AmberBright; PhosphorHue.CYAN -> CyanBright
-    }
-    fun dim(h: PhosphorHue) = when (h) {
-        PhosphorHue.GREEN -> GreenDim; PhosphorHue.AMBER -> AmberDim; PhosphorHue.CYAN -> CyanDim
-    }
-}
 
 // Stealth dim target for this window. Hard-dim but not fully black — the Operator must still read
 // the panel. Saturation is untouched (we only lower brightness), per the M3 Stealth spec.
@@ -142,11 +121,14 @@ private fun firstFlashCameraId(cm: CameraManager?): String? {
 }
 
 // ---------- installed-app entry (UI layer only; no PackageManager dep in core) ----------
+// `icon` is decoded once, off the main thread, in loadApps() below — never per-item at scroll
+// time (see BUILD_LOG: Apps-menu scroll-stutter diagnosis/fix).
 @Immutable
 data class AppInfo(
     val label: String,
     val packageName: String,
-    val activityName: String
+    val activityName: String,
+    val icon: ImageBitmap?
 )
 
 // ---------- connectivity readout (UI layer only; core's VitalityState has no transport field) ----------
@@ -202,17 +184,27 @@ class QuantumViewModel : ViewModel() {
     fun engageLock() = engine.executeCosmeticLockSequence()
     fun releaseLock() = engine.unlockDeviceProfile()
 
+    // Runs entirely off the main thread: PackageManager queries + icon decode/compositing are not
+    // free, and AppCell used to pay that cost per-item, synchronously, the first time each cell
+    // scrolled into view — the cause of the Apps-menu scroll stutter (see BUILD_LOG). Decoding
+    // every icon once here, up front, means AppCell only ever renders an already-decoded bitmap.
     fun loadApps(pm: PackageManager) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
             @Suppress("DEPRECATION")
             val resolved = pm.queryIntentActivities(intent, 0)
+            val iconCache = mutableMapOf<String, ImageBitmap?>()
             _installedApps.value = resolved
                 .map { ri ->
+                    val pkg = ri.activityInfo.packageName
+                    val icon = iconCache.getOrPut(pkg) {
+                        runCatching { pm.getApplicationIcon(pkg).toBitmapCompat()?.asImageBitmap() }.getOrNull()
+                    }
                     AppInfo(
                         label = ri.loadLabel(pm).toString(),
-                        packageName = ri.activityInfo.packageName,
-                        activityName = ri.activityInfo.name
+                        packageName = pkg,
+                        activityName = ri.activityInfo.name,
+                        icon = icon
                     )
                 }
                 .sortedBy { it.label.lowercase() }
@@ -305,135 +297,6 @@ class LauncherActivity : ComponentActivity() {
             }
         }
     }
-}
-
-@Immutable
-data class TerminalConstraints(
-    val containerWidth: Dp,
-    val containerHeight: Dp,
-    val isLetterboxed: Boolean,
-    val rawWindowWidth: Dp,
-    val rawWindowHeight: Dp,
-    val systemBarsPadding: PaddingValues
-)
-
-/*
- * THE ONE DESIGN DECISION (yours, Director):
- *  - forceFixedContainer = FALSE (default): surface fills the real screen; CRT falloff frames it.
- *  - forceFixedContainer = TRUE: 9:19.5 letterbox. On Fold's near-square inner display that's a
- *    narrow strip in black — only if you want a deliberate "screen-in-chassis" look.
- */
-@Composable
-fun QuantumOSLayoutShell(
-    forceFixedContainer: Boolean = false,
-    targetAspectRatio: Float = 9f / 19.5f,
-    content: @Composable (TerminalConstraints) -> Unit
-) {
-    // BackHandler is owned by QuantumAppShell so it can route APPS → HOME before consuming.
-
-    BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().background(Color.Black)
-    ) {
-        val rawWidth = maxWidth
-        val rawHeight = maxHeight
-        if (rawWidth <= 0.dp || rawHeight <= 0.dp) return@BoxWithConstraints
-
-        val (cw, ch) = if (!forceFixedContainer) {
-            rawWidth to rawHeight
-        } else {
-            val ratio = rawWidth.value / rawHeight.value
-            when {
-                ratio > targetAspectRatio -> (rawHeight * targetAspectRatio) to rawHeight
-                ratio < targetAspectRatio -> rawWidth to (rawWidth / targetAspectRatio)
-                else -> rawWidth to rawHeight
-            }
-        }
-
-        val constraints = TerminalConstraints(
-            containerWidth = cw,
-            containerHeight = ch,
-            isLetterboxed = (cw != rawWidth || ch != rawHeight),
-            rawWindowWidth = rawWidth,
-            rawWindowHeight = rawHeight,
-            systemBarsPadding = WindowInsets.systemBars.asPaddingValues()
-        )
-
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .width(cw)
-                    .height(ch)
-                    .background(Phosphor.Crt)
-                    .crtShader()
-            ) {
-                content(constraints)
-            }
-        }
-    }
-}
-
-/*
- * M6 Step 5 — REAL CRT shader. An AGSL RuntimeShader (RenderEffect, API 33+, covered by minSdk 33)
- * that samples the rendered content and lays scanlines, a CRT-falloff vignette, and a phosphor
- * self-glow over it on the GPU — not a CPU draw-loop (design-tokens rendering rule). It sets uniforms
- * once per size, so there is no idle redraw (static at rest).
- *
- * Safety net (brief Step 5): if shader compilation EVER fails — or on a pre-33 surface that slips
- * through — it falls back automatically to the cheap non-shader overlay below, rather than deleting
- * the net. This is the first time the real look gets judged on hardware (the Fold 6), not an emulator.
- */
-private const val CRT_AGSL_SHADER = """
-uniform shader content;
-uniform float2 resolution;
-half4 main(float2 coord) {
-    half4 src = content.eval(coord);
-    float2 uv = coord / resolution;
-    // scanlines — soft dark bands, period ~3px
-    float scan = 0.88 + 0.12 * (0.5 + 0.5 * sin(coord.y * 2.094));
-    // CRT falloff — content fades toward the edges
-    float2 c = uv - 0.5;
-    float vig = clamp(1.0 - dot(c, c) * 1.15, 0.28, 1.0);
-    float f = scan * vig;
-    float3 rgb = float3(src.rgb) * f;
-    // phosphor self-glow — lift the bright phosphor a touch
-    float3 glow = float3(src.rgb) * float3(src.rgb) * 0.22;
-    return half4(half3(rgb + glow), src.a);
-}
-"""
-
-fun Modifier.crtShader(): Modifier = composed {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@composed this.crtOverlay()
-    val shader = remember { runCatching { RuntimeShader(CRT_AGSL_SHADER) }.getOrNull() }
-        ?: return@composed this.crtOverlay()   // compilation failed → cheap fallback (safety net)
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    this
-        .onSizeChanged { size = it }
-        .graphicsLayer {
-            if (size.width > 0 && size.height > 0) {
-                shader.setFloatUniform("resolution", size.width.toFloat(), size.height.toFloat())
-                renderEffect = RenderEffect
-                    .createRuntimeShaderEffect(shader, "content")
-                    .asComposeRenderEffect()
-            }
-        }
-}
-
-// Cheap non-shader CRT treatment — the automatic fallback if the AGSL shader can't compile.
-fun Modifier.crtOverlay(): Modifier = drawWithContent {
-    drawContent()
-    val gap = 3.dp.toPx()
-    var y = 0f
-    while (y < size.height) {
-        drawLine(Color(0x14000000), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
-        y += gap
-    }
-    drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(Color.Transparent, Color(0xAA000000)),
-            center = Offset(size.width / 2f, size.height / 2f),
-            radius = size.maxDimension * 0.75f
-        )
-    )
 }
 
 // ---------- App Shell (house-style chrome: nameplate + channel strip + content) ----------
@@ -641,69 +504,6 @@ private fun BootIris(color: Color, dimColor: Color) {
         drawCircle(color = color, radius = r, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke))
         drawCircle(color = dimColor, radius = r * 0.6f, style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke * 0.7f))
         drawCircle(color = color, radius = r * 0.5f * aperture)
-    }
-}
-
-// Opaque nameplate header with registration marks — top App Shell chrome.
-@Composable
-private fun NameplateHeader(channelName: String, color: Color, dimColor: Color, font: FontFamily) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Phosphor.Crt)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "QUANTUM OS",
-            color = color,
-            fontFamily = font,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "// $channelName",
-            color = dimColor,
-            fontFamily = font,
-            fontSize = 12.sp
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = "[⊕]",
-            color = dimColor,
-            fontFamily = font,
-            fontSize = 11.sp
-        )
-    }
-}
-
-// Channel navigation strip below the nameplate.
-@Composable
-private fun ChannelStrip(
-    current: NavigationChannel,
-    color: Color,
-    dimColor: Color,
-    font: FontFamily,
-    onSelect: (NavigationChannel) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-    ) {
-        NavigationChannel.entries.forEach { channel ->
-            val active = channel == current
-            Text(
-                text = if (active) "[${channel.name}]" else " ${channel.name} ",
-                color = if (active) color else dimColor,
-                fontFamily = font,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .clickable { onSelect(channel) }
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
-            )
-        }
     }
 }
 
@@ -1149,20 +949,6 @@ private fun LockOverlay(
     }
 }
 
-// PLEASE STANDBY card — the one universal loading/transition beat (House Style: never a generic
-// spinner). Public + standalone so every surface reuses it rather than rebuilding the beat:
-// the cosmetic Lock overlay and the M4 QUARK-trigger stub both render through here.
-@Composable
-fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: FontFamily) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("PLEASE STANDBY", color = color, fontFamily = font, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        if (subline.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text(subline, color = dimColor, fontFamily = font, fontSize = 12.sp)
-        }
-    }
-}
-
 // ---------- APPS channel (Step 3) ----------
 @Composable
 private fun AppsChannelScreen(
@@ -1217,16 +1003,6 @@ private fun AppCell(
     font: FontFamily,
     onClick: () -> Unit
 ) {
-    val context = LocalContext.current
-    val iconBitmap = remember(app.packageName) {
-        runCatching {
-            context.packageManager
-                .getApplicationIcon(app.packageName)
-                .toBitmapCompat()
-                ?.asImageBitmap()
-        }.getOrNull()
-    }
-
     Column(
         modifier = Modifier
             .clickable { onClick() }
@@ -1234,9 +1010,9 @@ private fun AppCell(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-            if (iconBitmap != null) {
+            if (app.icon != null) {
                 Image(
-                    bitmap = iconBitmap,
+                    bitmap = app.icon,
                     contentDescription = null,
                     modifier = Modifier.size(40.dp)
                 )

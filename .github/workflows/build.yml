@@ -44,6 +44,13 @@ jobs:
           name: quantumos-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
+      # App Shell Integration Step 2 — Optics ("Blackhole"), docked as its own module/APK.
+      - name: Upload Optics debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: quantumos-optics-debug-apk
+          path: optics/build/outputs/apk/debug/optics-debug.apk
+
       # Release build — only runs when the keystore secret is present.
       # Director: add KEYSTORE_BASE64, KEYSTORE_STORE_PASSWORD, and KEYSTORE_KEY_PASSWORD
       # as repository secrets (Settings → Secrets and variables → Actions) to activate these steps.
