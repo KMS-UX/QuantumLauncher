@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Optics ("Blackhole") -- phosphor viewfinder + film emulation. Docked into the launcher's
-         single APK (App Shell Integration, Phase 3): no own applicationId/launcher intent-filter --
+    <!-- Optics ("Blackhole"): phosphor viewfinder + film emulation. Docked into the launcher's
+         single APK (App Shell Integration, Phase 3): no own applicationId/launcher intent-filter;
          reached only via an internal Intent from the HOME instrument console's CAM tile. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.VIBRATE" />
