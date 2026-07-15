@@ -57,10 +57,13 @@ dependencies {
     // Thumbnail/preview image loading (developing-console thumbnails).
     implementation("io.coil-kt:coil-compose:2.7.0")
 
-    // Spool log persistence (Room).
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    // Spool log persistence (Room). Bumped 2.6.1 -> 2.7.1 from the standalone repo's pin: 2.6.1's
+    // KSP integration (androidx.room.compiler.processing.ksp) throws
+    // "IllegalStateException: unexpected jvm signature V" under this project's K2/KSP2 toolchain
+    // (KSP 2.2.21-2.0.5) -- a known Room/KSP2 XProcessing bug fixed in later Room releases.
+    implementation("androidx.room:room-runtime:2.7.1")
+    implementation("androidx.room:room-ktx:2.7.1")
+    ksp("androidx.room:room-compiler:2.7.1")
 
     testImplementation("junit:junit:4.13.2")
 }
