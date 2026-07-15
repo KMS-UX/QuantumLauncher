@@ -11,98 +11,67 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v4 discrete ratchet**
-(Build Brief v1.0.1) — **CODE COMPLETE (2026-07-08), CI-green, pending Fold 6 tuning of this revision.**
+**Current milestone:** Launcher Restructure Phase 2 — paged APPS browser, **v5 canon nav buttons**
+(Director simplification) — **CODE COMPLETE (2026-07-14), pending CI + Fold 6 look-check.**
 
-> **Director tested v3 (the flywheel/momentum reel) on the Fold 6 and asked for a real ratchet feel
-> instead — this session replaces the physics model entirely**, per the v1.0.1 brief (Gear Dial Lab
-> v4, "supersedes v3's flywheel-momentum approach"). Nothing here is additive to v3's tuning; the
-> coast/momentum code is gone, not adjusted.
+> **Director tested v4 (the discrete-ratchet gear dial) on the Fold 6: drag direction was right, but
+> the gear's rotation didn't read as intended — and rather than iterate on the dial, the Director
+> supplied the canon "QuantumOS Launcher Navigation Buttons" design sheet and asked to keep it
+> simple: replace the dial with those two buttons.** The gear (v3 flywheel → v4 ratchet) is retired.
 
-**What changed (v4):**
-- **The model is now DISCRETE, not continuous.** There is no velocity or coast. Drag accumulates in
-  dp; the instant it crosses one whole `dragPerTooth`, a tooth-step is queued. Each queued step plays
-  as its own complete two-beat event — **CATCH** (swing *past* the target detent by `overshootDeg`,
-  sharp click) then **SETTLE** (ease back to the exact detent, softer tick). A fast flick queues
-  several steps that play back-to-back — "clunk-clunk-clunk" — never a decelerating spin.
-- **Drag direction flipped per the brief: right advances, left reverts** (v3 had left-advance).
-- `com.quantumos.core.GearReelPhysics` **rewritten** — `consumeDrag` (whole-tooth extraction + carried
-  remainder, nothing lost mid-drag), `clampPage` (hard, no wraparound), `overshootPeak`/`catchAngle`/
-  `settleAngle` (the two-beat angle math). The old `clampOffset`/`applyDrag`/`coastTick`/
-  `nearestDetent`/`clickGain` are gone, not deprecated — v4 fully replaces v3. Unit tests rewritten to
-  match (whole-tooth extraction incl. the carried remainder, direction sign, clamp, overshoot/catch/
-  settle endpoints).
-- New `SoundCue.REEL_CATCH` (sharp click) alongside the existing `REEL_DETENT`, now repurposed as the
-  softer settle tick — two distinct synth recipes, not a gain trick, so the two beats read as
-  different mechanical events. (The `gain` param added to `SoundEngine.play`/`QuantumRuntime.playCue`
-  last session is unused by v4 but left in place — harmless, default-1f, still a real capability.)
-- `GearDial` visual refined per the brief: bevelled two-layer teeth (main teeth + a shorter, half-
-  pitch-offset inner bevel layer), a rivet ring, a hub with a concentric inner ring, and a **crank
-  grip nub** at the top of the gear face — the one clear landmark that sells the spin as motion under
-  the ratchet's catch/settle. Extracted into `DrawScope.drawGearFace` for a smaller diff next tuning
-  pass.
-- `AppsChannelScreen`: `settledPage`/`rotationDeg` replace v3's `offset`/`velocity`; a small
-  `ArrayDeque<Int>` step queue + a draining coroutine replace the coast loop. `ReelPageGrid`,
-  `AppCell`, and `AppIconCache` are **untouched** — see the stutter-fix note below.
+**What changed (v5):**
+- **The gear dial and all ratchet physics are gone.** `GearDial`/`drawGearFace`, the drag gesture,
+  the step queue, and the whole catch/settle machinery are deleted. `GearReelPhysics` is replaced by
+  a minimal `com.quantumos.core.ReelPager` — the hard page clamp is the only logic left (pure,
+  unit-tested). `SoundCue.REEL_CATCH` removed; `REEL_DETENT` stays as the single page-step click.
+- **APPS bottom edge = the two canon nav buttons** per the design sheet: `PageNavButton` — an
+  octagon-cut plate (bright outer rim + dim inner line on the CRT ground) with a large filled
+  phosphor triangle, and a bracketed two-line label beneath (`[ PREV PAGE / ◀ BACKWARD ]`,
+  `[ NEXT PAGE / FORWARD ▶ ]`). A tap flips exactly one page (stepped, slide-projector) with the
+  mechanical click; motion is reactive-only, static at rest — exactly the sheet's
+  "STEPS MOTION · REACTIVE ONLY" note.
+- **Buttons are DRAWN (Canvas, phosphor-tokenized), not the sheet's bitmap** — the sheet bakes in
+  green, and a bitmap would break the live GREEN/AMBER/CYAN hue switch (one-token-source rule).
+  Same geometry and labels, rendered in the active phosphor.
+- **Clamp behaviour:** at the first/last page the corresponding button renders dim and inert (no
+  wraparound). No denial buzz — nothing was denied, there's simply no further page (flagged below).
+- Page readout renamed `REEL n / m` → `PAGE n / m` to match the buttons' language.
+- `ReelPageGrid`, `AppCell`, and `AppIconCache` are **untouched** — the scroll-stutter fix (non-lazy
+  one-page grid + process-scoped decode-once icon cache, established in the v3 session) carries
+  through unchanged. Grid stays 4×5 = 20 apps/page.
 
-**Tunable constants — named exactly per the Build Brief (`dragPerTooth`/`overshootDeg`/`catchMs`/
-`settleMs`). v4-lab starting values; tune these four on the Fold if the ratchet feels off:**
-- `GearReelPhysics.DRAG_PER_TOOTH_DP = 26f` (dragPerTooth) — dp of drag that fires one tooth-step.
-- `GearReelPhysics.OVERSHOOT_DEG = 8f` (overshootDeg) — how far the catch swings past the detent.
-- `GearReelPhysics.CATCH_MS = 65L` (catchMs) — catch-swing duration.
-- `GearReelPhysics.SETTLE_MS = 85L` (settleMs) — settle-back duration.
-- Unchanged from v3: `REEL_COLUMNS = 4`, `REEL_ROWS = 5` → `REEL_PAGE_CAPACITY = 20`/page;
-  `REEL_DEGREES_PER_TOOTH = 24f`, `REEL_GEAR_TEETH = 15`.
+> **Director action required — Fold 6 look-check (v5 nav buttons):**
+> 1. Open APPS → the two buttons render at the bottom edge per the sheet: octagon-cut double border,
+>    filled triangle, bracketed two-line labels.
+> 2. Tap NEXT/PREV → the grid flips exactly one page with a click; `PAGE n / m` updates; no drag
+>    surface, no animation loops.
+> 3. At page 1 the PREV button is dim and inert; at the last page NEXT is dim and inert.
+> 4. Switch phosphor hue (Vitality → PHOSPHOR) → the buttons recolor with everything else — this is
+>    why they're drawn rather than the sheet's PNG.
+> 5. No stutter on flips (the icon cache + non-lazy grid are unchanged).
 
-**Which stutter fix the reel inherits — reconfirmed for v4 (unchanged from last session's honest
-note):** the brief again asks the reel to inherit the established scroll-stutter fix. **The
-`ReelPageGrid` (plain non-lazy one-page grid, no view recycling) and `AppIconCache` (process-scoped,
-decode-once icon cache keyed by package name) are untouched by this revision** — v4 only replaced the
-gear's physics/visual and the drag interaction, not the grid or icon path. Restating for the record
-since there's still no separate "decision 72" fix elsewhere in this repo/history: those two pieces
-*are* the fix, established last session, and this session confirms nothing in the v4 change regresses
-them (no new per-cell decode, no Lazy list reintroduced).
+**Judgment calls flagged (v5):**
+- **Recreated in Compose instead of embedding the sheet bitmap** — required by the hue-switch rule;
+  flag if the on-device look diverges from the sheet enough to matter (corner cut ratio, border
+  weights, and triangle size are all simple constants in `PageNavButton`).
+- **Disabled-at-clamp is silent** (dim + inert). If the Director wants the access-denied buzz on
+  tapping a dead end, it's a one-liner — but a page boundary didn't feel like a "denial" per the
+  sound language (buzz = access denied only).
+- The sheet's header annotations ("CANON UI · PHOSPHOR GREEN / STEPS MOTION · REACTIVE ONLY") are
+  spec notes, not UI — not rendered.
 
-> **Director action required — Fold 6 tuning pass (v4 ratchet):**
-> 1. Open APPS → confirm the refined gear: bevelled two-layer teeth, rivet ring, hub inner ring, and
->    the crank grip nub at the top (the "does it look like a real dial" check).
-> 2. **A single gentle nudge** (one `dragPerTooth` of drag) → one full catch-then-settle beat: a sharp
->    click on the overshoot, a softer tick as it seats. Confirm it reads as "the tooth caught," not a
->    twitch or a stutter.
-> 3. **A fast flick across several pages** → several catch+settle beats fire back-to-back —
->    "clunk-clunk-clunk" — never a smooth spin-down. This is the headline check (it's the whole reason
->    v3 got replaced).
-> 4. **Direction:** drag right advances, drag left reverts. Confirm it feels natural.
-> 5. **Clamp:** drag hard past the first/last page — it must stop firmly, no wraparound, and no
->    partial/broken beat at the boundary.
-> 6. **Report the feel**, then tune `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs` until the catch
->    and settle read as real mechanical engagement (they're named + isolated for exactly this).
-
-**Judgment calls flagged (v4):**
-- **Page flips at the START of a step's beat** (the instant CATCH begins), not after SETTLE completes
-  — matches the shell's "stepped, not faded" convention elsewhere (BootSplash, AtomMark), but flag if
-  the Director would rather the grid content flip only once the tooth has fully seated.
-- **Catch/settle each interpolate over 4 discrete ticks** (not exposed as a named brief constant,
-  since the brief only asked for the four duration/distance knobs) — if the motion reads too coarse
-  or too smooth on hardware, this tick count is the next knob to expose.
-- **REEL_CATCH/REEL_DETENT loudness is fixed** (not scaled by anything, since there's no more velocity
-  concept) — the sharp/soft contrast comes entirely from the two synth recipes. Flag if the Director
-  wants per-flick loudness variation back.
-
-**Build note:** this cloud session still has no Android SDK (`gradle test` fails at
-`com.android.application` plugin resolution, as SESSION-PLAYBOOK documents) and no local Fold 6, so
-neither `gradle test`/`assembleDebug` nor the on-device pass could run here. All reel physics remains
-pure Kotlin with unit tests updated for v4; CI (`.github/workflows/build.yml`) is the real compiler on
-push — this revision is CI-green (see PR/commit history). The Director's own sideload + Fold 6 tuning
-pass is what actually closes this milestone.
+**Build note:** no Android SDK in this cloud session (as SESSION-PLAYBOOK documents) — CI is the
+compiler on push; the Director's sideload + Fold 6 pass closes the milestone.
 
 ---
 
-**Previous milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v3 flywheel/momentum**
-(Build Brief v1.0) — CI-green, sideloaded and tested on the Fold 6, then **superseded by v4 above**
-per Director feedback (momentum-coast didn't read as a ratchet). v3's `GearReelPhysics` API
-(`clampOffset`/`applyDrag`/`coastTick`/`nearestDetent`/`clickGain`) no longer exists in the codebase;
-kept here only as a paper trail, not a fallback.
+**Previous milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v4 discrete ratchet**
+(Build Brief v1.0.1) — CI-green (run #78, after an artifact-quota workflow fix), sideloaded and tested
+on the Fold 6: drag direction confirmed, gear rotation judged not-as-intended → **superseded by the v5
+nav buttons above** per the Director's canon design sheet. v4's ratchet API (`consumeDrag`/
+`overshootPeak`/`catchAngle`/`settleAngle`, `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs`) and
+the `GearDial` visual no longer exist in the codebase; paper trail only. Same for v3
+(flywheel/momentum), superseded one session earlier.
 
 ---
 
@@ -643,22 +612,21 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
 
-### Launcher Restructure Phase 2 — gear-reel APPS browser, v4 discrete ratchet (this session)
-- [x] `GearReelPhysics` rewritten for discrete ratchet: `consumeDrag`/`clampPage`/`overshootPeak`/
-  `catchAngle`/`settleAngle`; v3 flywheel API removed; unit tests rewritten to match
-- [x] `SoundCue.REEL_CATCH` added; `REEL_DETENT` repurposed as the softer settle tick (two distinct
-  recipes, not gain-scaled)
-- [x] `AppsChannelScreen` rewired: step queue + draining coroutine (catch→settle per tooth), drag
-  RIGHT advances / LEFT reverts, hard clamp — no coast/velocity code left
-- [x] `GearDial` refined: bevelled two-layer teeth, rivet ring, hub inner ring, crank grip nub
-- [x] `ReelPageGrid`/`AppCell`/`AppIconCache` untouched — stutter fix reconfirmed, not re-derived
-- [ ] **Tuned + confirmed on Fold 6 (v4)** — catch/settle reads as real mechanical engagement, flick
-  produces back-to-back clunks not a spin-down, direction feels natural, clamp is firm; report final
-  `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs`  ← **Director action**, see RESUME HERE
+### Launcher Restructure Phase 2 — paged APPS browser, v5 canon nav buttons (this session)
+- [x] Gear dial + ratchet physics deleted; `GearReelPhysics` → minimal `ReelPager.clampPage` (pure,
+  unit-tested); `SoundCue.REEL_CATCH` removed, `REEL_DETENT` = the single page-step click
+- [x] `PageNavButton` built per the canon design sheet: octagon-cut double-border plate, filled
+  phosphor triangle, bracketed `PREV PAGE / ◀ BACKWARD` + `NEXT PAGE / FORWARD ▶` labels — drawn
+  and hue-tokenized, not the sheet's baked-green bitmap
+- [x] Tap = one stepped page flip + click; dim + inert at the clamp; readout now `PAGE n / m`
+- [x] `ReelPageGrid`/`AppCell`/`AppIconCache` untouched — stutter fix carries through unchanged
+- [ ] **Confirmed on Fold 6 (v5)** — buttons match the sheet, page flips are stepped + clicked,
+  clamp behaviour reads right, hue switch recolors the buttons  ← **Director action**, see RESUME HERE
 
-### Launcher Restructure Phase 2 — gear-reel APPS browser, v3 flywheel (superseded)
-- [x] CI-green, sideloaded and tested on the Fold 6 by the Director
-- [x] Feedback: momentum-coast didn't read as a ratchet → **replaced by v4 above**, not iterated on
+### Launcher Restructure Phase 2 — gear dial v3 (flywheel) / v4 (discrete ratchet) — superseded
+- [x] v3: CI-green, Fold-6-tested; momentum-coast didn't read as a ratchet → replaced by v4
+- [x] v4: CI-green, Fold-6-tested; direction right, rotation not as intended → **replaced by the v5
+  canon nav buttons above** per the Director's design sheet
 
 ### Launcher Restructure Phase 1 — console-as-HOME (prior session)
 - [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested

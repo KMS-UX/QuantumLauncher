@@ -44,7 +44,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -58,7 +57,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -75,14 +73,11 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontFamily
@@ -102,13 +97,13 @@ import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegions
 import com.quantumos.core.EnvironmentProfile
-import com.quantumos.core.GearReelPhysics
 import com.quantumos.core.InstrumentConsole
 import com.quantumos.core.InstrumentId
 import com.quantumos.core.InstrumentSpec
 import com.quantumos.core.NavigationChannel
 import com.quantumos.core.PhosphorHue
 import com.quantumos.core.QuantumLauncherState
+import com.quantumos.core.ReelPager
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
@@ -1429,30 +1424,25 @@ fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: Font
     }
 }
 
-// ---------- APPS channel — Launcher Restructure Phase 2: the gear-reel browser ----------
+// ---------- APPS channel — Launcher Restructure Phase 2 (v5): paged grid + canon nav buttons ----------
 //
-// The flat LazyVerticalGrid is replaced by a PAGED grid above a half-recessed, thumb-scrubbed gear
-// dial (Gear Dial Lab v3). All physics live in the pure, unit-tested `GearReelPhysics` (core); this
-// composable only wires gestures → those functions → the visuals. Motion is stepped/mechanical:
-// the grid flips one whole page at a time (slide-projector), the gear turns continuously under the
-// thumb (the one allowed real-time follow, same exception the M4 overlay-drag makes), and each page
-// that passes the pawl fires a detent click whose loudness scales with spin speed.
+// The flat LazyVerticalGrid was replaced by a PAGED grid in v3/v4; v5 (Director simplification,
+// after Fold 6 testing of the gear dial) replaces the dial itself with the two canon navigation
+// buttons from the "QuantumOS Launcher Navigation Buttons" design sheet: PREV PAGE (◀ BACKWARD) and
+// NEXT PAGE (FORWARD ▶) — octagon-cut double-bordered plates with a filled phosphor triangle and a
+// bracketed two-line label beneath. Motion stays stepped and reactive-only: a tap flips exactly one
+// page (slide-projector) with a mechanical click; there is no drag, coast, or idle animation. The
+// buttons are DRAWN (Canvas, phosphor-tokenized), not the sheet's bitmap, so the live hue switch
+// still recolors them — the sheet bakes in green, which would violate the one-token-source rule.
 //
-// STUTTER-FIX INHERITANCE (Build Brief asks which fix this reuses — see BUILD_LOG for the full,
-// honest note): the paged grid is a plain non-lazy Row/Column of exactly one page of cells (no
-// LazyGrid view-recycling to jank on a flip) and every icon is decoded ONCE into the process-scoped
-// `AppIconCache` below, keyed by package name. The pre-existing code had stable grid keys but only a
-// per-cell `remember(packageName)` — which is re-decoded whenever a lazy cell is recycled, i.e. NOT
-// a durable cache. This session establishes the real icon cache; that is the fix the reel inherits.
+// STUTTER-FIX INHERITANCE (unchanged since v3 — see BUILD_LOG): the paged grid is a plain non-lazy
+// Row/Column of exactly one page of cells (no LazyGrid view-recycling to jank on a flip) and every
+// icon is decoded ONCE into the process-scoped `AppIconCache` below, keyed by package name.
 
-// Fixed page capacity so detents (and therefore page count) are stable regardless of screen width —
-// a reel needs predictable teeth. Columns × rows.
+// Fixed page capacity so the page count is stable regardless of screen width. Columns × rows.
 private const val REEL_COLUMNS = 4
 private const val REEL_ROWS = 5
 private const val REEL_PAGE_CAPACITY = REEL_COLUMNS * REEL_ROWS
-// Gear geometry (UI-only): how many degrees the gear turns per page/tooth, and how many teeth to cut.
-private const val REEL_DEGREES_PER_TOOTH = 24f
-private const val REEL_GEAR_TEETH = 15
 
 /*
  * AppIconCache — process-scoped, decode-once cache of launcher icons as Compose ImageBitmaps, keyed
@@ -1498,62 +1488,23 @@ private fun AppsChannelScreen(
     }
 
     val pageCount = (apps.size + REEL_PAGE_CAPACITY - 1) / REEL_PAGE_CAPACITY
-    val density = LocalDensity.current
-    val scope = rememberCoroutineScope()
 
-    // v4 discrete ratchet (Build Brief v1.0.1 — supersedes the v3 flywheel model). settledPage is
-    // the committed page (survives fold/rotate); rotationDeg is the gear's live visual angle, driven
-    // only by the queued catch/settle beats below — there is no continuous velocity/coast anymore.
-    var settledPage by rememberSaveable { mutableStateOf(GearReelPhysics.clampPage(0, pageCount)) }
-    var rotationDeg by remember { mutableStateOf(settledPage * REEL_DEGREES_PER_TOOTH) }
-    var leftoverDragDp by remember { mutableStateOf(0f) }
-    val stepQueue = remember { ArrayDeque<Int>() }
-    var draining by remember { mutableStateOf(false) }
+    // v5: the committed page is the only paging state (survives fold/rotate). No drag, no queue,
+    // no rotation — a nav-button tap flips exactly one page, stepped, with a mechanical click.
+    var settledPage by rememberSaveable { mutableStateOf(ReelPager.clampPage(0, pageCount)) }
 
     // Safety re-clamp if the installed-apps count (and so pageCount) shrinks mid-session — rare,
-    // but keeps settledPage from ever pointing past the end (no crash risk either way; this just
-    // avoids a confusing blank page).
+    // but keeps settledPage from ever pointing past the end.
     LaunchedEffect(pageCount) {
-        val clamped = GearReelPhysics.clampPage(settledPage, pageCount)
-        if (clamped != settledPage) {
-            settledPage = clamped
-            rotationDeg = clamped * REEL_DEGREES_PER_TOOTH
-        }
+        val clamped = ReelPager.clampPage(settledPage, pageCount)
+        if (clamped != settledPage) settledPage = clamped
     }
 
-    // Drains the queue one tooth-step at a time. Each step is a complete two-beat event — CATCH
-    // (swing past the target by overshootDeg, sharp click) then SETTLE (ease back to the exact
-    // detent, softer tick) — played fully before the next queued step starts. A fast flick that
-    // queued several steps plays them back-to-back: "clunk-clunk-clunk," never a decelerating spin.
-    fun drainQueue() {
-        if (draining) return
-        draining = true
-        scope.launch {
-            while (stepQueue.isNotEmpty()) {
-                val dir = stepQueue.removeFirst()
-                val target = GearReelPhysics.clampPage(settledPage + dir, pageCount)
-                if (target == settledPage) continue   // hard clamp at the end — nothing to do, no click
-                settledPage = target                   // the page flips at the start of its beat (stepped, not faded)
-
-                val fromDeg = rotationDeg
-                val targetDeg = target * REEL_DEGREES_PER_TOOTH
-                val peakDeg = GearReelPhysics.overshootPeak(fromDeg, targetDeg)
-
-                QuantumRuntime.playCue(SoundCue.REEL_CATCH)
-                val catchTicks = 4
-                repeat(catchTicks) { i ->
-                    rotationDeg = GearReelPhysics.catchAngle(fromDeg, targetDeg, (i + 1f) / catchTicks)
-                    delay(GearReelPhysics.CATCH_MS / catchTicks)
-                }
-                QuantumRuntime.playCue(SoundCue.REEL_DETENT)
-                val settleTicks = 4
-                repeat(settleTicks) { i ->
-                    rotationDeg = GearReelPhysics.settleAngle(peakDeg, targetDeg, (i + 1f) / settleTicks)
-                    delay(GearReelPhysics.SETTLE_MS / settleTicks)
-                }
-                rotationDeg = targetDeg
-            }
-            draining = false
+    fun step(direction: Int) {
+        val target = ReelPager.clampPage(settledPage + direction, pageCount)
+        if (target != settledPage) {
+            settledPage = target
+            QuantumRuntime.playCue(SoundCue.REEL_DETENT)
         }
     }
 
@@ -1577,7 +1528,7 @@ private fun AppsChannelScreen(
 
         // ---- page ordinal readout (terse status microcopy) ----
         Text(
-            text = "REEL ${settledPage + 1} / $pageCount",
+            text = "PAGE ${settledPage + 1} / $pageCount",
             color = dimColor,
             fontFamily = font,
             fontSize = 11.sp,
@@ -1585,43 +1536,106 @@ private fun AppsChannelScreen(
             textAlign = TextAlign.Center
         )
 
-        // ---- the half-recessed gear dial (thumb-scrub surface, at the bottom edge) ----
-        // Drag RIGHT advances (proceeds) to the next page; drag LEFT reverts (Build Brief v1.0.1).
-        GearDial(
-            rotationDegrees = rotationDeg,
-            color = color,
-            dimColor = dimColor,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(96.dp)
-                .clipToBounds()          // recesses the gear: only its top half shows above the edge
-                .pointerInput(pageCount) {
-                    detectHorizontalDragGestures(
-                        onDragStart = { },
-                        onHorizontalDrag = { change, dragAmount ->
-                            change.consume()
-                            val dpDelta = with(density) { dragAmount.toDp().value }
-                            val (steps, remainder) = GearReelPhysics.consumeDrag(leftoverDragDp, dpDelta)
-                            leftoverDragDp = remainder
-                            if (steps != 0) {
-                                val dir = if (steps > 0) 1 else -1
-                                repeat(kotlin.math.abs(steps)) { stepQueue.addLast(dir) }
-                                drainQueue()
-                            }
-                        },
-                        // No coast, no momentum: any sub-tooth remainder left at release is simply
-                        // dropped — the ratchet only ever fires on a FULL dragPerTooth crossing.
-                        onDragEnd = { leftoverDragDp = 0f },
-                        onDragCancel = { leftoverDragDp = 0f }
-                    )
+        // ---- the canon PREV/NEXT navigation buttons (design sheet), at the bottom edge ----
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally)
+        ) {
+            PageNavButton(
+                forward = false,
+                enabled = settledPage > 0,
+                color = color, dimColor = dimColor, font = font
+            ) { step(-1) }
+            PageNavButton(
+                forward = true,
+                enabled = settledPage < pageCount - 1,
+                color = color, dimColor = dimColor, font = font
+            ) { step(+1) }
+        }
+    }
+}
+
+/*
+ * PageNavButton — one canon navigation button from the "QuantumOS Launcher Navigation Buttons"
+ * design sheet: an octagon-cut plate with a bright outer rim + dim inner line, a large filled
+ * phosphor triangle, and a bracketed two-line label beneath ("PREV PAGE / ◀ BACKWARD" or
+ * "NEXT PAGE / FORWARD ▶"). Drawn, not the sheet's bitmap, so the live phosphor hue switch
+ * recolors it (the sheet bakes in green). Static at rest; disabled at the clamp = dim + inert
+ * (a hard stop needs no sound — nothing was denied, there's simply no further page).
+ */
+@Composable
+private fun PageNavButton(
+    forward: Boolean,
+    enabled: Boolean,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onClick: () -> Unit
+) {
+    val edge = if (enabled) color else dimColor.copy(alpha = 0.45f)
+    val fill = if (enabled) color else dimColor.copy(alpha = 0.45f)
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(
+            Modifier
+                .size(108.dp)
+                .clickable(enabled = enabled) { onClick() }
+        ) {
+            val w = size.width
+            val h = size.height
+            val cut = w * 0.16f
+            fun octagon(inset: Float): Path {
+                val c = cut - inset * 0.4f
+                return Path().apply {
+                    moveTo(inset + c, inset)
+                    lineTo(w - inset - c, inset)
+                    lineTo(w - inset, inset + c)
+                    lineTo(w - inset, h - inset - c)
+                    lineTo(w - inset - c, h - inset)
+                    lineTo(inset + c, h - inset)
+                    lineTo(inset, h - inset - c)
+                    lineTo(inset, inset + c)
+                    close()
                 }
-        )
+            }
+            // Plate ground, then the double border: bright outer rim + dim inner line.
+            drawPath(octagon(0f), Phosphor.Crt)
+            drawPath(octagon(0f), edge, style = Stroke(width = w * 0.035f))
+            drawPath(octagon(w * 0.075f), dimColor.copy(alpha = if (enabled) 1f else 0.45f), style = Stroke(width = w * 0.012f))
+            // The filled direction triangle.
+            val tri = Path().apply {
+                if (forward) {
+                    moveTo(w * 0.38f, h * 0.30f); lineTo(w * 0.68f, h * 0.50f); lineTo(w * 0.38f, h * 0.70f)
+                } else {
+                    moveTo(w * 0.62f, h * 0.30f); lineTo(w * 0.32f, h * 0.50f); lineTo(w * 0.62f, h * 0.70f)
+                }
+                close()
+            }
+            drawPath(tri, fill)
+        }
+        Spacer(Modifier.height(8.dp))
+        // Bracketed two-line label, per the sheet.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("[", color = dimColor, fontFamily = font, fontSize = 20.sp)
+            Spacer(Modifier.width(6.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    if (forward) "NEXT PAGE" else "PREV PAGE",
+                    color = if (enabled) color else dimColor, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                )
+                Text(
+                    if (forward) "FORWARD ▶" else "◀ BACKWARD",
+                    color = dimColor, fontFamily = font, fontSize = 10.sp
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            Text("]", color = dimColor, fontFamily = font, fontSize = 20.sp)
+        }
     }
 }
 
 // A single page of apps, rendered as a plain (non-lazy) grid — no view recycling to stutter on a
 // flip; icons come straight from AppIconCache. Fixed REEL_COLUMNS across; short pages just leave
-// the trailing cells empty so the gear's teeth stay evenly spaced.
+// the trailing cells empty so the page count stays stable.
 @Composable
 private fun ReelPageGrid(
     pageApps: List<AppInfo>,
@@ -1694,86 +1708,6 @@ private fun AppCell(
             lineHeight = 11.sp,
             modifier = Modifier.width(68.dp)
         )
-    }
-}
-
-// v4 refined gear face (Build Brief v1.0.1): bevelled two-layer teeth, a rivet ring, a hub with an
-// inner ring, and a crank grip nub at the top — the single landmark that makes the ratchet's
-// catch-and-settle read clearly as a real mechanical part turning, not an abstract dial.
-private fun DrawScope.drawGearFace(color: Color, dimColor: Color) {
-    val cx = size.width / 2f
-    val cy = size.height / 2f
-    val outer = size.height * 0.46f
-    val toothBase = outer * 0.84f          // where teeth root into the gear face
-    val bevelBase = toothBase * 0.90f      // the shorter, offset inner bevel layer
-    val rivetRadius = outer * 0.58f
-    val hubOuter = outer * 0.30f
-    val hubInner = outer * 0.17f
-    val stroke = Stroke(width = outer * 0.05f)
-    val bevelStroke = Stroke(width = outer * 0.032f)
-
-    // Outer tooth layer — the main teeth the pawl reads.
-    for (i in 0 until REEL_GEAR_TEETH) {
-        val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i)
-        val p0 = Offset(cx + (toothBase * kotlin.math.cos(a)).toFloat(), cy + (toothBase * kotlin.math.sin(a)).toFloat())
-        val p1 = Offset(cx + (outer * kotlin.math.cos(a)).toFloat(), cy + (outer * kotlin.math.sin(a)).toFloat())
-        drawLine(color, p0, p1, strokeWidth = stroke.width)
-    }
-    // Inner bevel layer — shorter teeth, offset half a tooth-pitch: the "two-layer bevelled" look.
-    val halfPitch = 360.0 / REEL_GEAR_TEETH / 2.0
-    for (i in 0 until REEL_GEAR_TEETH) {
-        val a = Math.toRadians((360.0 / REEL_GEAR_TEETH) * i + halfPitch)
-        val p0 = Offset(cx + (bevelBase * kotlin.math.cos(a)).toFloat(), cy + (bevelBase * kotlin.math.sin(a)).toFloat())
-        val p1 = Offset(cx + (toothBase * kotlin.math.cos(a)).toFloat(), cy + (toothBase * kotlin.math.sin(a)).toFloat())
-        drawLine(dimColor, p0, p1, strokeWidth = bevelStroke.width)
-    }
-    // Gear-face rim.
-    drawCircle(dimColor, radius = bevelBase, center = Offset(cx, cy), style = bevelStroke)
-    // Rivet ring — small dots between the rim and the hub.
-    val rivetCount = 8
-    for (i in 0 until rivetCount) {
-        val a = Math.toRadians((360.0 / rivetCount) * i)
-        val p = Offset(cx + (rivetRadius * kotlin.math.cos(a)).toFloat(), cy + (rivetRadius * kotlin.math.sin(a)).toFloat())
-        drawCircle(dimColor, radius = stroke.width * 0.55f, center = p)
-    }
-    // Hub — outer ring + a concentric inner ring.
-    drawCircle(color, radius = hubOuter, center = Offset(cx, cy), style = stroke)
-    drawCircle(dimColor, radius = hubInner, center = Offset(cx, cy), style = bevelStroke)
-    // Crank grip nub — a raised knob at the top of the gear face; rotates with it, the one clear
-    // landmark a thumb would grip, and what actually sells the spin as motion.
-    val nub = Offset(cx, cy - bevelBase * 0.78f)
-    drawCircle(color, radius = outer * 0.10f, center = nub)
-    drawCircle(dimColor, radius = outer * 0.05f, center = nub)
-}
-
-@Composable
-private fun GearDial(
-    rotationDegrees: Float,
-    color: Color,
-    dimColor: Color,
-    modifier: Modifier = Modifier
-) {
-    // Top-aligned so the clip keeps the gear's upper arc; the gear's centre sits at the recess edge.
-    Box(modifier, contentAlignment = Alignment.TopCenter) {
-        Canvas(
-            Modifier
-                .fillMaxWidth()
-                .height(192.dp)       // taller than the recess; the clip shows only its top half
-                .rotate(rotationDegrees)
-        ) {
-            drawGearFace(color, dimColor)
-        }
-        // the fixed pawl — a small marker at the recess edge the teeth pass under (does not rotate),
-        // apex pointing down at the rim below it.
-        Canvas(Modifier.size(14.dp)) {
-            val p = Path().apply {
-                moveTo(size.width / 2f, size.height)   // apex — bottom-centre, points at the teeth
-                lineTo(0f, 0f)
-                lineTo(size.width, 0f)
-                close()
-            }
-            drawPath(p, color)
-        }
     }
 }
 

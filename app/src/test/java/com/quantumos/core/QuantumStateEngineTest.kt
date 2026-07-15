@@ -325,62 +325,15 @@ class QuantumStateEngineTest {
         assertEquals(null, InstrumentConsole.findByLabel(installed, "File"))
     }
 
-    // ---------- Launcher Restructure Phase 2 — gear-reel physics (v4 discrete ratchet) ----------
-
-    @Test
-    fun consumeDrag_onlyFiresWholeSteps_andCarriesTheRemainder() {
-        // Half a tooth's worth of drag: no step yet, but the remainder must carry forward exactly.
-        val (steps1, leftover1) = GearReelPhysics.consumeDrag(leftoverDp = 0f, deltaDp = 13f)
-        assertEquals(0, steps1)
-        assertEquals(13f, leftover1)
-        // The rest of that tooth arrives next event -> exactly one step fires, remainder resets near zero.
-        val (steps2, leftover2) = GearReelPhysics.consumeDrag(leftoverDp = leftover1, deltaDp = 13f)
-        assertEquals(1, steps2)
-        assertTrue(kotlin.math.abs(leftover2) < 0.01f)
-    }
-
-    @Test
-    fun consumeDrag_dragRightIsPositive_dragLeftIsNegative() {
-        val (right, _) = GearReelPhysics.consumeDrag(0f, deltaDp = GearReelPhysics.DRAG_PER_TOOTH_DP)
-        assertEquals(1, right, "dragging right must advance (positive step)")
-        val (left, _) = GearReelPhysics.consumeDrag(0f, deltaDp = -GearReelPhysics.DRAG_PER_TOOTH_DP)
-        assertEquals(-1, left, "dragging left must revert (negative step)")
-    }
-
-    @Test
-    fun consumeDrag_aFastFlickQueuesMultipleWholeSteps() {
-        val (steps, _) = GearReelPhysics.consumeDrag(0f, deltaDp = GearReelPhysics.DRAG_PER_TOOTH_DP * 3.4f)
-        assertEquals(3, steps, "a big flick should queue several whole tooth-steps at once")
-    }
+    // ---------- Launcher Restructure Phase 2 (v5) — APPS pager ----------
 
     @Test
     fun clampPage_neverWraps_andCollapsesToZeroForOneOrFewerPages() {
-        assertEquals(0, GearReelPhysics.clampPage(-3, pageCount = 5))
-        assertEquals(4, GearReelPhysics.clampPage(99, pageCount = 5))
-        assertEquals(0, GearReelPhysics.clampPage(2, pageCount = 1))
-        assertEquals(0, GearReelPhysics.clampPage(2, pageCount = 0))
-    }
-
-    @Test
-    fun overshootPeak_swingsPastTheTarget_inTheDirectionOfTravel() {
-        val peakForward = GearReelPhysics.overshootPeak(fromDeg = 0f, targetDeg = 90f)
-        assertEquals(90f + GearReelPhysics.OVERSHOOT_DEG, peakForward)
-        val peakBackward = GearReelPhysics.overshootPeak(fromDeg = 90f, targetDeg = 0f)
-        assertEquals(0f - GearReelPhysics.OVERSHOOT_DEG, peakBackward)
-    }
-
-    @Test
-    fun catchAngle_startsAtOrigin_andReachesTheOvershootPeakAtFrac1() {
-        val from = 0f; val target = 90f
-        assertEquals(from, GearReelPhysics.catchAngle(from, target, frac = 0f))
-        assertEquals(GearReelPhysics.overshootPeak(from, target), GearReelPhysics.catchAngle(from, target, frac = 1f))
-    }
-
-    @Test
-    fun settleAngle_startsAtThePeak_andLandsExactlyOnTheDetentAtFrac1() {
-        val peak = 98f; val target = 90f
-        assertEquals(peak, GearReelPhysics.settleAngle(peak, target, frac = 0f))
-        assertEquals(target, GearReelPhysics.settleAngle(peak, target, frac = 1f)) // exact detent, no residual overshoot
+        assertEquals(0, ReelPager.clampPage(-3, pageCount = 5))
+        assertEquals(4, ReelPager.clampPage(99, pageCount = 5))
+        assertEquals(2, ReelPager.clampPage(2, pageCount = 5))
+        assertEquals(0, ReelPager.clampPage(2, pageCount = 1))
+        assertEquals(0, ReelPager.clampPage(2, pageCount = 0))
     }
 
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.

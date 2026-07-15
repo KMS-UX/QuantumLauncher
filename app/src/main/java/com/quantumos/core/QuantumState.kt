@@ -132,65 +132,20 @@ object SoundCue {
     const val CHIRP_SCAN = "chirp_scan"
     const val CHIRP_HAPPY = "chirp_happy"
     const val CHIRP_WARN = "chirp_warn"
-    const val REEL_DETENT = "reel_detent_click"        // gear-reel SETTLE tick (softer — the tooth fitting in)
-    const val REEL_CATCH = "reel_catch_click"          // gear-reel CATCH click (sharper — the overshoot beat)
+    const val REEL_DETENT = "reel_detent_click"        // APPS page-step click (PREV/NEXT nav button)
 }
 
 /*
- * Launcher Restructure Phase 2 (Build Brief v1.0.1, Gear Dial Lab v4) — the APPS gear-reel's
- * DISCRETE RATCHET physics. **Supersedes the v3 flywheel/momentum model entirely** — the Director
- * tested v3 on the Fold 6 and asked for a real ratchet feel instead of a decelerating spin. Pure
- * Kotlin, no Android/Compose deps — same "logic lives in core, unit-tested" pattern as
- * OverlayGeometry's edge-snap math.
- *
- * The model: there is no continuous velocity/coast. Every tooth-crossing is queued the instant the
- * drag accumulates one dragPerTooth's worth of travel, and each queued step plays out as its own
- * complete two-beat event — CATCH (swing past the target detent by overshootDeg, sharp click) then
- * SETTLE (ease back to the exact detent, softer tick). A fast flick queues several of these beats;
- * they play back-to-back, never overlapping, producing "clunk-clunk-clunk," not a spin-down.
- *
- * Tunables, named exactly per the Build Brief (dragPerTooth/overshootDeg/catchMs/settleMs). v4-lab
- * starting values — confirmed against this session's Fold 6 tuning pass (see BUILD_LOG).
+ * Launcher Restructure Phase 2 (v5 — Director simplification, canon nav-button sheet). The APPS
+ * paged browser is now driven by two stepped PREV/NEXT buttons per the "QuantumOS Launcher
+ * Navigation Buttons" design sheet — the gear dial and its ratchet physics (v3 flywheel, v4
+ * discrete catch/settle) are retired after Fold 6 testing. The only logic left is the hard page
+ * clamp. Pure + unit-tested, same "logic lives in core" pattern as OverlayGeometry.
  */
-object GearReelPhysics {
-    // dragPerTooth — dp of drag that advances (or reverts) exactly one tooth/page.
-    const val DRAG_PER_TOOTH_DP = 26f
-    // overshootDeg — how far the catch swings PAST the target detent before settling back.
-    const val OVERSHOOT_DEG = 8f
-    // catchMs — duration of the catch swing (the sharp-click beat).
-    const val CATCH_MS = 65L
-    // settleMs — duration of the settle-back (the softer-tick beat).
-    const val SETTLE_MS = 85L
-
-    // Consumes accumulated drag into whole tooth-steps (signed: positive/right = advance), and the
-    // fractional dp remainder to carry into the next drag event — nothing is ever lost mid-drag.
-    // Truncates toward zero so a step only fires once a FULL dragPerTooth has been travelled.
-    fun consumeDrag(leftoverDp: Float, deltaDp: Float): Pair<Int, Float> {
-        val total = leftoverDp + deltaDp
-        val steps = (total / DRAG_PER_TOOTH_DP).toInt()
-        return steps to (total - steps * DRAG_PER_TOOTH_DP)
-    }
-
+object ReelPager {
     // No wraparound, ever: clamp hard to the first/last page. pageCount<=1 always resolves to 0.
     fun clampPage(page: Int, pageCount: Int): Int =
         if (pageCount <= 1) 0 else page.coerceIn(0, pageCount - 1)
-
-    // The overshoot peak a catch swings to for a given target angle, in the direction of travel —
-    // the UI reads this once per step so settle knows where to ease back from.
-    fun overshootPeak(fromDeg: Float, targetDeg: Float): Float {
-        val dir = if (targetDeg >= fromDeg) 1f else -1f
-        return targetDeg + dir * OVERSHOOT_DEG
-    }
-
-    // Catch phase: linear swing from the current angle to the overshoot peak. frac is 0..1 across catchMs.
-    fun catchAngle(fromDeg: Float, targetDeg: Float, frac: Float): Float {
-        val peak = overshootPeak(fromDeg, targetDeg)
-        return fromDeg + (peak - fromDeg) * frac.coerceIn(0f, 1f)
-    }
-
-    // Settle phase: linear ease from the overshoot peak back to the exact detent. frac is 0..1 across settleMs.
-    fun settleAngle(peakDeg: Float, targetDeg: Float, frac: Float): Float =
-        peakDeg + (targetDeg - peakDeg) * frac.coerceIn(0f, 1f)
 }
 
 // ---------- state ----------
