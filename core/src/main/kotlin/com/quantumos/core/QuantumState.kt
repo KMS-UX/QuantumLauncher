@@ -74,8 +74,10 @@ object DeploymentRegions {
  * Launcher Restructure Phase 1 (Build Brief v1.0) — the HOME instrument console. The eight core
  * field-tool instruments, per the House Style Skill's locked module identities (COMMS/FILES/AUDIO/
  * CAM/MAPS/RADIO/SIGNAL/CONFIG).
- *   - targetAppLabel: for CAM/MAPS, the label of the already-installed standalone Optics/Nav app to
- *     hand off to. Phase 1 scope only — docking them into the shared shell is Phase 3, a separate brief.
+ *   - dockedModule: for CAM/MAPS, which docked library module (App Shell Integration, Phase 3 —
+ *     :optics / :nav, bundled into this same APK) the tile launches into. Superseded Phase 1's
+ *     targetAppLabel hand-off-to-a-separately-installed-app scheme now that both are truly docked —
+ *     :core stays Android-free, so this is a plain enum; :app maps it to the concrete Activity class.
  *   - opensChannel: for CONFIG, whose function already lives on the STATUS channel's own
  *     "CONFIG // FIELD SETTINGS" section — an in-app hop rather than a standalone app. This mapping
  *     is a Director-flag, not a locked call (see BUILD_LOG).
@@ -83,11 +85,13 @@ object DeploymentRegions {
  */
 enum class InstrumentId { COMMS, FILES, AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG }
 
+enum class DockedModule { OPTICS, NAV }
+
 data class InstrumentSpec(
     val id: InstrumentId,
     val label: String,
     val function: String,
-    val targetAppLabel: String? = null,
+    val dockedModule: DockedModule? = null,
     val opensChannel: NavigationChannel? = null
 )
 
@@ -96,18 +100,12 @@ object InstrumentConsole {
         InstrumentSpec(InstrumentId.COMMS, "COMMS", "CHANNELS"),
         InstrumentSpec(InstrumentId.FILES, "FILES", "STORAGE"),
         InstrumentSpec(InstrumentId.AUDIO, "AUDIO", "RECORDER"),
-        InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", targetAppLabel = "Optics"),
-        InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", targetAppLabel = "Nav"),
+        InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", dockedModule = DockedModule.OPTICS),
+        InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", dockedModule = DockedModule.NAV),
         InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER"),
         InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS"),
         InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", opensChannel = NavigationChannel.STATUS)
     )
-
-    // Pure, unit-tested label match — no Android/PackageManager dep here (the UI passes real
-    // installed-app labels in). Case-insensitive exact match; same "logic lives in core" pattern
-    // as OverlayGeometry's edge-snap math.
-    fun findByLabel(installedLabels: List<String>, targetLabel: String): String? =
-        installedLabels.firstOrNull { it.equals(targetLabel, ignoreCase = true) }
 }
 
 /*

@@ -93,9 +93,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.shell.overlay.QuarkTriggerService
+import com.quantumos.appshell.ChannelStrip
+import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.NameplateHeader
+import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumOSLayoutShell
+import com.quantumos.appshell.TerminalConstraints
+import com.quantumos.appshell.crtOverlay
+import com.quantumos.appshell.crtShader
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegions
+import com.quantumos.core.DockedModule
 import com.quantumos.core.EnvironmentProfile
 import com.quantumos.core.InstrumentConsole
 import com.quantumos.core.InstrumentId
@@ -107,6 +117,8 @@ import com.quantumos.core.ReelPager
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
+import com.quantumos.nav.NavActivity
+import com.quantumos.optics.OpticsActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -115,24 +127,11 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 
 /*
- * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for all logic.
+ * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for all logic and
+ * com.quantumos.appshell for the shared chrome (App Shell Integration, Phase 3 —
+ * Phosphor/Fonts/TerminalConstraints/QuantumOSLayoutShell/NameplateHeader/ChannelStrip/
+ * PleaseStandbyCard/crtShader/crtOverlay all moved there so :optics and :nav share one source).
  */
-
-// ---------- phosphor token source: one hue switch recolors everything ----------
-object Phosphor {
-    val GreenBright = Color(0xFF00FF00); val GreenDim = Color(0xFF00AA00)
-    val AmberBright = Color(0xFFFFB000); val AmberDim = Color(0xFFA86F00)
-    val CyanBright  = Color(0xFF00E5FF); val CyanDim  = Color(0xFF0090A8)
-    val Warn = Color(0xFFFF3B1F)
-    val Crt  = Color(0xFF020402)
-
-    fun bright(h: PhosphorHue) = when (h) {
-        PhosphorHue.GREEN -> GreenBright; PhosphorHue.AMBER -> AmberBright; PhosphorHue.CYAN -> CyanBright
-    }
-    fun dim(h: PhosphorHue) = when (h) {
-        PhosphorHue.GREEN -> GreenDim; PhosphorHue.AMBER -> AmberDim; PhosphorHue.CYAN -> CyanDim
-    }
-}
 
 // Stealth dim target for this window. Hard-dim but not fully black — the Operator must still read
 // the panel. Saturation is untouched (we only lower brightness), per the M3 Stealth spec.
@@ -194,6 +193,10 @@ class QuantumViewModel : ViewModel() {
     // access-denied cue bank entry (previously unwired — BUILD_LOG "known issues"): the Operator
     // attempted a real action and it didn't happen, which is exactly what buzz_denied is for.
     fun signalInstrumentOffline() = QuantumRuntime.playCue(SoundCue.BUZZ_DENIED)
+
+    // App Shell Integration (Phase 3) — the same UI-select clunk as a channel switch, since docking
+    // into CAM/MAPS is the same kind of committed navigation as switching a channel.
+    fun signalInstrumentDock() = QuantumRuntime.playCue(SoundCue.UI_CLUNK)
 
     // M6 STATUS toggles — cycle + persist + (region) QUARK ack, all via the runtime.
     fun cycleDeploymentRegion() = QuantumRuntime.cycleDeploymentRegion()
@@ -316,136 +319,9 @@ class LauncherActivity : ComponentActivity() {
     }
 }
 
-@Immutable
-data class TerminalConstraints(
-    val containerWidth: Dp,
-    val containerHeight: Dp,
-    val isLetterboxed: Boolean,
-    val rawWindowWidth: Dp,
-    val rawWindowHeight: Dp,
-    val systemBarsPadding: PaddingValues
-)
-
-/*
- * THE ONE DESIGN DECISION (yours, Director):
- *  - forceFixedContainer = FALSE (default): surface fills the real screen; CRT falloff frames it.
- *  - forceFixedContainer = TRUE: 9:19.5 letterbox. On Fold's near-square inner display that's a
- *    narrow strip in black — only if you want a deliberate "screen-in-chassis" look.
- */
-@Composable
-fun QuantumOSLayoutShell(
-    forceFixedContainer: Boolean = false,
-    targetAspectRatio: Float = 9f / 19.5f,
-    content: @Composable (TerminalConstraints) -> Unit
-) {
-    // BackHandler is owned by QuantumAppShell so it can route APPS → HOME before consuming.
-
-    BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().background(Color.Black)
-    ) {
-        val rawWidth = maxWidth
-        val rawHeight = maxHeight
-        if (rawWidth <= 0.dp || rawHeight <= 0.dp) return@BoxWithConstraints
-
-        val (cw, ch) = if (!forceFixedContainer) {
-            rawWidth to rawHeight
-        } else {
-            val ratio = rawWidth.value / rawHeight.value
-            when {
-                ratio > targetAspectRatio -> (rawHeight * targetAspectRatio) to rawHeight
-                ratio < targetAspectRatio -> rawWidth to (rawWidth / targetAspectRatio)
-                else -> rawWidth to rawHeight
-            }
-        }
-
-        val constraints = TerminalConstraints(
-            containerWidth = cw,
-            containerHeight = ch,
-            isLetterboxed = (cw != rawWidth || ch != rawHeight),
-            rawWindowWidth = rawWidth,
-            rawWindowHeight = rawHeight,
-            systemBarsPadding = WindowInsets.systemBars.asPaddingValues()
-        )
-
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .width(cw)
-                    .height(ch)
-                    .background(Phosphor.Crt)
-                    .crtShader()
-            ) {
-                content(constraints)
-            }
-        }
-    }
-}
-
-/*
- * M6 Step 5 — REAL CRT shader. An AGSL RuntimeShader (RenderEffect, API 33+, covered by minSdk 33)
- * that samples the rendered content and lays scanlines, a CRT-falloff vignette, and a phosphor
- * self-glow over it on the GPU — not a CPU draw-loop (design-tokens rendering rule). It sets uniforms
- * once per size, so there is no idle redraw (static at rest).
- *
- * Safety net (brief Step 5): if shader compilation EVER fails — or on a pre-33 surface that slips
- * through — it falls back automatically to the cheap non-shader overlay below, rather than deleting
- * the net. This is the first time the real look gets judged on hardware (the Fold 6), not an emulator.
- */
-private const val CRT_AGSL_SHADER = """
-uniform shader content;
-uniform float2 resolution;
-half4 main(float2 coord) {
-    half4 src = content.eval(coord);
-    float2 uv = coord / resolution;
-    // scanlines — soft dark bands, period ~3px
-    float scan = 0.88 + 0.12 * (0.5 + 0.5 * sin(coord.y * 2.094));
-    // CRT falloff — content fades toward the edges
-    float2 c = uv - 0.5;
-    float vig = clamp(1.0 - dot(c, c) * 1.15, 0.28, 1.0);
-    float f = scan * vig;
-    float3 rgb = float3(src.rgb) * f;
-    // phosphor self-glow — lift the bright phosphor a touch
-    float3 glow = float3(src.rgb) * float3(src.rgb) * 0.22;
-    return half4(half3(rgb + glow), src.a);
-}
-"""
-
-fun Modifier.crtShader(): Modifier = composed {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@composed this.crtOverlay()
-    val shader = remember { runCatching { RuntimeShader(CRT_AGSL_SHADER) }.getOrNull() }
-        ?: return@composed this.crtOverlay()   // compilation failed → cheap fallback (safety net)
-    var size by remember { mutableStateOf(IntSize.Zero) }
-    this
-        .onSizeChanged { size = it }
-        .graphicsLayer {
-            if (size.width > 0 && size.height > 0) {
-                shader.setFloatUniform("resolution", size.width.toFloat(), size.height.toFloat())
-                renderEffect = RenderEffect
-                    .createRuntimeShaderEffect(shader, "content")
-                    .asComposeRenderEffect()
-            }
-        }
-}
-
-// Cheap non-shader CRT treatment — the automatic fallback if the AGSL shader can't compile.
-fun Modifier.crtOverlay(): Modifier = drawWithContent {
-    drawContent()
-    val gap = 3.dp.toPx()
-    var y = 0f
-    while (y < size.height) {
-        drawLine(Color(0x14000000), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
-        y += gap
-    }
-    drawRect(
-        brush = Brush.radialGradient(
-            colors = listOf(Color.Transparent, Color(0xAA000000)),
-            center = Offset(size.width / 2f, size.height / 2f),
-            radius = size.maxDimension * 0.75f
-        )
-    )
-}
-
 // ---------- App Shell (house-style chrome: nameplate + channel strip + content) ----------
+// TerminalConstraints / QuantumOSLayoutShell / crtShader() / crtOverlay() now live in
+// com.quantumos.appshell (App Shell Integration, Phase 3) — imported above.
 @Composable
 fun QuantumAppShell(
     vm: QuantumViewModel,
@@ -653,68 +529,7 @@ private fun BootIris(color: Color, dimColor: Color) {
     }
 }
 
-// Opaque nameplate header with registration marks — top App Shell chrome.
-@Composable
-private fun NameplateHeader(channelName: String, color: Color, dimColor: Color, font: FontFamily) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Phosphor.Crt)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "QUANTUM OS",
-            color = color,
-            fontFamily = font,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = "// $channelName",
-            color = dimColor,
-            fontFamily = font,
-            fontSize = 12.sp
-        )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            text = "[⊕]",
-            color = dimColor,
-            fontFamily = font,
-            fontSize = 11.sp
-        )
-    }
-}
-
-// Channel navigation strip below the nameplate.
-@Composable
-private fun ChannelStrip(
-    current: NavigationChannel,
-    color: Color,
-    dimColor: Color,
-    font: FontFamily,
-    onSelect: (NavigationChannel) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-    ) {
-        NavigationChannel.entries.forEach { channel ->
-            val active = channel == current
-            Text(
-                text = if (active) "[${channel.name}]" else " ${channel.name} ",
-                color = if (active) color else dimColor,
-                fontFamily = font,
-                fontSize = 11.sp,
-                modifier = Modifier
-                    .clickable { onSelect(channel) }
-                    .padding(horizontal = 6.dp, vertical = 4.dp)
-            )
-        }
-    }
-}
+// NameplateHeader / ChannelStrip now live in com.quantumos.appshell — imported above.
 
 // ---------- HOME channel body ----------
 // Launcher Restructure Phase 1 (Build Brief v1.0): HOME's centrepiece is now the static
@@ -740,9 +555,24 @@ private fun HomeChannelBody(
     onRequestOverlay: () -> Unit
 ) {
     val conn by vm.connectivity.collectAsState()
-    val apps by vm.installedApps.collectAsState()
     val context = LocalContext.current
     var offlineInstrument by remember { mutableStateOf<InstrumentSpec?>(null) }
+
+    // App Shell Integration (Phase 3): CAM/MAPS hand-off is a stepped PLEASE STANDBY beat (never an
+    // instant cut — "loading = a PLEASE STANDBY card," motion is mechanical not silky) followed by
+    // starting the docked Activity in this same task (no NEW_TASK/CLEAR_TOP), so back naturally
+    // returns to this still-live HOME screen.
+    var dockingModule by remember { mutableStateOf<DockedModule?>(null) }
+    LaunchedEffect(dockingModule) {
+        val module = dockingModule ?: return@LaunchedEffect
+        delay(360)   // three ~120ms beats — a felt hand-off, not an instant cut
+        val target = when (module) {
+            DockedModule.OPTICS -> OpticsActivity::class.java
+            DockedModule.NAV -> NavActivity::class.java
+        }
+        context.startActivity(Intent(context, target))
+        dockingModule = null
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -775,13 +605,12 @@ private fun HomeChannelBody(
 
             // ---------- the static instrument console (Phase 1 centrepiece) ----------
             HomeInstrumentConsole(
-                apps = apps,
                 color = color,
                 dimColor = dimColor,
                 font = font,
-                onLaunch = { app ->
-                    context.packageManager.getLaunchIntentForPackage(app.packageName)
-                        ?.let { context.startActivity(it) }
+                onDock = { module ->
+                    vm.signalInstrumentDock()
+                    dockingModule = module
                 },
                 onNavigate = { vm.navigate(it) },
                 onOffline = { spec ->
@@ -828,37 +657,41 @@ private fun HomeChannelBody(
                 onDismiss = { offlineInstrument = null }
             )
         }
+
+        // The docking hand-off beat (App Shell Integration, Phase 3) — the universal loading/
+        // transition card, never a generic spinner, while CAM/MAPS stand up their docked Activity.
+        if (dockingModule != null) {
+            Box(Modifier.fillMaxSize().background(Phosphor.Crt), contentAlignment = Alignment.Center) {
+                PleaseStandbyCard(subline = "OPENING MODULE…", color = color, dimColor = dimColor, font = font)
+            }
+        }
     }
 }
 
 // ---------- Launcher Restructure Phase 1 — the static eight-instrument console ----------
 
-// What tapping an instrument actually does, resolved once per recomposition from live installed-
-// apps data — never a second state path (SESSION-PLAYBOOK reuse rule).
+// What tapping an instrument actually does — never a second state path (SESSION-PLAYBOOK reuse
+// rule). App Shell Integration (Phase 3): CAM/MAPS now dock directly into the bundled :optics/:nav
+// modules (Dock) instead of handing off to a separately-installed app by label match (Launch).
 private sealed class InstrumentAction {
-    data class Launch(val app: AppInfo) : InstrumentAction()
+    data class Dock(val module: DockedModule) : InstrumentAction()
     data class Navigate(val channel: NavigationChannel) : InstrumentAction()
     object Offline : InstrumentAction()
 }
 
-private fun resolveInstrumentAction(spec: InstrumentSpec, apps: List<AppInfo>): InstrumentAction {
+private fun resolveInstrumentAction(spec: InstrumentSpec): InstrumentAction {
     spec.opensChannel?.let { return InstrumentAction.Navigate(it) }
-    spec.targetAppLabel?.let { target ->
-        val matchedLabel = InstrumentConsole.findByLabel(apps.map { it.label }, target)
-        val app = matchedLabel?.let { lbl -> apps.firstOrNull { it.label == lbl } }
-        if (app != null) return InstrumentAction.Launch(app)
-    }
+    spec.dockedModule?.let { return InstrumentAction.Dock(it) }
     return InstrumentAction.Offline
 }
 
 // Fixed 2-column, 4-row grid — all eight instruments visible at once, no scroll, no paging.
 @Composable
 private fun HomeInstrumentConsole(
-    apps: List<AppInfo>,
     color: Color,
     dimColor: Color,
     font: FontFamily,
-    onLaunch: (AppInfo) -> Unit,
+    onDock: (DockedModule) -> Unit,
     onNavigate: (NavigationChannel) -> Unit,
     onOffline: (InstrumentSpec) -> Unit,
     modifier: Modifier = Modifier
@@ -873,7 +706,7 @@ private fun HomeInstrumentConsole(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 rowSpecs.forEach { spec ->
-                    val action = remember(spec, apps) { resolveInstrumentAction(spec, apps) }
+                    val action = remember(spec) { resolveInstrumentAction(spec) }
                     InstrumentTile(
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                         spec = spec,
@@ -884,7 +717,7 @@ private fun HomeInstrumentConsole(
                         onClick = {
                             when (val a = action) {
                                 is InstrumentAction.Navigate -> onNavigate(a.channel)
-                                is InstrumentAction.Launch -> onLaunch(a.app)
+                                is InstrumentAction.Dock -> onDock(a.module)
                                 InstrumentAction.Offline -> onOffline(spec)
                             }
                         }
@@ -1410,19 +1243,7 @@ private fun LockOverlay(
     }
 }
 
-// PLEASE STANDBY card — the one universal loading/transition beat (House Style: never a generic
-// spinner). Public + standalone so every surface reuses it rather than rebuilding the beat:
-// the cosmetic Lock overlay and the M4 QUARK-trigger stub both render through here.
-@Composable
-fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: FontFamily) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("PLEASE STANDBY", color = color, fontFamily = font, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        if (subline.isNotEmpty()) {
-            Spacer(Modifier.height(12.dp))
-            Text(subline, color = dimColor, fontFamily = font, fontSize = 12.sp)
-        }
-    }
-}
+// PleaseStandbyCard now lives in com.quantumos.appshell — imported above.
 
 // ---------- APPS channel — Launcher Restructure Phase 2 (v5): paged grid + canon nav buttons ----------
 //

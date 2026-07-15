@@ -1,0 +1,172 @@
+{
+  "version": 8,
+  "name": "QuantumOS Nav — Phosphor",
+  "glyphs": "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  "sources": {
+    "openmaptiles": {
+      "type": "vector",
+      "url": "https://tiles.openfreemap.org/planet"
+    },
+    "position": {
+      "type": "geojson",
+      "data": { "type": "FeatureCollection", "features": [] }
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "%%CRT%%" }
+    },
+    {
+      "id": "landcover",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landcover",
+      "paint": { "fill-color": "%%LANDCOVER_FILL%%", "fill-antialias": false }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "landuse",
+      "paint": { "fill-color": "%%LAND_FILL%%", "fill-antialias": false }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "water",
+      "paint": { "fill-color": "%%WATER_FILL%%" }
+    },
+    {
+      "id": "waterway",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "waterway",
+      "paint": {
+        "line-color": "%%DIM%%",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 14, 1.5]
+      }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "openmaptiles",
+      "source-layer": "building",
+      "minzoom": 13,
+      "paint": {
+        "fill-color": "%%BUILDING_FILL%%",
+        "fill-outline-color": "%%DIM%%"
+      }
+    },
+    {
+      "id": "boundary",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "boundary",
+      "filter": ["<=", ["get", "admin_level"], 4],
+      "paint": {
+        "line-color": "%%DIM%%",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.6, 12, 1.6],
+        "line-dasharray": [3, 2],
+        "line-opacity": 0.7
+      }
+    },
+    {
+      "id": "road-minor",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 12,
+      "filter": ["match", ["get", "class"], ["minor", "service", "track", "path"], true, false],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "%%DIM%%",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 12, 0.4, 16, 2.0, 20, 6.0]
+      }
+    },
+    {
+      "id": "road-secondary",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 9,
+      "filter": ["match", ["get", "class"], ["secondary", "tertiary"], true, false],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "%%BRIGHT%%",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 9, 0.5, 13, 1.4, 18, 5.0],
+        "line-opacity": 0.75
+      }
+    },
+    {
+      "id": "road-major",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "filter": ["match", ["get", "class"], ["motorway", "trunk", "primary"], true, false],
+      "layout": { "line-cap": "round", "line-join": "round" },
+      "paint": {
+        "line-color": "%%BRIGHT%%",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 10, 1.8, 14, 4.0, 18, 11.0]
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "openmaptiles",
+      "source-layer": "place",
+      "filter": ["match", ["get", "class"], ["city", "town", "village"], true, false],
+      "layout": {
+        "text-field": ["coalesce", ["get", "name:latin"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 4, 10, 10, 15],
+        "text-letter-spacing": 0.12,
+        "text-transform": "uppercase",
+        "text-max-width": 7,
+        "text-padding": 4
+      },
+      "paint": {
+        "text-color": "%%BRIGHT%%",
+        "text-halo-color": "%%CRT%%",
+        "text-halo-width": 1.6,
+        "text-halo-blur": 0.4
+      }
+    },
+    {
+      "id": "position-halo",
+      "type": "circle",
+      "source": "position",
+      "paint": {
+        "circle-radius": 22,
+        "circle-color": "%%BRIGHT%%",
+        "circle-opacity": 0.12,
+        "circle-blur": 0.6
+      }
+    },
+    {
+      "id": "position-ring",
+      "type": "circle",
+      "source": "position",
+      "paint": {
+        "circle-radius": 9,
+        "circle-opacity": 0.0,
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "%%BRIGHT%%",
+        "circle-stroke-opacity": 0.7
+      }
+    },
+    {
+      "id": "position-dot",
+      "type": "circle",
+      "source": "position",
+      "paint": {
+        "circle-radius": 5,
+        "circle-color": "%%BRIGHT%%",
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "%%CRT%%"
+      }
+    }
+  ]
+}

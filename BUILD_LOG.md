@@ -11,7 +11,69 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Launcher Restructure Phase 2 — paged APPS browser, **v5 canon nav buttons**
+**Current milestone:** App Shell Integration, Phase 3 — dock Optics & Nav into the shared App Shell
+— **CI push pending (this session has no Android SDK; CI is the compiler, per SESSION-PLAYBOOK).
+Both docked modules are code-complete; on-device confirmation is the Director's next action.**
+
+> **What changed.** `:app` split into a modular monolith — still **one APK**, one `applicationId` —
+> so Optics and Nav are truly docked (bundled library modules, internal navigation) rather than the
+> "separately installed app matched by label" scheme Phase 1 shipped as a placeholder:
+> - **`:core`** — `com.quantumos.core` (state engine, parser, `OverlayGeometry`, the new
+>   `InstrumentSpec.dockedModule`) extracted out of `:app`, unchanged content, so every module can
+>   depend on it without a circular dependency.
+> - **`:app-shell`** — `com.quantumos.appshell`: `Phosphor`, `Fonts` (bundled Chakra Petch/Monoton),
+>   `QuantumOSLayoutShell`, `crtShader()`/`crtOverlay()`, `NameplateHeader`, `ChannelStrip`,
+>   `PleaseStandbyCard` extracted from `LauncherUi.kt` — one chrome source for the launcher and both
+>   docked modules, per the House Style Skill's "one App Shell every app inherits."
+> - **`:optics`** — ported from the standalone `kms-ux/quantumoptics-blackhole` repo (read-only
+>   source, **never pushed to**; the repo is untouched). Dropped the standalone app's local
+>   `Phosphor`/`Theme`/CRT-shader duplicates and its `GoogleFont.Provider` (placeholder/empty cert
+>   array — a real house-style + reliability fix, not just de-duplication) in favor of `:app-shell`'s
+>   bundled font. Deleted its own local floating-QUARK-trigger placeholder outright: the real
+>   system-wide `QuarkTriggerService` (M4) already floats above every foreground app, and
+>   `OverlayGeometry.defaultPark`/`nearestEdgeX` only ever rest at the **left or right screen edge,
+>   never horizontal-center**, so it structurally cannot cover Optics's bottom-center shutter —
+>   confirmed by reading the geometry, not assumed.
+> - **`:nav`** — ported from the standalone `kms-ux/quantummap` repo (read-only source, **never
+>   pushed to**). Deleted its own local `Phosphor.kt`/`CrtEffects.kt` (flagged in *that* repo's own
+>   BUILD_LOG as a deliberate, temporary duplication awaiting exactly this step) in favor of
+>   `:app-shell`'s tokens/shader. Kept `crtOverlay()` (not `crtShader()`) over the map region — Nav's
+>   own documented finding: a `RenderEffect` renders its subtree into an offscreen buffer that
+>   MapLibre's view isn't captured into, which is what blanked the map originally.
+> - **CAM/MAPS routing** — `InstrumentSpec.targetAppLabel` (label-match against a separately
+>   installed app) replaced with `InstrumentSpec.dockedModule: DockedModule?` (`OPTICS`/`NAV`).
+>   Tapping the tile now always works (no longer gated on a separate install): a 360ms stepped
+>   PLEASE STANDBY beat ("OPENING MODULE…", reusing the shared card — never an instant cut), then an
+>   explicit `Intent(context, OpticsActivity::class.java)` / `NavActivity::class.java` in the
+>   launcher's own task (no `NEW_TASK`/`CLEAR_TOP`). Neither docked Activity adds a consuming
+>   `BackHandler` — the Shell owns back once docked, so back naturally pops to the still-live
+>   launcher on HOME — and each also has an explicit "◄ HOME" tappable line in its header as the
+>   visible equivalent of that same return path.
+> - **QUARK trigger** — verified, not re-implemented: `OverlayGeometry`'s existing default park
+>   (right edge, mid-height) already satisfies both apps' audit findings (Optics: clear of the
+>   bottom-center shutter; Nav: right-edge-mid-viewport, clear of the action rail + GPS readout) —
+>   no core geometry change was needed.
+> - **Arrow-button paging (v5 nav buttons)** — re-checked after the module split: `PageNavButton`
+>   now imports `Phosphor`/`Fonts` from `:app-shell` instead of `LauncherUi.kt`'s own objects: no
+>   behavior or look change, still Canvas-drawn/phosphor-toned/stepped/Fold-6-confirmed.
+> - CI workflow **unchanged** — `gradle test`/`gradle assembleDebug` at the root already run every
+>   subproject's tasks, and since Optics/Nav are library modules (not separate `application`
+>   modules), there's still exactly one APK artifact (`app-debug.apk`) to upload, now with both
+>   docked modules inside it.
+
+> **Director action required — Fold 6 confirmation, in this order (per the task's own sequencing):**
+> 1. **Optics first.** Sideload the CI debug APK. From HOME, tap CAM → confirm the PLEASE STANDBY
+>    beat, the shared shell chrome (not a foreign app), camera preview/capture/film filters intact,
+>    the floating QUARK trigger doesn't block the shutter, and back / "◄ HOME" returns cleanly to
+>    HOME. **Do not consider Nav's docking "done" until this reads good on-device** — mirrors the
+>    App Shell Integration precedent from the (unmerged, superseded-by-this-session) Step 1/2 branch.
+> 2. **Then Nav.** Tap MAPS → confirm the same beat/shell/back behavior, plus the map actually
+>    renders (the historically fragile part, per Nav's own BUILD_LOG tile-source saga), GPS/warp
+>    still work, and the QUARK trigger doesn't block the action rail or GPS readout.
+> 3. Confirm the resized (32dp) v5 nav buttons still read right next to the grid (carried over
+>    unconfirmed from the prior session, see below) — unrelated to this session's work but still open.
+
+**Previous milestone:** Launcher Restructure Phase 2 — paged APPS browser, **v5 canon nav buttons**
 (Director simplification) — **CI-GREEN (run #87), sideloaded and confirmed on the Fold 6: works fine,
 buttons hold their look through a hue switch. One size follow-up landed this session (below).**
 
@@ -619,6 +681,22 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
 - [x] `gradle test` — 12/12 passing (9 prior + 3 new M4 `OverlayGeometry` tests; the cloud session
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
+
+### App Shell Integration, Phase 3 — dock Optics & Nav (this session)
+- [x] Merged the unmerged, up-to-date PR #20 (Launcher Restructure Phases 1–2) in as the base — the
+  instrument console (CAM/MAPS tiles) and v5 nav buttons this phase docks into didn't exist before it
+- [x] `:core`/`:app-shell` extracted from `:app` (pure logic / shared chrome — Phosphor, Fonts,
+  QuantumOSLayoutShell, crtShader/crtOverlay, NameplateHeader, ChannelStrip, PleaseStandbyCard)
+- [x] `:optics` ported from `kms-ux/quantumoptics-blackhole` (read-only source, untouched) as a
+  library module (not a separate app); local theme/font-provider/QUARK-placeholder dropped
+- [x] `:nav` ported from `kms-ux/quantummap` (read-only source, untouched) as a library module;
+  local Phosphor/CrtEffects duplication dropped per that repo's own flagged TODO
+- [x] `InstrumentSpec.targetAppLabel` → `dockedModule: DockedModule?`; CAM/MAPS now always dock
+  (PLEASE STANDBY beat → internal Intent) instead of hand-off-if-separately-installed
+- [x] Verified (not re-implemented): `OverlayGeometry.defaultPark` already clears both apps' primary
+  controls; `PageNavButton` re-checked post-split, unchanged behavior
+- [ ] **Confirmed on Fold 6 — Optics first, then Nav** ← **Director action**, see RESUME HERE; Nav's
+  docking is not "done" until Optics reads good on-device
 
 ### Launcher Restructure Phase 2 — paged APPS browser, v5 canon nav buttons (this session)
 - [x] Gear dial + ratchet physics deleted; `GearReelPhysics` → minimal `ReelPager.clampPage` (pure,

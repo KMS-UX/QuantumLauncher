@@ -303,26 +303,18 @@ class QuantumStateEngineTest {
         assertEquals(InstrumentId.entries.toSet(), specs.map { it.id }.toSet())
     }
 
-    // CAM/MAPS hand off to the standalone Optics/Nav apps; every other instrument has no app
-    // handoff and no in-app hop except CONFIG (which opens the STATUS channel).
+    // CAM/MAPS dock directly into the :optics/:nav library modules (App Shell Integration,
+    // Phase 3); every other instrument has no docked module and no in-app hop except CONFIG
+    // (which opens the STATUS channel).
     @Test
-    fun instrumentConsole_camAndMapsTargetOpticsAndNav() {
+    fun instrumentConsole_camAndMapsDockOpticsAndNav() {
         val specs = InstrumentConsole.INSTRUMENTS
-        assertEquals("Optics", specs.single { it.id == InstrumentId.CAM }.targetAppLabel)
-        assertEquals("Nav", specs.single { it.id == InstrumentId.MAPS }.targetAppLabel)
+        assertEquals(DockedModule.OPTICS, specs.single { it.id == InstrumentId.CAM }.dockedModule)
+        assertEquals(DockedModule.NAV, specs.single { it.id == InstrumentId.MAPS }.dockedModule)
         assertEquals(NavigationChannel.STATUS, specs.single { it.id == InstrumentId.CONFIG }.opensChannel)
-        val standby = specs.filter { it.targetAppLabel == null && it.opensChannel == null }
+        val standby = specs.filter { it.dockedModule == null && it.opensChannel == null }
         assertEquals(setOf(InstrumentId.COMMS, InstrumentId.FILES, InstrumentId.AUDIO,
             InstrumentId.RADIO, InstrumentId.SIGNAL), standby.map { it.id }.toSet())
-    }
-
-    // Label match is case-insensitive and exact — no accidental substring hits on unrelated apps.
-    @Test
-    fun findByLabel_matchesCaseInsensitively_andOnlyExact() {
-        val installed = listOf("Optics", "Files Manager", "Settings")
-        assertEquals("Optics", InstrumentConsole.findByLabel(installed, "optics"))
-        assertEquals(null, InstrumentConsole.findByLabel(installed, "Nav"))
-        assertEquals(null, InstrumentConsole.findByLabel(installed, "File"))
     }
 
     // ---------- Launcher Restructure Phase 2 (v5) — APPS pager ----------
