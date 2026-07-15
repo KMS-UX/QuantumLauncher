@@ -1577,7 +1577,7 @@ private fun PageNavButton(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Canvas(
             Modifier
-                .size(108.dp)
+                .size(32.dp)   // ~30% of the original 108dp — Director: was reading as ~4 app-icons wide on the Fold 6
                 .clickable(enabled = enabled) { onClick() }
         ) {
             val w = size.width
@@ -1612,23 +1612,23 @@ private fun PageNavButton(
             }
             drawPath(tri, fill)
         }
-        Spacer(Modifier.height(8.dp))
-        // Bracketed two-line label, per the sheet.
+        Spacer(Modifier.height(4.dp))
+        // Bracketed two-line label, per the sheet — scaled down to match the smaller plate.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("[", color = dimColor, fontFamily = font, fontSize = 20.sp)
-            Spacer(Modifier.width(6.dp))
+            Text("[", color = dimColor, fontFamily = font, fontSize = 12.sp)
+            Spacer(Modifier.width(3.dp))
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     if (forward) "NEXT PAGE" else "PREV PAGE",
-                    color = if (enabled) color else dimColor, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                    color = if (enabled) color else dimColor, fontFamily = font, fontSize = 8.sp, fontWeight = FontWeight.Bold
                 )
                 Text(
                     if (forward) "FORWARD ▶" else "◀ BACKWARD",
-                    color = dimColor, fontFamily = font, fontSize = 10.sp
+                    color = dimColor, fontFamily = font, fontSize = 7.sp
                 )
             }
-            Spacer(Modifier.width(6.dp))
-            Text("]", color = dimColor, fontFamily = font, fontSize = 20.sp)
+            Spacer(Modifier.width(3.dp))
+            Text("]", color = dimColor, fontFamily = font, fontSize = 12.sp)
         }
     }
 }

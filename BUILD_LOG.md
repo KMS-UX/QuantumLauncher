@@ -12,12 +12,21 @@ block at the end of every session.
 
 ## ▶ RESUME HERE
 **Current milestone:** Launcher Restructure Phase 2 — paged APPS browser, **v5 canon nav buttons**
-(Director simplification) — **CODE COMPLETE (2026-07-14), pending CI + Fold 6 look-check.**
+(Director simplification) — **CI-GREEN (run #87), sideloaded and confirmed on the Fold 6: works fine,
+buttons hold their look through a hue switch. One size follow-up landed this session (below).**
 
 > **Director tested v4 (the discrete-ratchet gear dial) on the Fold 6: drag direction was right, but
 > the gear's rotation didn't read as intended — and rather than iterate on the dial, the Director
 > supplied the canon "QuantumOS Launcher Navigation Buttons" design sheet and asked to keep it
 > simple: replace the dial with those two buttons.** The gear (v3 flywheel → v4 ratchet) is retired.
+
+> **Follow-up (same day):** on the Fold 6 the nav-button plate read as roughly 4 app-icons wide —
+> too large next to the APPS grid. Shrunk the drawn plate from 108dp → **32dp** (~30% of original,
+> per the Director's ask), with the bracketed label scaled down to match (brackets 20sp→12sp, title
+> 11sp→8sp, sub-label 10sp→7sp). All button geometry is proportional to the Canvas size (`w`/`h`
+> fractions), so the resize was a single constant change, not a redraw. **Pending re-confirmation on
+> the Fold 6** that the new size reads right next to the app grid (icons are 44dp boxes, so 32dp now
+> sits a bit smaller than an app icon).
 
 **What changed (v5):**
 - **The gear dial and all ratchet physics are gone.** `GearDial`/`drawGearFace`, the drag gesture,
