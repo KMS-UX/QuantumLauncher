@@ -12,8 +12,18 @@ block at the end of every session.
 
 ## ▶ RESUME HERE
 **Current milestone:** App Shell Integration, Phase 3 — dock Optics & Nav into the shared App Shell
-— **CI push pending (this session has no Android SDK; CI is the compiler, per SESSION-PLAYBOOK).
-Both docked modules are code-complete; on-device confirmation is the Director's next action.**
+— **CI-GREEN (run #98: `gradle test` + `assembleDebug` + `assembleRelease` all passed; single
+`app-debug.apk`/`app-release.apk` artifacts, each now containing both docked modules). On-device
+confirmation is the Director's next action — Optics first, then Nav, per the brief's ordering.**
+
+> **Three CI round-trips to green, same pattern as every prior module-integration session in this
+> repo:** (1) invalid XML — a literal `--` inside the new `:optics`/`:nav` manifest header comments
+> (XML comments can't contain `--`), broke manifest merging; (2) `:optics`'s Room 2.6.1 KSP
+> integration threw `IllegalStateException: unexpected jvm signature V` — a known Room/KSP2
+> XProcessing bug under this project's K2-based KSP toolchain, fixed by bumping Room to 2.7.1;
+> (3) a bad `import ...layout.align` (not a real top-level symbol — `Modifier.align()` resolves via
+> the `BoxScope` receiver already in scope) plus a missing `getValue` import for two `by`-delegated
+> state reads in the new local `:optics` `AppShell.kt` wrapper.
 
 > **What changed.** `:app` split into a modular monolith — still **one APK**, one `applicationId` —
 > so Optics and Nav are truly docked (bundled library modules, internal navigation) rather than the
@@ -695,6 +705,9 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   (PLEASE STANDBY beat → internal Intent) instead of hand-off-if-separately-installed
 - [x] Verified (not re-implemented): `OverlayGeometry.defaultPark` already clears both apps' primary
   controls; `PageNavButton` re-checked post-split, unchanged behavior
+- [x] CI-green (run #98, after 3 fix round-trips: invalid XML manifest comments, a Room/KSP2 bug,
+  a bad import) — `gradle test` + `assembleDebug` + `assembleRelease` all passed; single APK
+  artifacts (`app-debug.apk`/`app-release.apk`), each containing both docked modules
 - [ ] **Confirmed on Fold 6 — Optics first, then Nav** ← **Director action**, see RESUME HERE; Nav's
   docking is not "done" until Optics reads good on-device
 
