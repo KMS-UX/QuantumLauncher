@@ -44,9 +44,10 @@ data class AudioTrackInfo(
  * leak across Activity recreation.
  *
  * "PLEASE STANDBY" real-wait rule: MediaRecorder/MediaPlayer prepare()+start() are blocking hardware
- * calls. Both startRecording() and playTrack() flip isPreparing*/true before doing that blocking work
- * on Dispatchers.IO, so the screen can show the real PleaseStandbyCard for the real hardware-allocation
- * wait -- not a fake artificial delay, and not the old app's PIN-lock misuse of that card.
+ * calls. Both startRecording() and playTrack() flip isPreparing to true before doing that blocking
+ * work on Dispatchers.IO, so the screen can show the real PleaseStandbyCard for the real
+ * hardware-allocation wait -- not a fake artificial delay, and not the old app's PIN-lock misuse of
+ * that card.
  */
 class AudioEngine(
     private val appContext: Context,
