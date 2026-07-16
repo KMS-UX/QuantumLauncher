@@ -11,7 +11,100 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** App Shell Integration, Phase 3 — dock Optics & Nav into the shared App Shell
+**Current milestone:** Core Apps Fix-Pass (Decision 86) — dock COMMS/FILES/AUDIO/RADIO into the
+shared App Shell, closing the per-app findings from the Core Apps Audit Pass — **CI-GREEN
+(`gradle test` + `assembleDebug` all passed) AND sideloaded/confirmed on the Fold 6: all four
+apps work fine.** Milestone closed.
+
+> **This session's branch stacks on the still-open App Shell Integration Phase 3 PR (#21,
+> `claude/dock-optics-nav-appshell-qvvbdz`)** — `:core`/`:app-shell`/`:optics`/`:nav` only existed
+> there, not yet on `main`, so this work merged that branch in first rather than waiting. Flagging
+> this stacking explicitly rather than deciding unilaterally: the eventual merged history will
+> contain both Optics/Nav's docking and this fix-pass's four-app docking together, unless the
+> Director wants #21 merged to `main` on its own first.
+
+> **Toolchain note:** this pass pins to AGP 8.7.2 / Kotlin 2.2.21 / Compose BOM 2024.10.01 /
+> minSdk 33 — the fix-pass brief's text said Kotlin 2.0.21, but the monorepo already moved to
+> 2.2.21 (QUARK Phase 1, for a real litertlm-android SDK requirement) before this session started.
+> One Gradle build shares one Kotlin version across all modules, so the docked apps had no choice
+> but to match the monorepo's real live pin — CLAUDE.md's own toolchain line is now stale text,
+> not a wrong decision made here.
+
+> **Three CI round-trips to green** (same discipline as Phase 3's own three): (1) `audio/AudioEngine.kt`'s
+> doc comment literally contained the substring `*/` inside a sentence ("isPreparing*/true"),
+> prematurely closing the block comment and turning the rest of it into ~40 "Expecting a top level
+> declaration" errors — reworded the sentence; (2) two files imported
+> `androidx.compose.foundation.layout.weight` directly — same class of mistake as Phase 3's own
+> `align` import bug; `weight` is a `RowScope`/`ColumnScope` member, not a top-level function, and
+> resolves via the implicit receiver with no import at all — removed both imports. Also, none of
+> `:comms`/`:files`/`:radio` declared `material-icons-core`/`material-icons-extended`, so several
+> `Icons.Filled.*` names outside the small core set failed to resolve — added both deps to match
+> `:audio`'s (correct from the start) `build.gradle.kts`; (3) a single missing `height` import in
+> `RadioScreen.kt` (`heightIn` was imported, `height` was not).
+
+> **What changed** — COMMS/FILES/AUDIO/RADIO join CAM/MAPS as docked library modules
+> (`:comms`/`:files`/`:audio`/`:radio`, `com.quantumos.{comms,files,audio,radio}`), same shape as
+> `:optics`/`:nav`: `implementation(project(":core"))` + `implementation(project(":app-shell"))`,
+> a thin local `AppShell.kt` wrapper delegating the CRT container/nameplate to `:app-shell`, no
+> `BackHandler` (the Shell owns back; `onReturnHome = { finish() }` + an explicit "◄ HOME" line),
+> ported read-only from their standalone `kms-ux/quantum{comms,files,audio,radioreceiver}` repos
+> (never pushed to — untouched rollback references, same discipline as Optics/Nav's standalone
+> repos; those four repos did get hygiene-only commits: a `CLAUDE.md`, a re-pinned toolchain, a
+> Gradle wrapper — no app-code/UI/behavior changes). `InstrumentConsole`'s four remaining `null`
+> `dockedModule`s got `DockedModule.{COMMS,FILES,AUDIO,RADIO}`; only `SIGNAL` stays STANDBY now.
+> Per-app fixes beyond the generic docking:
+> - **AUDIO** — the fake idle-drift oscilloscope loop (a confirmed instance of the audit's
+>   predicted top risk: `while (!isRecording) { sin()-drift; delay(80) }` ran forever when not
+>   recording) is deleted outright; the waveform is now recording-data-driven only and freezes the
+>   instant recording stops. All 7 `QuarkMascot` animations (idle bob, happy hop/tilt, warn shake,
+>   scan-line, expanding ring) now only exist while their reactive posture is actually active,
+>   instead of always running with only the rendered output branched. The Player screen's
+>   vinyl-spin transition likewise only exists while `isPlaying`.
+> - **RADIO** — the cryptographic signal-decoder feature (`InterceptControlPanel`,
+>   `CryptographicDecoderConsole`, `startSignalDecoding()`, `GeminiClient.kt`) is removed entirely,
+>   per the Director ruling that it belongs to SIGNAL (measurement/analysis), not RADIO (content
+>   receiving) — nothing is lost, the standalone repo preserves it losslessly, and
+>   `docs/future-signal/radio-decoder.md` records exactly where (file paths + line numbers) for
+>   whoever builds SIGNAL. The `SignalStaticCanvas` idle grain loop (`while(true) { delay(100) }`,
+>   ran forever whenever tuned off-preset) is now a bounded 8-tick settle burst triggered only by
+>   real `reception` changes. The needle/atom-mark motion swapped its bouncy `spring` for a
+>   non-bouncy settle, matching the stepped motion language. Dim-hue values (previously hardcoded
+>   wrong: `#006600` vs. spec `#00AA00`, etc.) are now correct automatically via `Phosphor.dim()`.
+> - **FILES** — taxonomy intentionally left exactly as-is per the Director ruling: the four seeded
+>   folders (FIELD-LOGS/CAPTURES/COMMS-CACHE/MAPS), the generic/unrestricted browser, no
+>   enforcement added. Stating this explicitly here so it isn't mistaken for an oversight.
+> - **COMMS** — the deepest change. The live-pulse dot is rebuilt as a real one-shot,
+>   event-triggered decay animation bound to new-transmission events (previously a static circle
+>   with a comment falsely claiming it pulsed). The Discord-style channel list and WhatsApp-style
+>   bubble thread are replaced with a single-column transmission-log visual language (callsign
+>   header + timestamp + body, no bubbles, no sender-side-alignment split) — grounded in the House
+>   Style Skill, since the linked design-system page 403'd from this sandbox both times it was
+>   tried; worth a Director sanity-check against the actual page. The infinite
+>   `startUptimeCounter()`/`startTelemetrySimulator()` random-drift loops are removed. The
+>   cipher-decryption terminal (the audit's one positive, on-identity finding) is preserved as-is.
+> - **COMMS + FILES Gemini backends stripped.** Both apps called a live Gemini API directly
+>   (cloud key, `INTERNET` permission) for an in-app AI chat persona (COMMS) and a "DECRYPT AI"
+>   feature (FILES, which also had a second Gemini-backed "talk to QUARK" chat feature not
+>   originally called out in the fix-pass brief — stripped too, for the same reason: the module
+>   carries no network dependency at all). Rewiring either to QUARK's real on-device brain
+>   (`QuarkOnDeviceBrain`, `:app`'s own `com.quantumos.shell.ai` package) wasn't realistic this
+>   pass: it needs a manually side-loaded ~2.6GB model, lives in `:app` itself (a docked module
+>   can't reach it without circular-dependency surgery), and its own docstring marks it
+>   "DEBUG-GATED ONLY — never in the production scripted-brain path." Both screens now call a new
+>   shared `:core` placeholder — `AiAssistBridge`/`AiAssistResult`/`NotYetWiredAiAssistBridge` — a
+>   clearly-styled "AI BRIDGE NOT YET WIRED" state, not a crash or a silent no-op. **To-do, not
+>   attempted here:** wire a real implementation once `QuarkOnDeviceBrain` is promoted out of
+>   debug-gating and extracted into a module the docked apps can depend on.
+> - **Icon policy stays a known, flagged gap.** No shared line-icon library exists yet (Optics/Nav
+>   draw geometry directly in Canvas, no SVG asset set) — per the fix-pass brief's own fallback,
+>   stock Material icons stay in all four new modules rather than inventing four one-off icon sets.
+
+> **Director confirmed on the Fold 6: all four apps work fine.** Fix reports per app (what changed,
+> what's still open) are filed at `docs/fix-reports/{COMMS,FILES,AUDIO,RADIO}-FIX-REPORT.md`, with
+> copies in each standalone repo's own `docs/`. Cover summary at
+> `docs/audit/CORE-APPS-FIX-PASS-COVER-SUMMARY.md`.
+
+**Previous milestone:** App Shell Integration, Phase 3 — dock Optics & Nav into the shared App Shell
 — **CI-GREEN (run #98: `gradle test` + `assembleDebug` + `assembleRelease` all passed; single
 `app-debug.apk`/`app-release.apk` artifacts, each now containing both docked modules). On-device
 confirmation is the Director's next action — Optics first, then Nav, per the brief's ordering.**
