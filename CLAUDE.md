@@ -69,5 +69,5 @@ tests pass).
 gradle test            # logic tests, no emulator
 gradle assembleDebug   # -> app/build/outputs/apk/debug/app-debug.apk
 ```
-Toolchain is pinned for reliability (AGP 8.7.2 / Gradle 8.9 / Kotlin 2.0.21 / Compose BOM 2024.10.01).
+Toolchain is pinned for reliability (AGP 8.7.2 / Gradle 8.9 / Kotlin 2.2.21 / Compose BOM 2024.10.01).
 If you upgrade it, do so deliberately and note it in `BUILD_LOG.md`.
