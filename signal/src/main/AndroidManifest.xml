@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- SIGNAL: link diagnostics -- cellular/wifi/GPS/Bluetooth gauges, read-only measurement of the
+    <!-- SIGNAL: link diagnostics (cellular/wifi/GPS/Bluetooth gauges), read-only measurement of the
          device's own connectivity. Docked into the launcher's single APK; no own applicationId or
          launcher intent-filter; reached only via an internal Intent from the HOME instrument
-         console's SIGNAL tile. No INTERNET permission -- a field-diagnostics tool that phones home
+         console's SIGNAL tile. No INTERNET permission: a field-diagnostics tool that phones home
          defeats its own premise (Task Brief §2). The four dangerous permissions below gate one
          gauge each; RUN SCAN and the Wi-Fi gauge need none of them. -->
 

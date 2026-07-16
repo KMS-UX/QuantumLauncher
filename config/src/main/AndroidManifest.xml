@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- CONFIG: the single settings home -- Phosphor / Boot Pace / Deployment Region, backed by the
+    <!-- CONFIG: the single settings home (Phosphor / Boot Pace / Deployment Region), backed by the
          shared :app-shell SettingsStore. Docked into the launcher's single APK; no own applicationId
          or launcher intent-filter; reached only via an internal Intent from the HOME instrument
-         console's CONFIG tile. No permissions -- reads/writes local SharedPreferences only. -->
+         console's CONFIG tile. No permissions: reads/writes local SharedPreferences only. -->
 
     <application>
         <activity
