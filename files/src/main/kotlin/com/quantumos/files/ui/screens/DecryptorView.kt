@@ -29,9 +29,10 @@ import com.quantumos.files.viewmodel.FileExplorerViewModel
  * Gemini "high thinking" call is entirely gone: this now reads FileExplorerViewModel's
  * AiAssistBridge-backed state instead.
  *  - aiLoading      -> the house-style PLEASE STANDBY card (never a CircularProgressIndicator).
- *  - aiUnavailableReason -> a clearly-styled offline/standby message (AiAssistResult.Unavailable).
- *  - aiResultText   -> a genuine AiAssistResult.Answer, if a real backend is ever wired in.
- * Wiring a real implementation later is a one-line change at the ViewModel's bridge call site.
+ *  - aiUnavailableReason -> a clearly-styled offline/standby message (AiAssistResult.Unavailable) --
+ *    now also what renders if QUARK's brain isn't acquired/loaded yet (QUARK Brain Promotion).
+ *  - aiResultText   -> a genuine AiAssistResult.Answer -- QUARK's real on-device brain, wired via
+ *    QuarkBrainProvider.bridge() (Decision 88), not a fabricated reply.
  */
 @Composable
 fun DecryptorView(

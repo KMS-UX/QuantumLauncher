@@ -14,8 +14,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.quantumos.core.AiAssistBridge
 import com.quantumos.core.AiAssistResult
-import com.quantumos.core.NotYetWiredAiAssistBridge
 import com.quantumos.core.PhosphorHue
+import com.quantumos.quarkbrain.QuarkBrainProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,7 +39,11 @@ import kotlin.random.Random
  * reachable from a docked library module without new secrets plumbing this launcher never had, and
  * this module's build.gradle.kts carries no INTERNET permission / network dependency at all (fix-
  * pass §6). Both call sites are rewired onto the shared com.quantumos.core.AiAssistBridge contract
- * instead -- a single one-line swap once a real backend exists.
+ * instead. QUARK Brain Promotion (Decision 88): the default arg below now resolves
+ * QuarkBrainProvider.bridge(application) -- the real, shared on-device brain -- instead of the
+ * NotYetWiredAiAssistBridge placeholder, exactly the one-line swap this class doc used to describe
+ * as a to-do. This module still carries no network dependency of its own; the brain's own weights
+ * acquisition (if any) happens through the launcher's Assistant View, not from here.
  *
  * AndroidViewModel because file-explorer state needs an Application Context for filesDir access,
  * same as the standalone app (platform rule: state lives in a ViewModel, not composition).
@@ -70,7 +74,7 @@ data class ChatMessage(
 
 class FileExplorerViewModel @JvmOverloads constructor(
     application: Application,
-    private val aiAssistBridge: AiAssistBridge = NotYetWiredAiAssistBridge
+    private val aiAssistBridge: AiAssistBridge = QuarkBrainProvider.bridge(application)
 ) : AndroidViewModel(application) {
 
     // --- System UI / theme state (local to this module -- see class doc) ---
@@ -438,7 +442,7 @@ class FileExplorerViewModel @JvmOverloads constructor(
                     logTerminal("  create <file> <txt> - Create text document")
                     logTerminal("  edit <file> <txt>   - Overwrite document data")
                     logTerminal("  rm <file>           - Erase document or folder")
-                    logTerminal("  decrypt <file>      - Request AI analysis (bridge not yet wired)")
+                    logTerminal("  decrypt <file>      - Request QUARK AI analysis")
                     logTerminal("  quark <question>    - Prompt QUARK co-pilot dialogue")
                     logTerminal("  phosphor <color>    - Switch theme (green, amber, cyan)")
                     logTerminal("  stealth             - Toggle low emissions stealth")

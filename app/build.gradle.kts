@@ -67,6 +67,7 @@ dependencies {
     implementation(project(":radio"))
     implementation(project(":signal"))
     implementation(project(":config"))
+    implementation(project(":quark-brain"))
 
     // Compose BOM keeps all Compose library versions aligned with one number.
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
@@ -81,10 +82,9 @@ dependencies {
     // Chakra Petch via Downloadable Fonts (Monofonto substitute, M0 typography).
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
-    // QUARK on-device brain — Phase 1, debug-gated. Google AI Edge LiteRT-LM (Engine / Conversation
-    // API), the Kotlin/Android binding for on-device Gemma 4 E2B-IT inference with .litertlm files.
-    // Never in the production scripted-brain path; lives entirely behind the triple-tap debug toggle.
-    implementation("com.google.ai.edge.litertlm:litertlm-android:latest.release")
+    // QUARK on-device brain — QuarkOnDeviceBrain/QuarkAiAssistBridge now live in :quark-brain (QUARK
+    // Brain Promotion, decision 88), so the litertlm dependency moved there with it; :app no longer
+    // touches the Engine/Conversation types directly.
 
     // QUARK Phase 2b — custom voice. The on-device engine is sherpa-onnx (Kokoro + built-in
     // espeak-ng phonemization), which is native-only: its Kotlin API is source-vendored

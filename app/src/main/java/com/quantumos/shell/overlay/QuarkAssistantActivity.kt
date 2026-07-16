@@ -65,8 +65,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.quantumos.core.QuarkReflexPosture
 import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
-import com.quantumos.shell.ai.BrainReadyState
-import com.quantumos.shell.ai.QuarkModelConfig
+import com.quantumos.quarkbrain.BrainReadyState
+import com.quantumos.quarkbrain.QuarkModelConfig
 import com.quantumos.appshell.Fonts
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
@@ -76,11 +76,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /*
- * QuantumOS — M5 QUARK Assistant View. Replaces the M4 placeholder stub the floating trigger taps
- * through to. Full-screen phosphor surface: a large central reactive presence (the four locked
- * states), a one-line state caption, a scrolling conversation log, the six-action command rail, and
- * free-text entry. Every line QUARK speaks comes from the banked ScriptedLineLibrary via the shared
- * QuarkParser — never invented here.
+ * QuantumOS — QUARK Assistant View. Full-screen phosphor surface: a large central reactive presence
+ * (the four locked states), a one-line state caption, a scrolling conversation log, the six-action
+ * command rail, and free-text entry.
+ *
+ * QUARK Brain Promotion (decision 88): free-text conversation now routes to the real on-device brain
+ * (QuarkOnDeviceBrain, :quark-brain) by default — production path, no debug flag required. The
+ * six-action command rail stays on the Scripted-Line Library (deterministic device actions, out of
+ * this brief's scope). The old Phase 1 debug toggle survives as a hidden kill switch
+ * (QuantumRuntime.killSwitchActive, still triple-tap the title to reach) that forces free-text back
+ * onto the scripted brain — the zero-risk rollback path (brief §4). Every scripted line still comes
+ * from the banked ScriptedLineLibrary via the shared QuarkParser — never invented here.
  *
  * Shared state (M5): this Activity reads and mutates the SAME QuantumStateEngine as the launcher
  * (QuantumRuntime), so phosphor hue + Stealth carry over and the four reused rail actions behave
@@ -141,13 +147,17 @@ class QuarkAssistantActivity : ComponentActivity() {
                 parser.speakOpened()
             }
 
-            // ── PHASE 1 debug toggle ──────────────────────────────────────────────────
-            // Triple-tap the "QUARK" title to activate / deactivate the on-device brain.
-            // Same spirit as the Kiosk Drill's hidden debug actions — test scaffolding,
-            // invisible to the Operator in normal use. rememberSaveable so it survives
-            // orientation changes; does NOT survive process death (intentional).
-            var debugMode by rememberSaveable { mutableStateOf(false) }
+            // ── Diagnostics reveal + kill switch (brief §4) ───────────────────────────
+            // Triple-tap the "QUARK" title to reveal the hidden diagnostics panel (brain/voice status,
+            // the kill switch, voice-identity + model-import controls) — same gesture as the old Phase
+            // 1 debug toggle, but it no longer GATES reaching the real brain: the brain is the default
+            // production path now. What the panel exposes is `killSwitchActive`, the rollback flag
+            // that forces free-text back onto the Scripted-Line Library. rememberSaveable so the panel
+            // survives orientation changes; does NOT survive process death (intentional, matches every
+            // prior debug-scaffolding toggle in this repo).
+            var diagnosticsOpen by rememberSaveable { mutableStateOf(false) }
             var titleTaps by remember { mutableIntStateOf(0) }
+            val killSwitchActive by QuantumRuntime.killSwitchActive.collectAsState()
 
             // Auto-reset tap counter if the sequence stalls (2 s window).
             LaunchedEffect(titleTaps) {
@@ -158,8 +168,9 @@ class QuarkAssistantActivity : ComponentActivity() {
             }
 
             // Brain state — always subscribed (collectAsState can't be called conditionally).
-            // onDeviceBrain() is a cheap lazy singleton getter; the model itself isn't loaded
-            // until the user explicitly taps ACQUIRE or the auto-load fires below.
+            // onDeviceBrain() resolves the ONE shared QuarkBrainProvider instance; the model itself
+            // isn't loaded until it's present on disk and the auto-load below fires, or the Operator
+            // taps ACQUIRE/PICK FILE/IMPORT FILE in the acquisition panel.
             val onDeviceBrain = QuantumRuntime.onDeviceBrain()
             val brainReadyState by onDeviceBrain.state.collectAsState()
             val brainLoaded = brainReadyState is BrainReadyState.Loaded
@@ -170,8 +181,10 @@ class QuarkAssistantActivity : ComponentActivity() {
                 ActivityResultContracts.OpenDocument()
             ) { uri: Uri? -> uri?.let { onDeviceBrain.importFromUri(it) } }
 
-            // Phase 2b: voice identity + QUARK-H2 model import (debug only). The custom voice runs on
-            // sherpa-onnx; picking the sherpa Kokoro model tarball extracts it and flips H2 live.
+            // Voice identity + QUARK-H2 model import — engineering controls, reachable via the same
+            // hidden diagnostics panel regardless of kill-switch state (voice and the brain are
+            // independent rollback concerns; see BUILD_LOG). The custom voice runs on sherpa-onnx;
+            // picking the sherpa Kokoro model tarball extracts it and flips H2 live.
             val voiceId by QuantumRuntime.voiceIdentity.collectAsState()
             val voiceModelStatus by QuantumRuntime.voiceModelStatus.collectAsState()
             val ctx = LocalContext.current
@@ -179,9 +192,10 @@ class QuarkAssistantActivity : ComponentActivity() {
                 ActivityResultContracts.OpenDocument()
             ) { uri: Uri? -> uri?.let { QuantumRuntime.importVoiceModel(ctx, it) } }
 
-            // Auto-load when model is present on disk and debug mode just activated.
-            LaunchedEffect(debugMode) {
-                if (debugMode && onDeviceBrain.isPresent && !onDeviceBrain.isLoaded) {
+            // Auto-load once, on first reaching this view, whenever the weights are already on disk —
+            // this is the production default now, not gated behind opening the diagnostics panel.
+            LaunchedEffect(Unit) {
+                if (onDeviceBrain.isPresent && !onDeviceBrain.isLoaded) {
                     onDeviceBrain.loadModel()
                 }
             }
@@ -193,8 +207,8 @@ class QuarkAssistantActivity : ComponentActivity() {
             }
             // ─────────────────────────────────────────────────────────────────────────
 
-            // Phase 2a: voice sub-toggle state (separate from debugMode so text-only Phase 1
-            // behaviour stays testable side-by-side when voice is off).
+            // Voice defaults ON in production (QuantumRuntime); this sub-toggle stays reachable in
+            // the diagnostics panel as an engineering control.
             val voiceOn by QuantumRuntime.voiceEnabled.collectAsState()
 
             val close: () -> Unit = {
@@ -221,7 +235,7 @@ class QuarkAssistantActivity : ComponentActivity() {
                             .padding(WindowInsetsPadding())
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        // ----- header: stow · title (triple-tap = debug) · caption -----
+                        // ----- header: stow · title (triple-tap = diagnostics) · caption -----
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 "◄ STOW",
@@ -237,18 +251,28 @@ class QuarkAssistantActivity : ComponentActivity() {
                                     modifier = Modifier
                                         .clickable {
                                             titleTaps++
-                                            if (titleTaps >= 3) { debugMode = !debugMode; titleTaps = 0 }
+                                            if (titleTaps >= 3) { diagnosticsOpen = !diagnosticsOpen; titleTaps = 0 }
                                         }
                                         .padding(4.dp)
                                 )
-                                // Dim debug indicators — visible only if you know to look.
-                                if (debugMode) {
+                                // Dim diagnostics — visible only if you know to look.
+                                if (diagnosticsOpen) {
                                     Text(
-                                        "// BRAIN: ON-DEVICE",
+                                        "// BRAIN: ${if (brainLoaded) "ON-DEVICE" else "OFFLINE"}",
                                         color = dimColor, fontFamily = font, fontSize = 9.sp
                                     )
-                                    // Phase 2a voice sub-toggle: tap to enable/disable TTS.
-                                    // Initialises the engine lazily on first enable.
+                                    // The kill switch (brief §4) — the zero-risk rollback path. Forces
+                                    // free-text back onto the Scripted-Line Library even with a
+                                    // healthy, loaded brain.
+                                    Text(
+                                        "// FALLBACK: ${if (killSwitchActive) "SCRIPTED (KILL-SWITCH)" else "OFF"}",
+                                        color = if (killSwitchActive) Phosphor.Warn else dimColor,
+                                        fontFamily = font, fontSize = 9.sp,
+                                        modifier = Modifier
+                                            .clickable { QuantumRuntime.toggleKillSwitch() }
+                                            .padding(top = 2.dp)
+                                    )
+                                    // Voice sub-toggle: tap to enable/disable TTS.
                                     Text(
                                         "// VOICE: ${if (voiceOn) "ON" else "OFF"}",
                                         color = dimColor, fontFamily = font, fontSize = 9.sp,
@@ -256,8 +280,8 @@ class QuarkAssistantActivity : ComponentActivity() {
                                             .clickable { QuantumRuntime.toggleVoice() }
                                             .padding(top = 2.dp)
                                     )
-                                    // Phase 2b: pick the custom voice identity. PLACEHOLDER = Android
-                                    // TTS (2a); QUARK-H2 = her locked sherpa-onnx voice (needs model).
+                                    // Voice identity. PLACEHOLDER = Android TTS; QUARK-H2 = her
+                                    // locked sherpa-onnx voice (needs its model imported once).
                                     val isH2 = voiceId == QuantumRuntime.VoiceIdentity.QUARK_H2
                                     Text(
                                         "// VOICE-ID: ${if (isH2) "QUARK-H2" else "PLACEHOLDER"}",
@@ -304,15 +328,25 @@ class QuarkAssistantActivity : ComponentActivity() {
                         }
                         Spacer(Modifier.height(4.dp))
 
-                        // ----- body: acquisition panel (debug + not loaded) or normal content -----
-                        if (debugMode && !brainLoaded) {
+                        // ----- body: first-run acquisition panel, or normal content -----
+                        // Shows automatically (brief §3) whenever the brain isn't loaded yet AND the
+                        // Operator hasn't engaged the kill switch — a production first-run consent/
+                        // progress step, not something gated behind finding the diagnostics panel.
+                        if (!killSwitchActive && !brainLoaded) {
                             ModelAcquisitionPanel(
                                 readyState = brainReadyState,
                                 color = color, dimColor = dimColor, font = font,
                                 modifier = Modifier.weight(1f).fillMaxWidth(),
                                 onAcquire = { onDeviceBrain.downloadModel() },
                                 onImport = { onDeviceBrain.importFromExternal() },
-                                onPickFile = { pickFileLauncher.launch(arrayOf("*/*")) }
+                                onPickFile = { pickFileLauncher.launch(arrayOf("*/*")) },
+                                onContinueOffline = {
+                                    // Honest, in-character acknowledgement of the limited state — never
+                                    // a dead UI (brief §3). Reuses the kill switch's own scripted-only
+                                    // routing rather than a second fallback path.
+                                    if (!killSwitchActive) QuantumRuntime.toggleKillSwitch()
+                                    parser.speakOfflineFallback()
+                                }
                             )
                         } else {
                             // ----- conversation log -----
@@ -331,11 +365,12 @@ class QuarkAssistantActivity : ComponentActivity() {
                             Spacer(Modifier.height(8.dp))
 
                             // ----- free-text entry -----
-                            // In debug mode (model loaded): routes to on-device brain, holds SCAN state
-                            // during real inference — this is the Phase 1 headline: thinking takes
-                            // a real beat because there's a real model thinking.
+                            // Production default: routes to the real on-device brain, holding SCAN for
+                            // the full real inference latency — thinking takes a real beat because
+                            // there's a real model thinking. The kill switch (brief §4) is the only way
+                            // back to the deterministic scripted loop.
                             FreeTextEntry(color = color, dimColor = dimColor, font = font) { input ->
-                                if (debugMode && brainLoaded) {
+                                if (!killSwitchActive && brainLoaded) {
                                     scope.launch {
                                         QuantumRuntime.playCue(SoundCue.KEY_TICK)
                                         // Set SCAN immediately — the model holds it for the full inference.
@@ -555,11 +590,13 @@ private fun RailButton(
 }
 
 /*
- * ModelAcquisitionPanel — CRT-styled model download / import surface.
- * Shown in the Assistant View body when debug mode is active and the on-device model is not
- * yet in memory. Replaces the conversation log + rail + entry until the model is ready.
- * House style: terse status microcopy, phosphor-only palette, discrete progress bar, no Material
- * chrome (no stock buttons, no stock progress indicators).
+ * ModelAcquisitionPanel — CRT-styled, stepped/boot-log-style first-run consent + progress surface
+ * (QUARK Brain Promotion §3, Ignition Lab precedent). Shown in the Assistant View body whenever the
+ * on-device brain isn't loaded yet and the kill switch isn't engaged — a production first-run step,
+ * not debug scaffolding. Replaces the conversation log + rail + entry until the model is ready, or
+ * until the Operator explicitly chooses CONTINUE OFFLINE. House style: terse status microcopy,
+ * phosphor-only palette, discrete progress bar, no Material chrome (no stock buttons, no stock
+ * progress indicators, no generic spinner).
  */
 @Composable
 private fun ModelAcquisitionPanel(
@@ -570,19 +607,21 @@ private fun ModelAcquisitionPanel(
     modifier: Modifier = Modifier,
     onAcquire: () -> Unit,
     onImport: () -> Unit,
-    onPickFile: () -> Unit
+    onPickFile: () -> Unit,
+    onContinueOffline: () -> Unit
 ) {
     Column(
         modifier = modifier.padding(vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // --- model identity header ---
+        // --- consent-forward header ---
         Text(
-            "NEURAL WEIGHTS",
+            "ACQUIRING QUARK",
             color = color, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold
         )
         Text(
-            "GEMMA 4 · E2B-IT · ~2.6 GB · LITERTLM FORMAT",
+            "HER NEURAL WEIGHTS ARE NOT YET ON THIS DEVICE (GEMMA 4 · E2B-IT · ~2.6 GB · LITERTLM). " +
+            "NOTHING DOWNLOADS WITHOUT YOUR TAP BELOW.",
             color = dimColor, fontFamily = font, fontSize = 11.sp
         )
 
@@ -598,8 +637,8 @@ private fun ModelAcquisitionPanel(
                     is BrainReadyState.Idle -> {
                         Text("WEIGHTS NOT PRESENT", color = color, fontFamily = font, fontSize = 12.sp)
                         Text(
-                            "Tap PICK FILE and select:\n" +
-                            "gemma-4-E2B-it.litertlm\n" +
+                            "Tap ACQUIRE WEIGHTS to download, or PICK FILE to import what you already " +
+                            "have:\ngemma-4-E2B-it.litertlm\n" +
                             "Source: HuggingFace → google/gemma-4-E2B-it",
                             color = dimColor, fontFamily = font, fontSize = 11.sp
                         )
@@ -608,7 +647,7 @@ private fun ModelAcquisitionPanel(
                         val pct = (readyState.fraction * 100).toInt()
                         val mbRead = readyState.bytesRead / (1024 * 1024)
                         val mbTotal = readyState.total / (1024 * 1024)
-                        Text("ACQUIRING WEIGHTS…", color = color, fontFamily = font, fontSize = 12.sp)
+                        Text("ACQUIRING QUARK — $pct%", color = color, fontFamily = font, fontSize = 12.sp)
                         // Discrete phosphor progress bar — 20 segments, stepped not smooth.
                         val filled = (readyState.fraction * 20).toInt().coerceIn(0, 20)
                         Text(
@@ -636,7 +675,7 @@ private fun ModelAcquisitionPanel(
                             "Side-load alternative:\n" +
                             "adb push ${QuarkModelConfig.MODEL_FILENAME}\n" +
                             "  /sdcard/Android/data/com.quantumos.shell/files/\n" +
-                            "then tap IMPORT FILE below.",
+                            "then tap IMPORT FILE below, or CONTINUE OFFLINE for now.",
                             color = dimColor, fontFamily = font, fontSize = 11.sp
                         )
                     }
@@ -695,6 +734,23 @@ private fun ModelAcquisitionPanel(
                     fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
                 )
             }
+        }
+        // CONTINUE OFFLINE (LIMITED) — the honest fallback (brief §3): never a dead UI. Disabled
+        // mid-transfer same as the other actions; always available otherwise, including on error/
+        // no-network, so a declined or failed acquisition never strands the Operator.
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .border(BorderStroke(1.dp, if (acquiring) dimColor else dimColor))
+                .clickable(enabled = !acquiring) { onContinueOffline() }
+                .padding(vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "CONTINUE OFFLINE (LIMITED)",
+                color = dimColor,
+                fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold
+            )
         }
 
         Spacer(Modifier.height(4.dp))

@@ -293,6 +293,18 @@ class QuantumStateEngineTest {
         assertTrue(line.contains("Hong Kong"), "region ack must name the new region")
     }
 
+    // QUARK Brain Promotion §3: the offline/declined-acquisition fallback speaks a banked FALLBACK
+    // line (never invented inline) and never flags a crisis resource.
+    @Test
+    fun speakOfflineFallback_firesBankedFallbackLine_notCrisis() = runTest {
+        val engine = QuantumStateEngine(this, BootPace.SNAPPY)
+        val parser = QuarkParser(engine)
+        parser.speakOfflineFallback(); advanceUntilIdle()
+        assertEquals("FALLBACK", engine.masterState.value.quarkBrain.matchedIntent)
+        val entry = engine.conversationLog.value.single()
+        assertFalse(entry.showCrisisResource)
+    }
+
     // ---------- Launcher Restructure Phase 1 — HOME instrument console ----------
 
     // The console is fixed at exactly eight instruments, per the House Style module identities.

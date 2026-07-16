@@ -1,4 +1,4 @@
-package com.quantumos.shell.ai
+package com.quantumos.quarkbrain
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -23,25 +23,27 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /*
- * QUARK on-device brain — Phase 1, text loop only. (Decision 51/54 pulled forward per Director call.)
+ * QUARK on-device brain — Gemma 4 E2B-IT, LiteRT/MediaPipe format. Built in QUARK Phase 1 (Decision
+ * 51/54 pulled forward per Director call) as a debug-gated text loop, hardware-confirmed and voice-
+ * paired through Phase 2a/2b, then promoted to the production path (QUARK Brain Promotion Task
+ * Brief, Decision 88) — this is the real conversational brain now, not a hidden switch. Moved out of
+ * :app's com.quantumos.shell.ai into this standalone module (:quark-brain) so :comms/:files can
+ * depend on it too, exactly the "extracted into a module the docked apps can depend on" step the
+ * Core Apps Fix-Pass's AiAssistBridge placeholder comment flagged as the eventual fix.
  *
- * Model:   Gemma 3 1B instruct, LiteRT/MediaPipe format (~500 MB quantised .bin).
  * Runtime: Google AI Edge (MediaPipe LlmInference / LiteRT), Kotlin bindings.
- * Scope:   DEBUG-GATED ONLY — never in the production scripted-brain path.
- *          The Scripted-Line Library continues to be the production brain; this runs behind the
- *          triple-tap debug toggle in QuarkAssistantActivity.
  *
- * Model acquisition (first run):
+ * Model acquisition (first run, see QuarkAiAssistBridge / the Assistant View's acquisition panel):
  *   1. Automatic download from DOWNLOAD_URL if set — progress shown CRT-styled in the UI.
- *   2. Side-load: push the .bin to the app's external files dir, then tap IMPORT:
- *        adb push gemma-3-1b-it.bin /sdcard/Android/data/com.quantumos.shell/files/
- *      The import button copies it to internal storage and verifies the size.
- *   3. The model file survives app updates (internal storage, not the APK).
+ *   2. Side-load: push the .litertlm to the app's external files dir, then tap IMPORT:
+ *        adb push gemma-4-e2b-it.litertlm /sdcard/Android/data/com.quantumos.shell/files/
+ *   3. PICK FILE: the system document picker, no adb/computer required.
+ *   4. The model file survives app updates (internal storage, not the APK).
  *
  * To obtain the model file:
- *   - Accept Gemma Terms of Use on kaggle.com/models/google/gemma
- *   - Download the MediaPipe / LiteRT format variant (gemma-3-1b-it-q4.bin or equivalent)
- *   - Host it at a reachable URL, OR use the side-load path above.
+ *   - Accept Gemma's Terms of Use at kaggle.com/models/google/gemma (or HuggingFace's model card)
+ *   - Download the LiteRT-LM format variant: google/gemma-4-E2B-it -> gemma-4-E2B-it.litertlm
+ *   - Host it at a reachable URL, OR use PICK FILE / side-load above.
  */
 
 object QuarkModelConfig {
@@ -69,9 +71,9 @@ class QuarkOnDeviceBrain(
     private val context: Context,
     private val scope: CoroutineScope
 ) {
-    // Persona Pack Part B — loaded verbatim as the system prompt.
-    // Per Phase 1 brief §3: "No edits, no shortening to fit context — if it doesn't fit,
-    // that's a finding to report, not a thing to quietly trim."
+    // Persona Pack Part B — loaded verbatim as the system prompt (decision 73a). No edits, no
+    // shortening to fit context — if it doesn't fit, that is a finding to report, not a thing to
+    // quietly trim.
     val systemPrompt: String = """
 You are QUARK, the assistant intelligence of QuantumOS — a rugged, retro-futuristic
 field multi-tool. Your single purpose is to keep your Operator vital: alert, equipped,

@@ -11,12 +11,154 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** SIGNAL + CONFIG Task Brief v1.0 — the last two of the eight core instruments,
+**Current milestone:** QUARK Brain Promotion Task Brief v1.0 (`docs/QuantumOS-QUARK-Brain-Promotion-
+Task-Brief-v1_0.md`) — wiring, not invention: the already-hardware-confirmed on-device brain (Phase
+1) and voice pipeline (Phase 2a/2b) are promoted from behind the triple-tap debug toggle into the
+default production path, with the old toggle kept alive as a hidden kill switch. **CI compile could
+not be verified locally this session** — see "Build reality" below — so this is unusually important
+to catch on the next CI push and this entry is self-assessed, not CI-confirmed, at write time.
+
+> **Build reality this session:** the cloud container had no network path to Google's Maven /
+> the Android Gradle Plugin repository at all (`gradle :core:test` failed at plugin resolution,
+> root `build.gradle.kts` line 8, before reaching any module) — a harder version of the documented
+> "no Android SDK in this cloud session" limitation every prior session banked around. Unlike prior
+> sessions, not even the pure-JVM `:core` module's own tests could be run locally this time, because
+> Gradle must resolve the whole build's plugin classpath (declared once at the root) before running
+> any task, Android modules included. **Every change below is unverified by a build — CI on push is
+> the first real compiler run.** Treat this session's self-assessment with proportionally more
+> caution than usual until CI reports back.
+
+> **What changed — the extraction (deliverable #1, decision 88):** `QuarkOnDeviceBrain` (+
+> `BrainReadyState`/`QuarkModelConfig`) moved out of `:app`'s `com.quantumos.shell.ai` into a new
+> library module, **`:quark-brain`** (`com.quantumos.quarkbrain`), depending only on `:core` — the
+> exact "extracted into a module the docked apps can depend on" step the Core Apps Fix-Pass's own
+> `AiAssistBridge` placeholder comment named as the eventual fix, now done because `:app` depends on
+> `:files`/`:comms` (to launch their Activities by class reference) and the reverse is impossible.
+> New in `:quark-brain`: `QuarkAiAssistBridge` (the real, interface-unchanged `AiAssistBridge` impl —
+> loads the model if present-but-unloaded, never triggers a download on a bare `ask()` — acquiring
+> 2.6 GB is an explicit consenting action that belongs to the Assistant View only) and
+> `QuarkBrainProvider` (the one process-wide singleton owning both the brain and the bridge, so
+> `:app`'s `QuantumRuntime` and `:files`' `FileExplorerViewModel` read/drive the *same* brain
+> instance, not private copies — same "fix once in the shared module" pattern as every prior docking
+> session). `FileExplorerViewModel`'s `aiAssistBridge` default arg now resolves
+> `QuarkBrainProvider.bridge(application)` instead of `NotYetWiredAiAssistBridge` — FILES' "DECRYPT
+> AI" and QUARK co-pilot chat light up for free, no per-screen change beyond the one default-arg swap
+> the fix-pass's own comment promised. COMMS was checked (Explore-grep) and never actually called
+> `AiAssistBridge` in code despite its fix-report's wording — nothing to wire there.
+
+> **What changed — production routing (deliverables #2/#3/#6, `QuarkAssistantActivity`/
+> `QuantumRuntime`):** the triple-tap-title gesture is retained but its meaning inverted — it now
+> reveals a hidden **diagnostics panel** (brain/voice status, voice-identity + model-import controls)
+> rather than gating whether the real brain is reachable at all. Free-text entry routes to the
+> on-device brain by default (Scan holds for the real `reply()` call, same as Phase 1's own proven
+> beat — deliverable #6 was already correct, just gated). A new `QuantumRuntime.killSwitchActive`
+> flag (toggled from inside the diagnostics panel, `// FALLBACK: SCRIPTED (KILL-SWITCH)`, rendered in
+> `--warn` when engaged) is the brief §4 rollback path: forces free-text back onto
+> `QuarkParser.parseInput` (the Scripted-Line Library) even with a healthy, loaded brain. Not
+> persisted across process death — deliberate, matching every other debug-scaffolding flag in this
+> repo, so a fresh process always tries the real brain again unless re-engaged. The six-action command
+> rail is untouched (deterministic device actions, explicitly out of this brief's scope).
+
+> **What changed — voice (deliverable #4):** `QuantumRuntime.voiceEnabled` now defaults `true` (was
+> `false`, manual-toggle-only) and is built + warmed eagerly in `boot()` rather than waiting for a
+> tap; `voiceIdentity` now defaults `QUARK_H2` (was `PLACEHOLDER`) — her Phase-2b-locked voice is the
+> production preference. Both changes are inert if the Fold 6's H2 model was never (re-)imported this
+> session (which it wasn't — no device here): `buildVoiceEngine()`'s existing fallback logic already
+> auto-degrades to the Android-TTS `PLACEHOLDER` engine whenever `SherpaKokoroVoiceEngine.isSupported()`
+> is false, so voice still fires on every real reply either way, just possibly in the placeholder
+> timbre until the Director re-imports the H2 tarball on this specific installed build (voice-model
+> state is on-device storage, not something a debug toggle or this code change can carry over).
+> Stealth mute (decision 38) and the kill switch are unchanged/independent — engaging the kill switch
+> does not also mute voice; the scripted rollback lines deserve to be heard too.
+
+> **What changed — first-run acquisition UX (deliverable #5, §3):** `ModelAcquisitionPanel` now shows
+> automatically whenever the brain isn't loaded and the kill switch isn't engaged (was: debug-mode-
+> gated only), with consent-forward copy ("ACQUIRING QUARK", "NOTHING DOWNLOADS WITHOUT YOUR TAP") and
+> a new **CONTINUE OFFLINE (LIMITED)** action. Choosing it (or hitting NO NETWORK/an acquisition
+> error) engages the kill switch and calls a new `QuarkParser.speakOfflineFallback()` — an honest,
+> in-character line pulled from the **already-banked** `FALLBACK` intent variants ("I'm running on
+> script today…"), not invented inline (anti-pattern the SESSION-PLAYBOOK calls out by name). New
+> core unit test `speakOfflineFallback_firesBankedFallbackLine_notCrisis` covers it. "Fires once, on
+> first invocation" (brief's literal wording) is honored per-process, not per-install: once the model
+> loads, it stays loaded and the panel doesn't reappear for the rest of that process's lifetime,
+> exactly like Phase 1's original auto-load behavior — reloading after a genuine process death is
+> normal Android app lifecycle, not something to hide or work around, and is flagged as a judgment
+> call below rather than silently assumed acceptable.
+
+> **What did NOT change:** the `:core` `AiAssistBridge`/`AiAssistResult`/`NotYetWiredAiAssistBridge`
+> interface shape (decision 88's own requirement) — only doc comments updated to point at the real
+> implementation. The Scripted-Line Library content itself — untouched; it's now reachable as a
+> fallback via the kill switch and the offline-continue path, exactly decision 58's own stated intent
+> ("scripted lines retire when her LLM brain arrives"), but no lines were added/edited. SIGNAL/CONFIG —
+> untouched, per brief §0. Phase 3 command execution — untouched, per brief §0 (the six-action rail
+> stays scripted/deterministic).
+
+> **Acceptance criteria (brief §5), self-assessed — CANNOT be confirmed without CI + the Fold 6:**
+> 1. ⏳ Structurally true (brain is the default free-text path from HOME's floating trigger and from
+>    inside any docked app, since the trigger is the same system-wide overlay service everywhere) —
+>    but "produces real LLM replies" needs an actual device + actual model weights to prove.
+> 2. ⏳ Not re-run — no device, no loaded model in this session. The persona system prompt itself is
+>    byte-for-byte unchanged from the already-jailbreak-tested Phase 1 version (moved, not edited).
+> 3. ⏳ Voice-on-real-replies wiring is in place (see above) and Stealth-mute logic is untouched from
+>    its already-confirmed Phase 2b state — needs a live TTS_START/PLAYBACK log line to actually prove.
+> 4. ⏳ Code-reviewed against the exact §3 wording (consent-forward copy, fires-once-per-process,
+>    honest offline fallback via the banked FALLBACK line) — needs on-device eyes to confirm it reads
+>    right, not just that the logic is present.
+> 5. ✅ by construction — no new `while(true)`/timer poll anywhere in this session's diff; the voice
+>    engine's eager boot-time build is a one-shot call, not a loop, and the auto-load `LaunchedEffect`s
+>    are keyed (`Unit`/`brainReadyState`), not unconditional recomposition-time work.
+> 6. ⏳ CI status genuinely unknown until the next push — see "Build reality" above. Kill switch path
+>    (deliverable #3) is code-reviewed present and load-bearing (`!killSwitchActive` gates both the
+>    acquisition-panel bypass and the free-text routing) but not yet exercised.
+> 7. ⏳ Not re-measurable without the Fold 6; nothing in this session's changes should affect inference
+>    latency itself (same `Engine`/`Conversation` call, same `Backend.CPU()`), only when it's reached.
+
+> **Director actions required (Fold 6) — this entire milestone is unconfirmed until these run:**
+> 1. **Push this branch and watch CI first** — unlike every prior session, this one could not
+>    self-check `gradle test`/`assembleDebug` at all locally (see "Build reality"). Do not sideload
+>    before CI is green.
+> 2. Fresh install (or clear app data) so the first-run path is genuinely first-run. Tap the floating
+>    QUARK trigger from HOME with **no debug flag set** — confirm the ACQUIRING QUARK panel appears
+>    automatically (not hidden behind triple-tap) if weights aren't already on this install.
+> 3. Acquire weights (PICK FILE/IMPORT FILE — same mechanism as Phase 1) and confirm the panel clears
+>    itself and the conversation view appears once loaded, with no further gating.
+> 4. From HOME and from at least two docked apps (e.g. FILES, AUDIO), tap the floating trigger and
+>    send a real message — confirm a real (non-scripted) reply, and re-run the decision 73a jailbreak
+>    check end-to-end through this path.
+> 5. Confirm voice speaks the reply by default (no toggle needed) and that Stealth still mutes it;
+>    check the LOG channel's `VOICE: TTS_START/PLAYBACK` line.
+> 6. Triple-tap the QUARK title → confirm the diagnostics panel appears (brain/voice status, the new
+>    `// FALLBACK` row) and toggling it routes free text back to scripted replies immediately — this
+>    IS the brief's required rollback rehearsal (decision 61a discipline), do not skip it.
+> 7. In FILES, try `decrypt <file>` and `quark <question>` from the terminal — confirm both now return
+>    a real answer (or a clear, non-crashing Unavailable reason if the brain isn't loaded in that
+>    process yet) instead of the old static "AI BRIDGE NOT YET WIRED" text.
+> 8. Report the Phase-1-style data points again from inside the shared app shell (latency, thermal,
+>    persona jailbreak result) since decision 73's original numbers predate docking into it (brief §5.7).
+
+> **Judgment calls flagged for the Director:**
+> - **Module extraction (`:quark-brain`) vs. a lighter-weight fix.** The brief's literal wording says
+>   "in `:core`" for the real bridge; `:core` is pure-JVM/no-Android-deps by hard rule (CLAUDE.md), so
+>   a Context+litertlm-backed implementation cannot literally live there. Extracting into a new
+>   sibling module was the documented next step (Core Apps Fix-Pass's own comment), so that's what
+>   this session did — flag if the Director wanted a narrower change instead (e.g. leaving FILES/COMMS
+>   on the placeholder a while longer and only fixing the Assistant View's own gating).
+> - **"Fires once" interpreted as per-process, not per-install** (see above) — re-loading after a
+>   process death (not a repeated first-run) is normal Android lifecycle, not re-triggering consent.
+> - **Kill switch does not mute voice.** Read as a deliberate choice (the rollback path should still be
+>   heard), not an oversight — flag if the Director wants the kill switch to silence voice too.
+> - **QUARK-H2 voice-model acquisition is still manual** (diagnostics-panel import), not folded into
+>   the new first-run flow — the brief's §3 flow is specifically about the LLM weights; giving voice
+>   its own first-run Lab pass was judged out of scope for this brief rather than assumed in.
+> - **COMMS never actually called `AiAssistBridge`** despite its fix-report's wording (checked by
+>   grep, not assumed) — nothing needed wiring there; noting so this doesn't read as a missed module.
+
+---
+
+**Previous milestone:** SIGNAL + CONFIG Task Brief v1.0 — the last two of the eight core instruments,
 built natively in this monorepo from the first commit (no AI-Studio generation session, no audit
 pass needed per the brief's §0) — **CI-GREEN** (`gradle test` + `assembleDebug` + `assembleRelease`
-all passed on push). Fold 6 hardware confirmation is the Director's next action (see checklist
-below); this session had no Android SDK / device, so CI was the real compiler, same as every prior
-session in this repo.
+all passed on push). Fold 6 hardware confirmation was the Director's next action.
 
 > **Two CI round-trips to green** (same discipline as every prior module-docking session in this
 > repo): (1) both new manifests (`:signal`, `:config`) had a literal `--` inside their header
