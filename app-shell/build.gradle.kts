@@ -1,0 +1,38 @@
+plugins {
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// Shared App Shell chrome (Phosphor tokens, bundled fonts, CRT container/shader, nameplate header,
+// channel strip, PLEASE STANDBY beat) — every docked module (:optics, :nav, the launcher itself)
+// depends on this so there is one source of the house-style chrome, not N reimplementations.
+android {
+    namespace = "com.quantumos.appshell"
+    compileSdk = 35
+
+    defaultConfig {
+        minSdk = 33
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    implementation(project(":core"))
+
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+}

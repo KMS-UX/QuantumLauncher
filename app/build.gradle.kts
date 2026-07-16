@@ -55,6 +55,19 @@ android {
 }
 
 dependencies {
+    // App Shell Integration (Phase 3): logic and shared chrome now live in their own modules —
+    // the launcher depends on both instead of owning them, same as :optics and :nav do.
+    implementation(project(":core"))
+    implementation(project(":app-shell"))
+    implementation(project(":optics"))
+    implementation(project(":nav"))
+    implementation(project(":comms"))
+    implementation(project(":files"))
+    implementation(project(":audio"))
+    implementation(project(":radio"))
+    implementation(project(":signal"))
+    implementation(project(":config"))
+
     // Compose BOM keeps all Compose library versions aligned with one number.
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.activity:activity-compose:1.9.3")

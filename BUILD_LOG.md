@@ -11,7 +11,359 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** QUARK Phase 2b — custom voice — **DONE, confirmed on the Fold 6 (2026-07-04).**
+**Current milestone:** SIGNAL + CONFIG Task Brief v1.0 — the last two of the eight core instruments,
+built natively in this monorepo from the first commit (no AI-Studio generation session, no audit
+pass needed per the brief's §0) — **CI-GREEN** (`gradle test` + `assembleDebug` + `assembleRelease`
+all passed on push). Fold 6 hardware confirmation is the Director's next action (see checklist
+below); this session had no Android SDK / device, so CI was the real compiler, same as every prior
+session in this repo.
+
+> **Two CI round-trips to green** (same discipline as every prior module-docking session in this
+> repo): (1) both new manifests (`:signal`, `:config`) had a literal `--` inside their header
+> comments — the exact same XML-comment bug the App Shell Integration Phase 3 session hit, fixed by
+> rewording; (2) `SignalScreen.kt` called `launchMultiplePermissionsRequest()` (plural
+> "Permissions") when Accompanist's real `MultiplePermissionsState` API is
+> `launchMultiplePermissionRequest()` (singular) — caught by downloading and reading the actual
+> 0.36.0 sources jar rather than guessing twice.
+
+> **Step 0 — CLAUDE.md toolchain reconciliation (isolated commit, before any module code):**
+> `CLAUDE.md`'s own line said Kotlin 2.0.21; the monorepo has actually run **2.2.21** since QUARK
+> Phase 1 (a real `litertlm-android` SDK requirement), and the Core Apps Fix-Pass's own BUILD_LOG
+> entry already confirmed this same drift. Fixed as a small, isolated doc commit per the brief's
+> instruction. **Checked whether anything else silently drifted alongside it:** no — AGP 8.7.2 /
+> Gradle 8.9 / Compose BOM 2024.10.01 / minSdk 33 all still match between `CLAUDE.md` and the root
+> `build.gradle.kts` on this branch (the Fix-Pass's own toolchain note confirms the same four values).
+> Kotlin was the only stale line.
+
+> **SIGNAL — link diagnostics (`:signal`, `com.quantumos.signal`):** four `SegmentedGauge` rows
+> (shared from `:app-shell`, not reimplemented) for cellular / Wi-Fi / GPS / Bluetooth, each backed by
+> a real, event-driven Android platform listener (`SignalSensors`) — `TelephonyCallback.
+> SignalStrengthsListener`, a Wi-Fi `RSSI_CHANGED`/`WIFI_STATE_CHANGED` receiver, `GnssStatus.
+> Callback`, and a Bluetooth adapter-state/ACL receiver. No polling loop anywhere: each gauge only
+> updates on its own genuine change event, registered/unregistered by the screen's own
+> `DisposableEffect` lifecycle so nothing runs while SIGNAL is closed. A rolling **signal sparkline**
+> (Canvas polyline, 40-point trace of the composite bar level) appends a point only on those same
+> real events or on a scan. **RUN SCAN** is one explicit, user-triggered, bounded stepped beat (900ms)
+> that forces a fresh trace point — never a continuous background scan. The pure bar-level mapping
+> (`SignalLevels`) lives in `:core`, unit-tested with zero emulator.
+> - **Permissions added** (SIGNAL only): `READ_PHONE_STATE` (cellular), `ACCESS_FINE_LOCATION`
+>   (GPS/GNSS), `BLUETOOTH_CONNECT` (Bluetooth state/bonded-device query). Wi-Fi needs none. Gated via
+>   Accompanist Permissions (same library/version `:audio`'s mic-permission flow already uses) — each
+>   gauge shows its own "ACCESS REQUIRED — TAP TO GRANT" row until granted, plus one combined "GRANT
+>   DIAGNOSTIC ACCESS" action; nothing crashes or fakes a reading if denied.
+> - **Decoder seed feature:** `com.quantumos.core.FieldDecoder` (pure, unit-tested) ports the
+>   *interaction shape* of RADIO's removed cryptographic decoder (`docs/future-signal/radio-decoder.md`)
+>   as a self-contained **offline** decode (ROT13 / Base64 / Hex / Morse, tag-based + auto-detect) —
+>   explicitly **not** wired to any AI backend, per the brief's scope call. **Flagged fast-follow**
+>   (§2/§6): once the QUARK-brain-promotion thread lands `AiAssistBridge` in production, wiring this
+>   decoder to QUARK's own on-device brain instead of the local heuristic is a natural, cheap next
+>   step — not built here, not blocking this brief.
+> - **No network dependency** — no `INTERNET` permission anywhere in `:signal`.
+
+> **CONFIG — the single settings home (`:config`, `com.quantumos.config`):** Phosphor / Boot Pace /
+> Deployment Region, all three durable via a **shared** `SettingsStore` (relocated `:app→:app-shell`
+> so both the launcher and this docked module read/write the exact same `SharedPreferences` file —
+> one source of truth, not two). The old inline STATUS-channel "CONFIG // FIELD SETTINGS" hop is
+> **removed** — CONFIG is now the only settings surface (acceptance §5). Unlike every other docked
+> module's throwaway local `remember { PhosphorHue.GREEN }`, CONFIG's own chrome hue is seeded live
+> from the shared store — its whole reason to exist is to *be* the durable setting.
+> - **Phosphor sync, closed for the launcher pair the brief names:** phosphor hue was previously
+>   in-memory-only in `QuantumStateEngine` (M4's known "resets to green on relaunch" gap). It now
+>   persists through the same store CONFIG uses, and `QuantumRuntime.resyncPersistedSettings()` runs
+>   on `LauncherActivity`'s and `QuarkAssistantActivity`'s own `ON_RESUME` (mirroring the existing M4
+>   overlay-permission re-check pattern) to pick up a CONFIG-driven change — including replaying
+>   QUARK's existing region-switch acknowledgement line if the region changed while CONFIG was open.
+>   **Explicitly NOT touched** (brief §4 hard stop): the phosphor-hue-sync gap between the *six
+>   content* docked modules (COMMS/FILES/AUDIO/RADIO/CAM/MAPS, each still its own local toggle) and
+>   the launcher — that stays the known, tracked-separately gap it already was.
+> - **No network dependency.**
+
+> **`:core` changes:** `DockedModule` gains `SIGNAL`/`CONFIG`; `InstrumentConsole.INSTRUMENTS` now
+> docks all eight (previously SIGNAL alone showed STANDBY and CONFIG hopped to STATUS) —
+> `QuantumStateEngineTest` updated to match. New `FieldDecoder`/`FieldSignalFormat`/`SignalLevels`,
+> unit-tested (`FieldDecoderTest`).
+
+> **Acceptance criteria (brief §5), self-assessed pending Fold 6:**
+> 1. ✅ CLAUDE.md reads Kotlin 2.2.21.
+> 2. ✅ Both dock into the shared App Shell (nameplate, registration marks, CRT shader, "◄ HOME");
+>    the floating QUARK trigger is a system-wide overlay service, unaffected by which docked Activity
+>    is foreground, so it needed no per-module wiring — verified by reading `QuarkTriggerService`, not
+>    assumed.
+> 3. ✅ Chakra Petch only (`Fonts.ChakraPetch` throughout); house SegmentedGauge/PleaseStandbyCard
+>    reused, zero Material progress/spinner widgets. No house line-icon set exists yet project-wide
+>    (known, flagged gap since the Core Apps Fix-Pass) — neither module needed a glyph Material
+>    doesn't already cover, so this pass adds no new icon debt either way.
+> 4. ✅ real device data via the listeners above; RUN SCAN is user-triggered only — pending Fold 6 eyes.
+> 5. ✅ Phosphor/Boot Pace/Deployment Region all functional + persist; STATUS's inline duplicate removed.
+> 6. ✅ no `INTERNET` permission in either module's manifest.
+> 7. ✅ by construction — every SIGNAL listener is event-driven/lifecycle-scoped, no `while(true)`/
+>    timer poll anywhere in either module; profiling on-device is still the Director's real proof.
+> 8. ✅ (see #2 — system-wide overlay, not module-specific).
+> 9. ✅ CI-GREEN (`gradle test` + `assembleDebug` + `assembleRelease` all passed, run #108).
+
+> **Director actions required (Fold 6):**
+> 1. Install the CI build; confirm `gradle test` + `assembleDebug` were green on this push.
+> 2. Tap SIGNAL — grant the combined diagnostic-access permission, confirm all four gauges move on
+>    real changes (toggle Wi-Fi, watch cellular bars, walk near/away from a paired Bluetooth device,
+>    step outside for GPS), confirm RUN SCAN adds a sparkline point without a background scan running
+>    the rest of the time, and try the Field Decoder with a tagged and an untagged payload.
+> 3. Tap CONFIG — cycle all three settings, force-restart the app, confirm all three survived. Cycle
+>    Phosphor in CONFIG, back out to HOME, confirm the Vitality panel's own Phosphor row now reads the
+>    same hue (the resync-on-resume check).
+> 4. Confirm the floating QUARK trigger still floats, drags, and taps correctly from inside both.
+> 5. Confirm STATUS no longer shows a "CONFIG // FIELD SETTINGS" section — CONFIG is the only settings
+>    surface now.
+
+**Previous milestone:** Core Apps Fix-Pass (Decision 86) — dock COMMS/FILES/AUDIO/RADIO into the
+shared App Shell, closing the per-app findings from the Core Apps Audit Pass — **CI-GREEN
+(`gradle test` + `assembleDebug` all passed) AND sideloaded/confirmed on the Fold 6: all four
+apps work fine.** Milestone closed.
+
+> **This session's branch stacks on the still-open App Shell Integration Phase 3 PR (#21,
+> `claude/dock-optics-nav-appshell-qvvbdz`)** — `:core`/`:app-shell`/`:optics`/`:nav` only existed
+> there, not yet on `main`, so this work merged that branch in first rather than waiting. Flagging
+> this stacking explicitly rather than deciding unilaterally: the eventual merged history will
+> contain both Optics/Nav's docking and this fix-pass's four-app docking together, unless the
+> Director wants #21 merged to `main` on its own first.
+
+> **Toolchain note:** this pass pins to AGP 8.7.2 / Kotlin 2.2.21 / Compose BOM 2024.10.01 /
+> minSdk 33 — the fix-pass brief's text said Kotlin 2.0.21, but the monorepo already moved to
+> 2.2.21 (QUARK Phase 1, for a real litertlm-android SDK requirement) before this session started.
+> One Gradle build shares one Kotlin version across all modules, so the docked apps had no choice
+> but to match the monorepo's real live pin — CLAUDE.md's own toolchain line is now stale text,
+> not a wrong decision made here.
+
+> **Three CI round-trips to green** (same discipline as Phase 3's own three): (1) `audio/AudioEngine.kt`'s
+> doc comment literally contained the substring `*/` inside a sentence ("isPreparing*/true"),
+> prematurely closing the block comment and turning the rest of it into ~40 "Expecting a top level
+> declaration" errors — reworded the sentence; (2) two files imported
+> `androidx.compose.foundation.layout.weight` directly — same class of mistake as Phase 3's own
+> `align` import bug; `weight` is a `RowScope`/`ColumnScope` member, not a top-level function, and
+> resolves via the implicit receiver with no import at all — removed both imports. Also, none of
+> `:comms`/`:files`/`:radio` declared `material-icons-core`/`material-icons-extended`, so several
+> `Icons.Filled.*` names outside the small core set failed to resolve — added both deps to match
+> `:audio`'s (correct from the start) `build.gradle.kts`; (3) a single missing `height` import in
+> `RadioScreen.kt` (`heightIn` was imported, `height` was not).
+
+> **What changed** — COMMS/FILES/AUDIO/RADIO join CAM/MAPS as docked library modules
+> (`:comms`/`:files`/`:audio`/`:radio`, `com.quantumos.{comms,files,audio,radio}`), same shape as
+> `:optics`/`:nav`: `implementation(project(":core"))` + `implementation(project(":app-shell"))`,
+> a thin local `AppShell.kt` wrapper delegating the CRT container/nameplate to `:app-shell`, no
+> `BackHandler` (the Shell owns back; `onReturnHome = { finish() }` + an explicit "◄ HOME" line),
+> ported read-only from their standalone `kms-ux/quantum{comms,files,audio,radioreceiver}` repos
+> (never pushed to — untouched rollback references, same discipline as Optics/Nav's standalone
+> repos; those four repos did get hygiene-only commits: a `CLAUDE.md`, a re-pinned toolchain, a
+> Gradle wrapper — no app-code/UI/behavior changes). `InstrumentConsole`'s four remaining `null`
+> `dockedModule`s got `DockedModule.{COMMS,FILES,AUDIO,RADIO}`; only `SIGNAL` stays STANDBY now.
+> Per-app fixes beyond the generic docking:
+> - **AUDIO** — the fake idle-drift oscilloscope loop (a confirmed instance of the audit's
+>   predicted top risk: `while (!isRecording) { sin()-drift; delay(80) }` ran forever when not
+>   recording) is deleted outright; the waveform is now recording-data-driven only and freezes the
+>   instant recording stops. All 7 `QuarkMascot` animations (idle bob, happy hop/tilt, warn shake,
+>   scan-line, expanding ring) now only exist while their reactive posture is actually active,
+>   instead of always running with only the rendered output branched. The Player screen's
+>   vinyl-spin transition likewise only exists while `isPlaying`.
+> - **RADIO** — the cryptographic signal-decoder feature (`InterceptControlPanel`,
+>   `CryptographicDecoderConsole`, `startSignalDecoding()`, `GeminiClient.kt`) is removed entirely,
+>   per the Director ruling that it belongs to SIGNAL (measurement/analysis), not RADIO (content
+>   receiving) — nothing is lost, the standalone repo preserves it losslessly, and
+>   `docs/future-signal/radio-decoder.md` records exactly where (file paths + line numbers) for
+>   whoever builds SIGNAL. The `SignalStaticCanvas` idle grain loop (`while(true) { delay(100) }`,
+>   ran forever whenever tuned off-preset) is now a bounded 8-tick settle burst triggered only by
+>   real `reception` changes. The needle/atom-mark motion swapped its bouncy `spring` for a
+>   non-bouncy settle, matching the stepped motion language. Dim-hue values (previously hardcoded
+>   wrong: `#006600` vs. spec `#00AA00`, etc.) are now correct automatically via `Phosphor.dim()`.
+> - **FILES** — taxonomy intentionally left exactly as-is per the Director ruling: the four seeded
+>   folders (FIELD-LOGS/CAPTURES/COMMS-CACHE/MAPS), the generic/unrestricted browser, no
+>   enforcement added. Stating this explicitly here so it isn't mistaken for an oversight.
+> - **COMMS** — the deepest change. The live-pulse dot is rebuilt as a real one-shot,
+>   event-triggered decay animation bound to new-transmission events (previously a static circle
+>   with a comment falsely claiming it pulsed). The Discord-style channel list and WhatsApp-style
+>   bubble thread are replaced with a single-column transmission-log visual language (callsign
+>   header + timestamp + body, no bubbles, no sender-side-alignment split) — grounded in the House
+>   Style Skill, since the linked design-system page 403'd from this sandbox both times it was
+>   tried; worth a Director sanity-check against the actual page. The infinite
+>   `startUptimeCounter()`/`startTelemetrySimulator()` random-drift loops are removed. The
+>   cipher-decryption terminal (the audit's one positive, on-identity finding) is preserved as-is.
+> - **COMMS + FILES Gemini backends stripped.** Both apps called a live Gemini API directly
+>   (cloud key, `INTERNET` permission) for an in-app AI chat persona (COMMS) and a "DECRYPT AI"
+>   feature (FILES, which also had a second Gemini-backed "talk to QUARK" chat feature not
+>   originally called out in the fix-pass brief — stripped too, for the same reason: the module
+>   carries no network dependency at all). Rewiring either to QUARK's real on-device brain
+>   (`QuarkOnDeviceBrain`, `:app`'s own `com.quantumos.shell.ai` package) wasn't realistic this
+>   pass: it needs a manually side-loaded ~2.6GB model, lives in `:app` itself (a docked module
+>   can't reach it without circular-dependency surgery), and its own docstring marks it
+>   "DEBUG-GATED ONLY — never in the production scripted-brain path." Both screens now call a new
+>   shared `:core` placeholder — `AiAssistBridge`/`AiAssistResult`/`NotYetWiredAiAssistBridge` — a
+>   clearly-styled "AI BRIDGE NOT YET WIRED" state, not a crash or a silent no-op. **To-do, not
+>   attempted here:** wire a real implementation once `QuarkOnDeviceBrain` is promoted out of
+>   debug-gating and extracted into a module the docked apps can depend on.
+> - **Icon policy stays a known, flagged gap.** No shared line-icon library exists yet (Optics/Nav
+>   draw geometry directly in Canvas, no SVG asset set) — per the fix-pass brief's own fallback,
+>   stock Material icons stay in all four new modules rather than inventing four one-off icon sets.
+
+> **Director confirmed on the Fold 6: all four apps work fine.** Fix reports per app (what changed,
+> what's still open) are filed at `docs/fix-reports/{COMMS,FILES,AUDIO,RADIO}-FIX-REPORT.md`, with
+> copies in each standalone repo's own `docs/`. Cover summary at
+> `docs/audit/CORE-APPS-FIX-PASS-COVER-SUMMARY.md`.
+
+**Previous milestone:** App Shell Integration, Phase 3 — dock Optics & Nav into the shared App Shell
+— **CI-GREEN (run #98: `gradle test` + `assembleDebug` + `assembleRelease` all passed; single
+`app-debug.apk`/`app-release.apk` artifacts, each now containing both docked modules). On-device
+confirmation is the Director's next action — Optics first, then Nav, per the brief's ordering.**
+
+> **Three CI round-trips to green, same pattern as every prior module-integration session in this
+> repo:** (1) invalid XML — a literal `--` inside the new `:optics`/`:nav` manifest header comments
+> (XML comments can't contain `--`), broke manifest merging; (2) `:optics`'s Room 2.6.1 KSP
+> integration threw `IllegalStateException: unexpected jvm signature V` — a known Room/KSP2
+> XProcessing bug under this project's K2-based KSP toolchain, fixed by bumping Room to 2.7.1;
+> (3) a bad `import ...layout.align` (not a real top-level symbol — `Modifier.align()` resolves via
+> the `BoxScope` receiver already in scope) plus a missing `getValue` import for two `by`-delegated
+> state reads in the new local `:optics` `AppShell.kt` wrapper.
+
+> **What changed.** `:app` split into a modular monolith — still **one APK**, one `applicationId` —
+> so Optics and Nav are truly docked (bundled library modules, internal navigation) rather than the
+> "separately installed app matched by label" scheme Phase 1 shipped as a placeholder:
+> - **`:core`** — `com.quantumos.core` (state engine, parser, `OverlayGeometry`, the new
+>   `InstrumentSpec.dockedModule`) extracted out of `:app`, unchanged content, so every module can
+>   depend on it without a circular dependency.
+> - **`:app-shell`** — `com.quantumos.appshell`: `Phosphor`, `Fonts` (bundled Chakra Petch/Monoton),
+>   `QuantumOSLayoutShell`, `crtShader()`/`crtOverlay()`, `NameplateHeader`, `ChannelStrip`,
+>   `PleaseStandbyCard` extracted from `LauncherUi.kt` — one chrome source for the launcher and both
+>   docked modules, per the House Style Skill's "one App Shell every app inherits."
+> - **`:optics`** — ported from the standalone `kms-ux/quantumoptics-blackhole` repo (read-only
+>   source, **never pushed to**; the repo is untouched). Dropped the standalone app's local
+>   `Phosphor`/`Theme`/CRT-shader duplicates and its `GoogleFont.Provider` (placeholder/empty cert
+>   array — a real house-style + reliability fix, not just de-duplication) in favor of `:app-shell`'s
+>   bundled font. Deleted its own local floating-QUARK-trigger placeholder outright: the real
+>   system-wide `QuarkTriggerService` (M4) already floats above every foreground app, and
+>   `OverlayGeometry.defaultPark`/`nearestEdgeX` only ever rest at the **left or right screen edge,
+>   never horizontal-center**, so it structurally cannot cover Optics's bottom-center shutter —
+>   confirmed by reading the geometry, not assumed.
+> - **`:nav`** — ported from the standalone `kms-ux/quantummap` repo (read-only source, **never
+>   pushed to**). Deleted its own local `Phosphor.kt`/`CrtEffects.kt` (flagged in *that* repo's own
+>   BUILD_LOG as a deliberate, temporary duplication awaiting exactly this step) in favor of
+>   `:app-shell`'s tokens/shader. Kept `crtOverlay()` (not `crtShader()`) over the map region — Nav's
+>   own documented finding: a `RenderEffect` renders its subtree into an offscreen buffer that
+>   MapLibre's view isn't captured into, which is what blanked the map originally.
+> - **CAM/MAPS routing** — `InstrumentSpec.targetAppLabel` (label-match against a separately
+>   installed app) replaced with `InstrumentSpec.dockedModule: DockedModule?` (`OPTICS`/`NAV`).
+>   Tapping the tile now always works (no longer gated on a separate install): a 360ms stepped
+>   PLEASE STANDBY beat ("OPENING MODULE…", reusing the shared card — never an instant cut), then an
+>   explicit `Intent(context, OpticsActivity::class.java)` / `NavActivity::class.java` in the
+>   launcher's own task (no `NEW_TASK`/`CLEAR_TOP`). Neither docked Activity adds a consuming
+>   `BackHandler` — the Shell owns back once docked, so back naturally pops to the still-live
+>   launcher on HOME — and each also has an explicit "◄ HOME" tappable line in its header as the
+>   visible equivalent of that same return path.
+> - **QUARK trigger** — verified, not re-implemented: `OverlayGeometry`'s existing default park
+>   (right edge, mid-height) already satisfies both apps' audit findings (Optics: clear of the
+>   bottom-center shutter; Nav: right-edge-mid-viewport, clear of the action rail + GPS readout) —
+>   no core geometry change was needed.
+> - **Arrow-button paging (v5 nav buttons)** — re-checked after the module split: `PageNavButton`
+>   now imports `Phosphor`/`Fonts` from `:app-shell` instead of `LauncherUi.kt`'s own objects: no
+>   behavior or look change, still Canvas-drawn/phosphor-toned/stepped/Fold-6-confirmed.
+> - CI workflow **unchanged** — `gradle test`/`gradle assembleDebug` at the root already run every
+>   subproject's tasks, and since Optics/Nav are library modules (not separate `application`
+>   modules), there's still exactly one APK artifact (`app-debug.apk`) to upload, now with both
+>   docked modules inside it.
+
+> **Director action required — Fold 6 confirmation, in this order (per the task's own sequencing):**
+> 1. **Optics first.** Sideload the CI debug APK. From HOME, tap CAM → confirm the PLEASE STANDBY
+>    beat, the shared shell chrome (not a foreign app), camera preview/capture/film filters intact,
+>    the floating QUARK trigger doesn't block the shutter, and back / "◄ HOME" returns cleanly to
+>    HOME. **Do not consider Nav's docking "done" until this reads good on-device** — mirrors the
+>    App Shell Integration precedent from the (unmerged, superseded-by-this-session) Step 1/2 branch.
+> 2. **Then Nav.** Tap MAPS → confirm the same beat/shell/back behavior, plus the map actually
+>    renders (the historically fragile part, per Nav's own BUILD_LOG tile-source saga), GPS/warp
+>    still work, and the QUARK trigger doesn't block the action rail or GPS readout.
+> 3. Confirm the resized (32dp) v5 nav buttons still read right next to the grid (carried over
+>    unconfirmed from the prior session, see below) — unrelated to this session's work but still open.
+
+**Previous milestone:** Launcher Restructure Phase 2 — paged APPS browser, **v5 canon nav buttons**
+(Director simplification) — **CI-GREEN (run #87), sideloaded and confirmed on the Fold 6: works fine,
+buttons hold their look through a hue switch. One size follow-up landed this session (below).**
+
+> **Director tested v4 (the discrete-ratchet gear dial) on the Fold 6: drag direction was right, but
+> the gear's rotation didn't read as intended — and rather than iterate on the dial, the Director
+> supplied the canon "QuantumOS Launcher Navigation Buttons" design sheet and asked to keep it
+> simple: replace the dial with those two buttons.** The gear (v3 flywheel → v4 ratchet) is retired.
+
+> **Follow-up (same day):** on the Fold 6 the nav-button plate read as roughly 4 app-icons wide —
+> too large next to the APPS grid. Shrunk the drawn plate from 108dp → **32dp** (~30% of original,
+> per the Director's ask), with the bracketed label scaled down to match (brackets 20sp→12sp, title
+> 11sp→8sp, sub-label 10sp→7sp). All button geometry is proportional to the Canvas size (`w`/`h`
+> fractions), so the resize was a single constant change, not a redraw. **Pending re-confirmation on
+> the Fold 6** that the new size reads right next to the app grid (icons are 44dp boxes, so 32dp now
+> sits a bit smaller than an app icon).
+
+**What changed (v5):**
+- **The gear dial and all ratchet physics are gone.** `GearDial`/`drawGearFace`, the drag gesture,
+  the step queue, and the whole catch/settle machinery are deleted. `GearReelPhysics` is replaced by
+  a minimal `com.quantumos.core.ReelPager` — the hard page clamp is the only logic left (pure,
+  unit-tested). `SoundCue.REEL_CATCH` removed; `REEL_DETENT` stays as the single page-step click.
+- **APPS bottom edge = the two canon nav buttons** per the design sheet: `PageNavButton` — an
+  octagon-cut plate (bright outer rim + dim inner line on the CRT ground) with a large filled
+  phosphor triangle, and a bracketed two-line label beneath (`[ PREV PAGE / ◀ BACKWARD ]`,
+  `[ NEXT PAGE / FORWARD ▶ ]`). A tap flips exactly one page (stepped, slide-projector) with the
+  mechanical click; motion is reactive-only, static at rest — exactly the sheet's
+  "STEPS MOTION · REACTIVE ONLY" note.
+- **Buttons are DRAWN (Canvas, phosphor-tokenized), not the sheet's bitmap** — the sheet bakes in
+  green, and a bitmap would break the live GREEN/AMBER/CYAN hue switch (one-token-source rule).
+  Same geometry and labels, rendered in the active phosphor.
+- **Clamp behaviour:** at the first/last page the corresponding button renders dim and inert (no
+  wraparound). No denial buzz — nothing was denied, there's simply no further page (flagged below).
+- Page readout renamed `REEL n / m` → `PAGE n / m` to match the buttons' language.
+- `ReelPageGrid`, `AppCell`, and `AppIconCache` are **untouched** — the scroll-stutter fix (non-lazy
+  one-page grid + process-scoped decode-once icon cache, established in the v3 session) carries
+  through unchanged. Grid stays 4×5 = 20 apps/page.
+
+> **Director action required — Fold 6 look-check (v5 nav buttons):**
+> 1. Open APPS → the two buttons render at the bottom edge per the sheet: octagon-cut double border,
+>    filled triangle, bracketed two-line labels.
+> 2. Tap NEXT/PREV → the grid flips exactly one page with a click; `PAGE n / m` updates; no drag
+>    surface, no animation loops.
+> 3. At page 1 the PREV button is dim and inert; at the last page NEXT is dim and inert.
+> 4. Switch phosphor hue (Vitality → PHOSPHOR) → the buttons recolor with everything else — this is
+>    why they're drawn rather than the sheet's PNG.
+> 5. No stutter on flips (the icon cache + non-lazy grid are unchanged).
+
+**Judgment calls flagged (v5):**
+- **Recreated in Compose instead of embedding the sheet bitmap** — required by the hue-switch rule;
+  flag if the on-device look diverges from the sheet enough to matter (corner cut ratio, border
+  weights, and triangle size are all simple constants in `PageNavButton`).
+- **Disabled-at-clamp is silent** (dim + inert). If the Director wants the access-denied buzz on
+  tapping a dead end, it's a one-liner — but a page boundary didn't feel like a "denial" per the
+  sound language (buzz = access denied only).
+- The sheet's header annotations ("CANON UI · PHOSPHOR GREEN / STEPS MOTION · REACTIVE ONLY") are
+  spec notes, not UI — not rendered.
+
+**Build note:** no Android SDK in this cloud session (as SESSION-PLAYBOOK documents) — CI is the
+compiler on push; the Director's sideload + Fold 6 pass closes the milestone.
+
+---
+
+**Previous milestone:** Launcher Restructure Phase 2 — gear-reel APPS browser, **v4 discrete ratchet**
+(Build Brief v1.0.1) — CI-green (run #78, after an artifact-quota workflow fix), sideloaded and tested
+on the Fold 6: drag direction confirmed, gear rotation judged not-as-intended → **superseded by the v5
+nav buttons above** per the Director's canon design sheet. v4's ratchet API (`consumeDrag`/
+`overshootPeak`/`catchAngle`/`settleAngle`, `dragPerTooth`/`overshootDeg`/`catchMs`/`settleMs`) and
+the `GearDial` visual no longer exist in the codebase; paper trail only. Same for v3
+(flywheel/momentum), superseded one session earlier.
+
+---
+
+**Previous milestone:** Launcher Restructure Phase 1 — console-as-HOME — **CI-GREEN (2026-07-06),
+pending Fold 6 confirmation.** HOME renders the static eight-instrument console (COMMS / FILES / AUDIO
+/ CAM / MAPS / RADIO / SIGNAL / CONFIG); CAM/MAPS hand off to installed Optics/Nav by label match;
+CONFIG hops to STATUS; the other five show a STANDBY state (access-denied buzz + offline overlay).
+Fold 6 verify: all eight tiles render, installed instruments launch, not-yet-built ones show standby,
+and it reads as an instrument deck not a grid. Judgment calls flagged (CONFIG→STATUS hop; CAM/MAPS
+label-vs-package match; removed M0-era hue chips + debug readout; offline overlay stays off `--warn`
+red) — see the Phase 1 commit and the git history for the full notes.
+
+---
+
+**Previous milestone:** QUARK Phase 2b — custom voice — **DONE, confirmed on the Fold 6 (2026-07-04).**
 QUARK-H2 is audible, correct, and offline via sherpa-onnx. Director re-tested after the latency
 tuning + brain fix: **TTS now starts noticeably faster** (numThreads 2→4 + warm-on-identity-pick), and
 **the date/time fix confirmed correct** (QUARK answered the current date/time accurately instead of
@@ -536,6 +888,47 @@ the real CRT shader actually looks on the Fold 6** (first hardware judgement of 
   has no Android SDK so CI runs the real `gradle test`/`assembleDebug` on push — see
   `.github/workflows/build.yml`)
 
+### App Shell Integration, Phase 3 — dock Optics & Nav (this session)
+- [x] Merged the unmerged, up-to-date PR #20 (Launcher Restructure Phases 1–2) in as the base — the
+  instrument console (CAM/MAPS tiles) and v5 nav buttons this phase docks into didn't exist before it
+- [x] `:core`/`:app-shell` extracted from `:app` (pure logic / shared chrome — Phosphor, Fonts,
+  QuantumOSLayoutShell, crtShader/crtOverlay, NameplateHeader, ChannelStrip, PleaseStandbyCard)
+- [x] `:optics` ported from `kms-ux/quantumoptics-blackhole` (read-only source, untouched) as a
+  library module (not a separate app); local theme/font-provider/QUARK-placeholder dropped
+- [x] `:nav` ported from `kms-ux/quantummap` (read-only source, untouched) as a library module;
+  local Phosphor/CrtEffects duplication dropped per that repo's own flagged TODO
+- [x] `InstrumentSpec.targetAppLabel` → `dockedModule: DockedModule?`; CAM/MAPS now always dock
+  (PLEASE STANDBY beat → internal Intent) instead of hand-off-if-separately-installed
+- [x] Verified (not re-implemented): `OverlayGeometry.defaultPark` already clears both apps' primary
+  controls; `PageNavButton` re-checked post-split, unchanged behavior
+- [x] CI-green (run #98, after 3 fix round-trips: invalid XML manifest comments, a Room/KSP2 bug,
+  a bad import) — `gradle test` + `assembleDebug` + `assembleRelease` all passed; single APK
+  artifacts (`app-debug.apk`/`app-release.apk`), each containing both docked modules
+- [ ] **Confirmed on Fold 6 — Optics first, then Nav** ← **Director action**, see RESUME HERE; Nav's
+  docking is not "done" until Optics reads good on-device
+
+### Launcher Restructure Phase 2 — paged APPS browser, v5 canon nav buttons (this session)
+- [x] Gear dial + ratchet physics deleted; `GearReelPhysics` → minimal `ReelPager.clampPage` (pure,
+  unit-tested); `SoundCue.REEL_CATCH` removed, `REEL_DETENT` = the single page-step click
+- [x] `PageNavButton` built per the canon design sheet: octagon-cut double-border plate, filled
+  phosphor triangle, bracketed `PREV PAGE / ◀ BACKWARD` + `NEXT PAGE / FORWARD ▶` labels — drawn
+  and hue-tokenized, not the sheet's baked-green bitmap
+- [x] Tap = one stepped page flip + click; dim + inert at the clamp; readout now `PAGE n / m`
+- [x] `ReelPageGrid`/`AppCell`/`AppIconCache` untouched — stutter fix carries through unchanged
+- [ ] **Confirmed on Fold 6 (v5)** — buttons match the sheet, page flips are stepped + clicked,
+  clamp behaviour reads right, hue switch recolors the buttons  ← **Director action**, see RESUME HERE
+
+### Launcher Restructure Phase 2 — gear dial v3 (flywheel) / v4 (discrete ratchet) — superseded
+- [x] v3: CI-green, Fold-6-tested; momentum-coast didn't read as a ratchet → replaced by v4
+- [x] v4: CI-green, Fold-6-tested; direction right, rotation not as intended → **replaced by the v5
+  canon nav buttons above** per the Director's design sheet
+
+### Launcher Restructure Phase 1 — console-as-HOME (prior session)
+- [x] `InstrumentConsole`/`InstrumentSpec`/`findByLabel` added to core, unit-tested
+- [x] HOME renders the fixed 2×4 static instrument console; CAM/MAPS hand off to installed
+  Optics/Nav by label match; CONFIG hops to STATUS; COMMS/FILES/AUDIO/RADIO/SIGNAL show STANDBY
+- [x] CI-green (run #73); [ ] **Confirmed on Fold 6** ← **Director action** (Phase 1 checklist)
+
 ### M4 — floating QUARK trigger (this session)
 - [x] **Step 0 — permission walkthrough:** `LauncherActivity` checks `Settings.canDrawOverlays`,
   re-checks on `ON_RESUME` (grant happens outside the app, then return — no restart). Ungranted →
@@ -635,10 +1028,10 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   cue via `AudioTrack` (the spirit of the prototype Web-Audio synth) — NOT professionally produced
   audio files. That's a future identity/polish refinement, explicitly out of M6 scope. Tune the synth
   recipes if the Director wants a different character.
-- **`buzz_denied` (access-denied) is synthesised but not yet emitted anywhere** — there is no
-  "access-denied" flow in the app today (no feature refuses an action). The cue is in the bank ready;
-  wire it the moment a real denial path exists. The other three signature sounds DO fire (boot sweep,
-  access-granted via Stealth confirm, keypad tick on boot steps + text send).
+- **`buzz_denied` (access-denied) — now wired (Launcher Restructure Phase 1).** Tapping a STANDBY
+  HOME instrument is the first real denial path; `QuantumViewModel.signalInstrumentOffline()` fires
+  it. The other three signature sounds also fire (boot sweep, access-granted via Stealth confirm,
+  keypad tick on boot steps + text send).
 - **M6 CRT shader is judged on hardware for the first time** — the AGSL `RuntimeShader` look (scanline
   /vignette/glow intensities) is tuned by eye in code; the Fold 6 pass is the real judgement. If it
   reads wrong, tune the constants in `CRT_AGSL_SHADER` (LauncherUi.kt). The cheap overlay remains the

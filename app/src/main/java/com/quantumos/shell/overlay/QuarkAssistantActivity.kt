@@ -30,6 +30,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -48,6 +49,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -63,11 +67,11 @@ import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
 import com.quantumos.shell.ai.BrainReadyState
 import com.quantumos.shell.ai.QuarkModelConfig
-import com.quantumos.shell.ui.Fonts
-import com.quantumos.shell.ui.Phosphor
-import com.quantumos.shell.ui.PleaseStandbyCard
+import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.crtShader
 import com.quantumos.shell.ui.QuantumRuntime
-import com.quantumos.shell.ui.crtShader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -114,6 +118,19 @@ class QuarkAssistantActivity : ComponentActivity() {
                     screenBrightness = if (state.environment.isStealthMode) stealthBrightness
                     else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
                 }
+            }
+
+            // Resync CONFIG's persisted phosphor/region/boot-pace on resume (SIGNAL + CONFIG Task
+            // Brief §3) — the floating QUARK trigger can open this Activity directly from CONFIG
+            // without ever passing back through LauncherActivity's own resume, so this Activity needs
+            // the same resync hook rather than relying solely on the launcher's.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) QuantumRuntime.resyncPersistedSettings()
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
 
             // The open beat: brief PLEASE STANDBY → "assistant opened" line (Scan → Idle). Fires once.

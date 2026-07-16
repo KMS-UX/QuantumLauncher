@@ -8,6 +8,7 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.SystemClock
+import com.quantumos.appshell.SettingsStore
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
@@ -230,10 +231,12 @@ object QuantumRuntime {
         booted = true
 
         // Apply persisted settings BEFORE the cold-boot sequence so the chosen pace takes effect this
-        // boot and the region is right from the first frame (M6 Step 0/2).
+        // boot, the region is right from the first frame (M6 Step 0/2), and the phosphor hue reads
+        // from CONFIG's durable store (SIGNAL + CONFIG Task Brief §3) instead of always booting green.
         appContext?.let { ctx ->
             engine.setBootPace(SettingsStore.loadBootPace(ctx))
             engine.setDeploymentRegion(SettingsStore.loadRegion(ctx))
+            engine.updateEnvironmentProfile { it.copy(activeHue = SettingsStore.loadPhosphorHue(ctx)) }
         }
 
         startAudioPlayback()
@@ -260,20 +263,44 @@ object QuantumRuntime {
     }
 
     // Direct cue for pure-UI feedback (keypad tick, select clunk) — still routed through the same
-    // Stealth gate as the stream so muting stays consistent.
-    fun playCue(token: String) = sound.play(token, engine.masterState.value.environment.isStealthMode)
+    // Stealth gate as the stream so muting stays consistent. Optional gain (0..1): the gear-reel's
+    // detent click is the first caller to use it (Launcher Restructure Phase 2 ratchet feel).
+    fun playCue(token: String, gain: Float = 1f) =
+        sound.play(token, engine.masterState.value.environment.isStealthMode, gain)
 
-    // ---------- M6 persistent settings — cycle + persist + acknowledge in one place ----------
-    fun cycleDeploymentRegion() {
-        engine.cycleDeploymentRegion()
-        val region: DeploymentRegion = engine.masterState.value.deploymentRegion
-        parser.speakRegionSwitched(region)               // QUARK acknowledges + logs the exchange
-        appContext?.let { SettingsStore.saveRegion(it, region) }
+    // ---------- M3/M6 phosphor — cycle (Vitality panel's quick action) + persist in one place ----------
+    // CONFIG (SIGNAL + CONFIG Task Brief) is the durable source of truth for this same setting; both
+    // write through this one store so they can't drift into two independent values (brief §3).
+    fun cyclePhosphorHue() {
+        engine.cyclePhosphorHue()
+        appContext?.let { SettingsStore.savePhosphorHue(it, engine.masterState.value.environment.activeHue) }
     }
 
-    fun cycleBootPace() {
-        engine.cycleBootPace()
-        appContext?.let { SettingsStore.saveBootPace(it, engine.masterState.value.bootPace) }
+    /*
+     * CONFIG is a docked library module and cannot reach this live engine directly (it would be a
+     * circular dependency — :app depends on :config to launch it) — see the App Shell Integration
+     * BUILD_LOG note on AiAssistBridge for the same constraint. So CONFIG writes phosphor/region/
+     * boot-pace straight to the shared SettingsStore, and the launcher re-reads it here on ON_RESUME
+     * (the same "granted outside the app, re-detected on return" pattern as the M4 overlay
+     * permission), applying anything CONFIG changed to the live engine — including firing QUARK's
+     * existing region-switch acknowledgement line so a CONFIG-driven region change still speaks and
+     * logs exactly like the old STATUS-row toggle did.
+     */
+    fun resyncPersistedSettings() {
+        val ctx = appContext ?: return
+        val persistedHue = SettingsStore.loadPhosphorHue(ctx)
+        if (persistedHue != engine.masterState.value.environment.activeHue) {
+            engine.updateEnvironmentProfile { it.copy(activeHue = persistedHue) }
+        }
+        val persistedRegion: DeploymentRegion = SettingsStore.loadRegion(ctx)
+        if (persistedRegion != engine.masterState.value.deploymentRegion) {
+            engine.setDeploymentRegion(persistedRegion)
+            parser.speakRegionSwitched(persistedRegion)
+        }
+        val persistedPace = SettingsStore.loadBootPace(ctx)
+        if (persistedPace != engine.masterState.value.bootPace) {
+            engine.setBootPace(persistedPace)   // takes effect next cold boot; harmless to set now
+        }
     }
 
     /*

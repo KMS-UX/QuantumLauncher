@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- AUDIO: field recorder first, player second. Docked into the launcher's single APK; no own
+         applicationId/launcher intent-filter; reached only via an internal Intent from the HOME
+         instrument console's AUDIO tile. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <application>
+        <activity
+            android:name="com.quantumos.audio.AudioActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true" />
+    </application>
+
+</manifest>
