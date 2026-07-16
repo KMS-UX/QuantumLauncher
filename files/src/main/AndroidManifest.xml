@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- FILES: field file manager, four seeded categories. Docked into the launcher's single APK;
+         no own applicationId/launcher intent-filter; reached only via an internal Intent from the
+         HOME instrument console's FILES tile. -->
+
+    <application>
+        <activity
+            android:name="com.quantumos.files.FilesActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true" />
+    </application>
+
+</manifest>

@@ -85,7 +85,9 @@ object DeploymentRegions {
  */
 enum class InstrumentId { COMMS, FILES, AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG }
 
-enum class DockedModule { OPTICS, NAV }
+// Core Apps Fix-Pass (Decision 86): COMMS/FILES/AUDIO/RADIO join CAM/MAPS as docked library modules
+// (:comms/:files/:audio/:radio), bundled into the same single APK. Only SIGNAL remains STANDBY.
+enum class DockedModule { OPTICS, NAV, COMMS, FILES, AUDIO, RADIO }
 
 data class InstrumentSpec(
     val id: InstrumentId,
@@ -97,12 +99,12 @@ data class InstrumentSpec(
 
 object InstrumentConsole {
     val INSTRUMENTS: List<InstrumentSpec> = listOf(
-        InstrumentSpec(InstrumentId.COMMS, "COMMS", "CHANNELS"),
-        InstrumentSpec(InstrumentId.FILES, "FILES", "STORAGE"),
-        InstrumentSpec(InstrumentId.AUDIO, "AUDIO", "RECORDER"),
+        InstrumentSpec(InstrumentId.COMMS, "COMMS", "CHANNELS", dockedModule = DockedModule.COMMS),
+        InstrumentSpec(InstrumentId.FILES, "FILES", "STORAGE", dockedModule = DockedModule.FILES),
+        InstrumentSpec(InstrumentId.AUDIO, "AUDIO", "RECORDER", dockedModule = DockedModule.AUDIO),
         InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", dockedModule = DockedModule.OPTICS),
         InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", dockedModule = DockedModule.NAV),
-        InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER"),
+        InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER", dockedModule = DockedModule.RADIO),
         InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS"),
         InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", opensChannel = NavigationChannel.STATUS)
     )
@@ -510,6 +512,33 @@ class QuantumStateEngine(
             trimmed + "[${System.currentTimeMillis()}] $message"
         }
     }
+}
+
+/*
+ * AiAssistBridge — Core Apps Fix-Pass (Decision 86). COMMS' in-app AI chat persona and FILES'
+ * "DECRYPT AI" feature both called a live Gemini API directly (cloud key + INTERNET permission),
+ * neither reachable from a docked library module without new secrets plumbing this launcher never
+ * had. QUARK's real on-device brain (QuarkOnDeviceBrain, com.quantumos.shell.ai) is not a viable
+ * rewire target for this pass either: it requires a manually side-loaded ~2.6GB model, and its own
+ * docstring marks it "DEBUG-GATED ONLY — never in the production scripted-brain path." So both
+ * screens call this shared placeholder contract instead of either backend — a single one-line swap
+ * once a real implementation (most likely QuarkOnDeviceBrain, promoted out of debug-gating and
+ * extracted from :app into a module :comms/:files can depend on) exists. Logged as a to-do in
+ * BUILD_LOG, not attempted here.
+ */
+sealed interface AiAssistResult {
+    data class Answer(val text: String) : AiAssistResult
+    data class Unavailable(val reason: String) : AiAssistResult
+}
+
+interface AiAssistBridge {
+    suspend fun ask(prompt: String): AiAssistResult
+}
+
+/** Default/only implementation until a real brain is wired in — never silently no-ops or crashes. */
+object NotYetWiredAiAssistBridge : AiAssistBridge {
+    override suspend fun ask(prompt: String): AiAssistResult =
+        AiAssistResult.Unavailable("AI BRIDGE NOT YET WIRED — see BUILD_LOG (Core Apps Fix-Pass)")
 }
 
 /*

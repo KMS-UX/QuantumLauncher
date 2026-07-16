@@ -117,8 +117,12 @@ import com.quantumos.core.ReelPager
 import com.quantumos.core.SoundCue
 import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
+import com.quantumos.audio.AudioActivity
+import com.quantumos.comms.CommsActivity
+import com.quantumos.files.FilesActivity
 import com.quantumos.nav.NavActivity
 import com.quantumos.optics.OpticsActivity
+import com.quantumos.radio.RadioActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -569,6 +573,10 @@ private fun HomeChannelBody(
         val target = when (module) {
             DockedModule.OPTICS -> OpticsActivity::class.java
             DockedModule.NAV -> NavActivity::class.java
+            DockedModule.COMMS -> CommsActivity::class.java
+            DockedModule.FILES -> FilesActivity::class.java
+            DockedModule.AUDIO -> AudioActivity::class.java
+            DockedModule.RADIO -> RadioActivity::class.java
         }
         context.startActivity(Intent(context, target))
         dockingModule = null

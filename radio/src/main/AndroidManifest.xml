@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- RADIO: broadcast receiver, FM/AM/WX bands + presets + dial + reception meter. Docked into
+         the launcher's single APK; no own applicationId/launcher intent-filter; reached only via an
+         internal Intent from the HOME instrument console's RADIO tile. Pure content-receiver: no
+         network permission, no hardware permission — content comes IN, nothing is transmitted or
+         measured out (see docs/future-signal/radio-decoder.md for the deleted decoder feature that
+         used to require INTERNET). -->
+
+    <application>
+        <activity
+            android:name="com.quantumos.radio.RadioActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true" />
+    </application>
+
+</manifest>

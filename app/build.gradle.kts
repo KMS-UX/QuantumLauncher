@@ -61,6 +61,10 @@ dependencies {
     implementation(project(":app-shell"))
     implementation(project(":optics"))
     implementation(project(":nav"))
+    implementation(project(":comms"))
+    implementation(project(":files"))
+    implementation(project(":audio"))
+    implementation(project(":radio"))
 
     // Compose BOM keeps all Compose library versions aligned with one number.
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
