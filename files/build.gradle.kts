@@ -8,9 +8,11 @@ plugins {
 // source, never pushed to) and docked as a library module bundled into the single :app APK (Core
 // Apps Fix-Pass, Decision 86) rather than a separate installable application. Depends on :app-shell
 // for the shared chrome/tokens/fonts instead of duplicating them (the standalone repo's own local
-// Color/Theme/Type are dropped here), and on :core for the shared AiAssistBridge placeholder that
-// replaces the standalone repo's direct Gemini network calls. Plain java.io.File I/O (no Room), and
-// no network deps (Gemini stripped) -- so this module stays deliberately thin next to :optics.
+// Color/Theme/Type are dropped here), and on :quark-brain for the real AiAssistBridge (QUARK Brain
+// Promotion, Decision 88) that replaces the standalone repo's direct Gemini network calls -- QUARK's
+// on-device brain now answers here, not a live cloud key. Plain java.io.File I/O (no Room), and
+// no network deps of its own (Gemini stripped; the on-device brain needs none either) -- so this
+// module stays deliberately thin next to :optics.
 android {
     namespace = "com.quantumos.files"
     compileSdk = 35
@@ -34,6 +36,10 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation(project(":app-shell"))
+    // QUARK Brain Promotion (decision 88): the real AiAssistBridge (QuarkBrainProvider.bridge) now
+    // lives in :quark-brain, which depends only on :core — no circular dependency, since :app is the
+    // one that depends on :files, never the reverse.
+    implementation(project(":quark-brain"))
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.activity:activity-compose:1.9.3")

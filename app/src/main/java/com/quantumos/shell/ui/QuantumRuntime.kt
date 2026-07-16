@@ -14,7 +14,8 @@ import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
 import com.quantumos.core.QuarkParser
 import com.quantumos.core.QuarkReflexPosture
-import com.quantumos.shell.ai.QuarkOnDeviceBrain
+import com.quantumos.quarkbrain.QuarkBrainProvider
+import com.quantumos.quarkbrain.QuarkOnDeviceBrain
 import com.quantumos.shell.ai.QuarkVoiceEngine
 import com.quantumos.shell.ai.SherpaKokoroVoiceEngine
 import com.quantumos.shell.ai.VoiceEngine
@@ -66,30 +67,43 @@ object QuantumRuntime {
     private var telemetryStarted = false
     private var audioStarted = false
 
-    // Phase 1 on-device brain (debug-gated). Created lazily so it never initialises unless the
-    // debug toggle activates. appContext is set by boot() before any Activity can call onDeviceBrain().
-    private var _onDeviceBrain: QuarkOnDeviceBrain? = null
-    fun onDeviceBrain(): QuarkOnDeviceBrain = _onDeviceBrain ?: QuarkOnDeviceBrain(
-        requireNotNull(appContext) { "QuantumRuntime.boot() must be called before onDeviceBrain()" },
-        appScope
-    ).also { _onDeviceBrain = it }
+    // QUARK's on-device brain — production default (QUARK Brain Promotion, decision 88). The ONE
+    // process-wide instance lives in QuarkBrainProvider (:quark-brain) so :files' AiAssistBridge
+    // reads/drives the exact same brain as this launcher's Assistant View, not a private copy.
+    // appContext is set by boot() before any Activity can call onDeviceBrain().
+    fun onDeviceBrain(): QuarkOnDeviceBrain = QuarkBrainProvider.onDeviceBrain(
+        requireNotNull(appContext) { "QuantumRuntime.boot() must be called before onDeviceBrain()" }
+    )
 
-    // ── Phase 2a — TTS voice (debug-gated) ────────────────────────────────────────────────────
-    // voiceEnabled is the sub-toggle: on/off independently of the main debug toggle, so text-only
-    // Phase 1 behaviour stays testable side-by-side. The engine initialises lazily on first enable.
-    private val _voiceEnabled = MutableStateFlow(false)
+    // ── Kill switch (brief §4) ────────────────────────────────────────────────────────────────
+    // The old Phase 1 debug toggle, retained as a hidden emergency fallback: forces the free-text
+    // loop back onto the Scripted-Line Library even if the on-device brain is loaded and healthy.
+    // Not persisted across process death — matches every prior debug-scaffolding toggle in this repo
+    // (deliberate: a stuck kill switch should not survive a restart, so a fresh process always tries
+    // the real brain again unless the Operator re-engages it).
+    private val _killSwitchActive = MutableStateFlow(false)
+    val killSwitchActive: StateFlow<Boolean> = _killSwitchActive.asStateFlow()
+    fun toggleKillSwitch() { _killSwitchActive.value = !_killSwitchActive.value }
+
+    // ── Voice (QUARK Brain Promotion §4 — production default; Phase 2a/2b built + hardware-confirmed
+    // this pipeline already) ──────────────────────────────────────────────────────────────────
+    // voiceEnabled now defaults ON — voice fires on real replies same as text, gated only by Stealth
+    // (decision 38) and the kill switch's own scripted-only fallback still gets spoken too (the
+    // rollback path shouldn't also go mute). The engine is built eagerly at boot() (initVoiceIfEnabled)
+    // rather than waiting for a manual toggle.
+    private val _voiceEnabled = MutableStateFlow(true)
     val voiceEnabled: StateFlow<Boolean> = _voiceEnabled.asStateFlow()
 
     private var _voiceEngine: VoiceEngine? = null
     private var voiceObserverStarted = false
 
-    // Which voice identity to build when voice is first enabled. PLACEHOLDER is the Phase 2a Android
-    // TTS stand-in (always available); QUARK_H2 is the Phase 2b custom voice (SherpaKokoroVoiceEngine) and
-    // is used only when its model + phonemizer are present — otherwise we fall back to PLACEHOLDER so
-    // the voice loop never goes mute. Default stays PLACEHOLDER until the Fold 6 latency pass signs
-    // QUARK_H2 off (see BUILD_LOG Phase 2b RESUME HERE).
+    // Which voice identity to build. QUARK_H2 is her locked, Fold-6-confirmed custom voice (Phase 2b
+    // "VOICE LOCKED", closed 2026-07-04) — now the production default. PLACEHOLDER (Android TTS) is
+    // the automatic fallback buildVoiceEngine() already applies whenever the H2 sherpa-onnx model
+    // isn't present on this device yet (voice model acquisition is still a manual import — see
+    // BUILD_LOG judgment calls), so the voice loop never goes mute either way.
     enum class VoiceIdentity { PLACEHOLDER, QUARK_H2 }
-    private val _voiceIdentity = MutableStateFlow(VoiceIdentity.PLACEHOLDER)
+    private val _voiceIdentity = MutableStateFlow(VoiceIdentity.QUARK_H2)
     val voiceIdentity: StateFlow<VoiceIdentity> = _voiceIdentity.asStateFlow()
 
     /** Select the voice identity and rebuild the engine so the change takes effect immediately. */
@@ -153,18 +167,21 @@ object QuantumRuntime {
 
     fun toggleVoice() {
         _voiceEnabled.value = !_voiceEnabled.value
-        if (_voiceEnabled.value) {
-            // The engine may already exist — rebuildVoiceEngine() (identity pick, model import) now
-            // builds+warms eagerly regardless of this toggle, precisely so the load cost is paid
-            // before this moment rather than here. Build only if nothing exists yet (e.g. voice
-            // switched straight on with the default identity, no prior pick); always (re)start the
-            // observer on enable — it's idempotent, guarded by voiceObserverStarted.
-            val ctx = requireNotNull(appContext) { "QuantumRuntime.boot() must be called first" }
-            if (_voiceEngine == null) {
-                _voiceEngine = buildVoiceEngine(ctx)
-            }
-            startVoiceObserver()
+        if (_voiceEnabled.value) ensureVoiceEngineRunning()
+    }
+
+    // Build the engine (if needed) and start the observer — shared by toggleVoice()'s enable branch
+    // and boot()'s eager init now that voice defaults ON. The engine may already exist —
+    // rebuildVoiceEngine() (identity pick, model import) builds+warms eagerly regardless of this
+    // call, precisely so the load cost is paid before this moment rather than here. Build only if
+    // nothing exists yet; always (re)start the observer — it's idempotent, guarded by
+    // voiceObserverStarted.
+    private fun ensureVoiceEngineRunning() {
+        val ctx = requireNotNull(appContext) { "QuantumRuntime.boot() must be called first" }
+        if (_voiceEngine == null) {
+            _voiceEngine = buildVoiceEngine(ctx)
         }
+        startVoiceObserver()
     }
 
     /*
@@ -240,6 +257,11 @@ object QuantumRuntime {
         }
 
         startAudioPlayback()
+
+        // Voice now defaults ON (QUARK Brain Promotion §4) — build + warm the engine here rather than
+        // waiting for a manual toggle, same "pay the cold cost early" reasoning rebuildVoiceEngine()
+        // already documents for the identity-pick path.
+        if (_voiceEnabled.value) ensureVoiceEngineRunning()
 
         // Speak the §6 canon online line the moment cold boot reaches QUARK_ONLINE (live slots). Launch
         // the watcher BEFORE executeColdBootSequence so it can't miss the transient state.

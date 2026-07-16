@@ -515,16 +515,17 @@ class QuantumStateEngine(
 }
 
 /*
- * AiAssistBridge — Core Apps Fix-Pass (Decision 86). COMMS' in-app AI chat persona and FILES'
- * "DECRYPT AI" feature both called a live Gemini API directly (cloud key + INTERNET permission),
- * neither reachable from a docked library module without new secrets plumbing this launcher never
- * had. QUARK's real on-device brain (QuarkOnDeviceBrain, com.quantumos.shell.ai) is not a viable
- * rewire target for this pass either: it requires a manually side-loaded ~2.6GB model, and its own
- * docstring marks it "DEBUG-GATED ONLY — never in the production scripted-brain path." So both
- * screens call this shared placeholder contract instead of either backend — a single one-line swap
- * once a real implementation (most likely QuarkOnDeviceBrain, promoted out of debug-gating and
- * extracted from :app into a module :comms/:files can depend on) exists. Logged as a to-do in
- * BUILD_LOG, not attempted here.
+ * AiAssistBridge — Core Apps Fix-Pass (Decision 86), wired to a real backend by the QUARK Brain
+ * Promotion Task Brief (Decision 88). COMMS' in-app AI chat persona and FILES' "DECRYPT AI" feature
+ * both called a live Gemini API directly (cloud key + INTERNET permission), neither reachable from a
+ * docked library module without new secrets plumbing this launcher never had — this contract let
+ * both screens call a clearly-styled placeholder instead, a single one-line swap once a real backend
+ * existed. That backend now exists: QuarkOnDeviceBrain was promoted out of debug-gating and
+ * extracted from :app into :quark-brain (a module :comms/:files can depend on without a circular
+ * dependency), and QuarkAiAssistBridge (:quark-brain) implements this exact, unchanged interface.
+ * FILES' default constructor arg now resolves QuarkBrainProvider.bridge(...) instead of the object
+ * below. NotYetWiredAiAssistBridge itself is untouched — it stays the safe default for anything that
+ * hasn't been wired to a real backend yet (e.g. a future module before it picks up :quark-brain).
  */
 sealed interface AiAssistResult {
     data class Answer(val text: String) : AiAssistResult
@@ -535,7 +536,7 @@ interface AiAssistBridge {
     suspend fun ask(prompt: String): AiAssistResult
 }
 
-/** Default/only implementation until a real brain is wired in — never silently no-ops or crashes. */
+/** Default/fallback implementation for anything not (yet) wired to a real bridge — never silently no-ops or crashes. */
 object NotYetWiredAiAssistBridge : AiAssistBridge {
     override suspend fun ask(prompt: String): AiAssistResult =
         AiAssistResult.Unavailable("AI BRIDGE NOT YET WIRED — see BUILD_LOG (Core Apps Fix-Pass)")
@@ -833,6 +834,12 @@ class QuarkParser(private val engine: QuantumStateEngine) {
     // Deployment Region patch §4: QUARK acknowledges a region switch (direction selects the variant).
     fun speakRegionSwitched(region: DeploymentRegion) =
         engine.quarkSay("DEPLOYMENT REGION", false, library.respond(QuarkIntent.REGION, slots(), region.name))
+
+    // QUARK Brain Promotion §3: the honest, in-character line for "her real brain isn't reachable
+    // right now" (first-run acquisition declined/offline, or the on-device brain errors mid-session).
+    // Reuses the already-banked FALLBACK variants ("I'm running on script today...") rather than
+    // inventing a new line inline — they already say exactly this, honestly, in her voice.
+    fun speakOfflineFallback() = engine.quarkSay("QUARK OFFLINE", false, library.respond(QuarkIntent.FALLBACK, slots()))
 
     // ---------- command rail (six actions) ----------
     fun railStatusReport() = doStatus("STATUS REPORT", false)
