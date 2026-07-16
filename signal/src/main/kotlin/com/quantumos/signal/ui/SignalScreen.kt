@@ -78,7 +78,7 @@ fun SignalScreen(
             Manifest.permission.BLUETOOTH_CONNECT
         )
     )
-    val allGranted = permissionsState.permissions.all { it.status.isGranted }
+    val allGranted = permissionsState.allPermissionsGranted
     val permissionKey = permissionsState.permissions.joinToString { it.status.isGranted.toString() }
 
     val sensors = remember { SignalSensors(context, viewModel) }
@@ -122,14 +122,14 @@ fun SignalScreen(
         Spacer(Modifier.height(14.dp))
 
         GaugeOrPermissionGate("CELLULAR", state.cellular, themeColor, themeColorDim, warnColor) {
-            permissionsState.launchMultiplePermissionsRequest()
+            permissionsState.launchMultiplePermissionRequest()
         }
         GaugeOrPermissionGate("WI-FI", state.wifi, themeColor, themeColorDim, warnColor, needsGrant = false) {}
         GaugeOrPermissionGate("GPS", state.gps, themeColor, themeColorDim, warnColor) {
-            permissionsState.launchMultiplePermissionsRequest()
+            permissionsState.launchMultiplePermissionRequest()
         }
         GaugeOrPermissionGate("BLUETOOTH", state.bluetooth, themeColor, themeColorDim, warnColor) {
-            permissionsState.launchMultiplePermissionsRequest()
+            permissionsState.launchMultiplePermissionRequest()
         }
 
         if (!allGranted) {
@@ -147,7 +147,7 @@ fun SignalScreen(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier
-                    .clickable { permissionsState.launchMultiplePermissionsRequest() }
+                    .clickable { permissionsState.launchMultiplePermissionRequest() }
                     .padding(vertical = 6.dp)
             )
         }
