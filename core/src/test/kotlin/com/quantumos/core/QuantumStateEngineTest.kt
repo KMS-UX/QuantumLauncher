@@ -293,6 +293,41 @@ class QuantumStateEngineTest {
         assertTrue(line.contains("Hong Kong"), "region ack must name the new region")
     }
 
+    // ---------- Launcher Restructure Phase 1 — HOME instrument console ----------
+
+    // The console is fixed at exactly eight instruments, per the House Style module identities.
+    @Test
+    fun instrumentConsole_hasExactlyEightUniqueInstruments() {
+        val specs = InstrumentConsole.INSTRUMENTS
+        assertEquals(8, specs.size)
+        assertEquals(InstrumentId.entries.toSet(), specs.map { it.id }.toSet())
+    }
+
+    // CAM/MAPS dock directly into the :optics/:nav library modules (App Shell Integration,
+    // Phase 3); every other instrument has no docked module and no in-app hop except CONFIG
+    // (which opens the STATUS channel).
+    @Test
+    fun instrumentConsole_camAndMapsDockOpticsAndNav() {
+        val specs = InstrumentConsole.INSTRUMENTS
+        assertEquals(DockedModule.OPTICS, specs.single { it.id == InstrumentId.CAM }.dockedModule)
+        assertEquals(DockedModule.NAV, specs.single { it.id == InstrumentId.MAPS }.dockedModule)
+        assertEquals(NavigationChannel.STATUS, specs.single { it.id == InstrumentId.CONFIG }.opensChannel)
+        val standby = specs.filter { it.dockedModule == null && it.opensChannel == null }
+        assertEquals(setOf(InstrumentId.COMMS, InstrumentId.FILES, InstrumentId.AUDIO,
+            InstrumentId.RADIO, InstrumentId.SIGNAL), standby.map { it.id }.toSet())
+    }
+
+    // ---------- Launcher Restructure Phase 2 (v5) — APPS pager ----------
+
+    @Test
+    fun clampPage_neverWraps_andCollapsesToZeroForOneOrFewerPages() {
+        assertEquals(0, ReelPager.clampPage(-3, pageCount = 5))
+        assertEquals(4, ReelPager.clampPage(99, pageCount = 5))
+        assertEquals(2, ReelPager.clampPage(2, pageCount = 5))
+        assertEquals(0, ReelPager.clampPage(2, pageCount = 1))
+        assertEquals(0, ReelPager.clampPage(2, pageCount = 0))
+    }
+
     // The conversation log is its OWN list — distinct from the M2 systemLogs console.
     @Test
     fun conversationLog_isDistinctFromSystemLogs() = runTest {

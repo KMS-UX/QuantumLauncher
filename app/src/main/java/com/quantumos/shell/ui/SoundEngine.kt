@@ -33,12 +33,21 @@ import kotlin.random.Random
 class SoundEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    fun play(token: String, stealth: Boolean) {
+    // gain (0..1, default full): Launcher Restructure Phase 2 — the gear-reel's detent click scales
+    // its own loudness with spin speed (ratchet feel, Build Brief §Phase 2). Every other call site
+    // keeps the default and is unaffected.
+    fun play(token: String, stealth: Boolean, gain: Float = 1f) {
         if (stealth && token != SoundCue.STEALTH_DOWN && token != SoundCue.STEALTH_UP) return
         scope.launch {
             val samples = runCatching { synth(token) }.getOrNull() ?: return@launch
-            runCatching { blast(samples) }
+            runCatching { blast(applyGain(samples, gain)) }
         }
+    }
+
+    private fun applyGain(samples: ShortArray, gain: Float): ShortArray {
+        if (gain >= 0.999f) return samples
+        val g = gain.coerceIn(0f, 1f)
+        return ShortArray(samples.size) { (samples[it] * g).toInt().toShort() }
     }
 
     // ---------- the cue bank: one recipe per token ----------
@@ -107,6 +116,11 @@ class SoundEngine {
                 t.tone(0, 120, 300.0, 280.0, amp = 0.38, wave = Wave.SQUARE, atk = 2, rel = 30, tremoloHz = 20.0)
                 t.tone(130, 120, 240.0, 220.0, amp = 0.38, wave = Wave.SQUARE, atk = 2, rel = 40, tremoloHz = 20.0)
             }
+            // APPS page-step click (v5 nav buttons) — a tight mechanical click as the page seats.
+            SoundCue.REEL_DETENT -> {
+                t.tone(0, 14, 1200.0, 800.0, amp = 0.34, wave = Wave.SQUARE, atk = 1, rel = 10)
+                t.tone(0, 10, 130.0, 80.0, amp = 0.18, wave = Wave.NOISE, atk = 0, rel = 6)
+            }
             // Legacy token aliases (kept so older emit sites still sound through one bank).
             "SND_POWER_UP_SWEEP" -> return synth(SoundCue.BOOT_SWEEP)
             "SND_SECURING_BEAT" -> return synth(SoundCue.DEVICE_SECURED)
@@ -123,6 +137,7 @@ class SoundEngine {
         SoundCue.POWER_ON_FLASH, SoundCue.SWEEP_PHOSPHOR, SoundCue.CHIRP_SCAN -> 240
         SoundCue.DEVICE_SECURED -> 160
         SoundCue.KEY_TICK, SoundCue.UI_CLUNK -> 90
+        SoundCue.REEL_DETENT -> 14
         else -> 300
     }
 

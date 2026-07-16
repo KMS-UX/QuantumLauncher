@@ -71,6 +71,44 @@ object DeploymentRegions {
 }
 
 /*
+ * Launcher Restructure Phase 1 (Build Brief v1.0) — the HOME instrument console. The eight core
+ * field-tool instruments, per the House Style Skill's locked module identities (COMMS/FILES/AUDIO/
+ * CAM/MAPS/RADIO/SIGNAL/CONFIG).
+ *   - dockedModule: for CAM/MAPS, which docked library module (App Shell Integration, Phase 3 —
+ *     :optics / :nav, bundled into this same APK) the tile launches into. Superseded Phase 1's
+ *     targetAppLabel hand-off-to-a-separately-installed-app scheme now that both are truly docked —
+ *     :core stays Android-free, so this is a plain enum; :app maps it to the concrete Activity class.
+ *   - opensChannel: for CONFIG, whose function already lives on the STATUS channel's own
+ *     "CONFIG // FIELD SETTINGS" section — an in-app hop rather than a standalone app. This mapping
+ *     is a Director-flag, not a locked call (see BUILD_LOG).
+ *   - Instruments with neither field are not yet built: the console shows them STANDBY.
+ */
+enum class InstrumentId { COMMS, FILES, AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG }
+
+enum class DockedModule { OPTICS, NAV }
+
+data class InstrumentSpec(
+    val id: InstrumentId,
+    val label: String,
+    val function: String,
+    val dockedModule: DockedModule? = null,
+    val opensChannel: NavigationChannel? = null
+)
+
+object InstrumentConsole {
+    val INSTRUMENTS: List<InstrumentSpec> = listOf(
+        InstrumentSpec(InstrumentId.COMMS, "COMMS", "CHANNELS"),
+        InstrumentSpec(InstrumentId.FILES, "FILES", "STORAGE"),
+        InstrumentSpec(InstrumentId.AUDIO, "AUDIO", "RECORDER"),
+        InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", dockedModule = DockedModule.OPTICS),
+        InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", dockedModule = DockedModule.NAV),
+        InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER"),
+        InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS"),
+        InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", opensChannel = NavigationChannel.STATUS)
+    )
+}
+
+/*
  * SoundCue — the canonical audio-cue token registry (M6 Step 4). The engine and the scripted library
  * emit these string tokens onto audioCueStream; the UI-side SoundEngine synthesises a distinct,
  * functional cue for each. Kept as plain string constants (no Android/audio deps) so core stays pure.
@@ -92,6 +130,20 @@ object SoundCue {
     const val CHIRP_SCAN = "chirp_scan"
     const val CHIRP_HAPPY = "chirp_happy"
     const val CHIRP_WARN = "chirp_warn"
+    const val REEL_DETENT = "reel_detent_click"        // APPS page-step click (PREV/NEXT nav button)
+}
+
+/*
+ * Launcher Restructure Phase 2 (v5 — Director simplification, canon nav-button sheet). The APPS
+ * paged browser is now driven by two stepped PREV/NEXT buttons per the "QuantumOS Launcher
+ * Navigation Buttons" design sheet — the gear dial and its ratchet physics (v3 flywheel, v4
+ * discrete catch/settle) are retired after Fold 6 testing. The only logic left is the hard page
+ * clamp. Pure + unit-tested, same "logic lives in core" pattern as OverlayGeometry.
+ */
+object ReelPager {
+    // No wraparound, ever: clamp hard to the first/last page. pageCount<=1 always resolves to 0.
+    fun clampPage(page: Int, pageCount: Int): Int =
+        if (pageCount <= 1) 0 else page.coerceIn(0, pageCount - 1)
 }
 
 // ---------- state ----------
