@@ -13,9 +13,18 @@ block at the end of every session.
 ## ▶ RESUME HERE
 **Current milestone:** SIGNAL + CONFIG Task Brief v1.0 — the last two of the eight core instruments,
 built natively in this monorepo from the first commit (no AI-Studio generation session, no audit
-pass needed per the brief's §0) — **CODE COMPLETE, pushed for CI.** Fold 6 hardware confirmation is
-the Director's next action (see checklist below); this session had no Android SDK / device, so CI
-is the real compiler exactly as every prior session in this repo.
+pass needed per the brief's §0) — **CI-GREEN** (`gradle test` + `assembleDebug` + `assembleRelease`
+all passed on push). Fold 6 hardware confirmation is the Director's next action (see checklist
+below); this session had no Android SDK / device, so CI was the real compiler, same as every prior
+session in this repo.
+
+> **Two CI round-trips to green** (same discipline as every prior module-docking session in this
+> repo): (1) both new manifests (`:signal`, `:config`) had a literal `--` inside their header
+> comments — the exact same XML-comment bug the App Shell Integration Phase 3 session hit, fixed by
+> rewording; (2) `SignalScreen.kt` called `launchMultiplePermissionsRequest()` (plural
+> "Permissions") when Accompanist's real `MultiplePermissionsState` API is
+> `launchMultiplePermissionRequest()` (singular) — caught by downloading and reading the actual
+> 0.36.0 sources jar rather than guessing twice.
 
 > **Step 0 — CLAUDE.md toolchain reconciliation (isolated commit, before any module code):**
 > `CLAUDE.md`'s own line said Kotlin 2.0.21; the monorepo has actually run **2.2.21** since QUARK
@@ -90,7 +99,7 @@ is the real compiler exactly as every prior session in this repo.
 > 7. ✅ by construction — every SIGNAL listener is event-driven/lifecycle-scoped, no `while(true)`/
 >    timer poll anywhere in either module; profiling on-device is still the Director's real proof.
 > 8. ✅ (see #2 — system-wide overlay, not module-specific).
-> 9. ⏳ pushed; CI result pending as of this entry.
+> 9. ✅ CI-GREEN (`gradle test` + `assembleDebug` + `assembleRelease` all passed, run #108).
 
 > **Director actions required (Fold 6):**
 > 1. Install the CI build; confirm `gradle test` + `assembleDebug` were green on this push.
