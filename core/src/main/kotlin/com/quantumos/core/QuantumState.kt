@@ -74,20 +74,20 @@ object DeploymentRegions {
  * Launcher Restructure Phase 1 (Build Brief v1.0) — the HOME instrument console. The eight core
  * field-tool instruments, per the House Style Skill's locked module identities (COMMS/FILES/AUDIO/
  * CAM/MAPS/RADIO/SIGNAL/CONFIG).
- *   - dockedModule: for CAM/MAPS, which docked library module (App Shell Integration, Phase 3 —
- *     :optics / :nav, bundled into this same APK) the tile launches into. Superseded Phase 1's
- *     targetAppLabel hand-off-to-a-separately-installed-app scheme now that both are truly docked —
- *     :core stays Android-free, so this is a plain enum; :app maps it to the concrete Activity class.
- *   - opensChannel: for CONFIG, whose function already lives on the STATUS channel's own
- *     "CONFIG // FIELD SETTINGS" section — an in-app hop rather than a standalone app. This mapping
- *     is a Director-flag, not a locked call (see BUILD_LOG).
+ *   - dockedModule: which docked library module (bundled into this same APK) the tile launches
+ *     into. :core stays Android-free, so this is a plain enum; :app maps it to the concrete
+ *     Activity class. As of the SIGNAL + CONFIG Task Brief, all eight instruments dock — CONFIG is
+ *     now a real docked module (the single settings home) rather than an in-app hop to STATUS.
+ *   - opensChannel: retained for any future instrument that should hop to an existing launcher
+ *     channel instead of docking; unused today.
  *   - Instruments with neither field are not yet built: the console shows them STANDBY.
  */
 enum class InstrumentId { COMMS, FILES, AUDIO, CAM, MAPS, RADIO, SIGNAL, CONFIG }
 
-// Core Apps Fix-Pass (Decision 86): COMMS/FILES/AUDIO/RADIO join CAM/MAPS as docked library modules
-// (:comms/:files/:audio/:radio), bundled into the same single APK. Only SIGNAL remains STANDBY.
-enum class DockedModule { OPTICS, NAV, COMMS, FILES, AUDIO, RADIO }
+// SIGNAL + CONFIG Task Brief: SIGNAL (link diagnostics) and CONFIG (the single settings home) join
+// CAM/MAPS/COMMS/FILES/AUDIO/RADIO as docked library modules (:signal/:config), bundled into the same
+// single APK. All eight core instruments are now docked — none remain STANDBY.
+enum class DockedModule { OPTICS, NAV, COMMS, FILES, AUDIO, RADIO, SIGNAL, CONFIG }
 
 data class InstrumentSpec(
     val id: InstrumentId,
@@ -105,8 +105,8 @@ object InstrumentConsole {
         InstrumentSpec(InstrumentId.CAM, "CAM", "OPTICS", dockedModule = DockedModule.OPTICS),
         InstrumentSpec(InstrumentId.MAPS, "MAPS", "NAV", dockedModule = DockedModule.NAV),
         InstrumentSpec(InstrumentId.RADIO, "RADIO", "RECEIVER", dockedModule = DockedModule.RADIO),
-        InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS"),
-        InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", opensChannel = NavigationChannel.STATUS)
+        InstrumentSpec(InstrumentId.SIGNAL, "SIGNAL", "DIAGNOSTICS", dockedModule = DockedModule.SIGNAL),
+        InstrumentSpec(InstrumentId.CONFIG, "CONFIG", "FIELD UNIT", dockedModule = DockedModule.CONFIG)
     )
 }
 

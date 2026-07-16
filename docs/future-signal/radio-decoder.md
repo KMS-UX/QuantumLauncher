@@ -1,3 +1,9 @@
+> **STATUS: picked up.** SIGNAL + CONFIG Task Brief §2 ported this pointer's interaction shape into
+> `:signal`'s FIELD DECODER pane (`com.quantumos.core.FieldDecoder` + `SignalScreen.kt`) as a
+> self-contained OFFLINE decoder (ROT13/Base64/Hex/Morse, tag-based + auto-detect) — no AI backend,
+> matching the brief's explicit scope call. Wiring it to QUARK's on-device brain instead of this
+> stub is the documented fast-follow once `AiAssistBridge` lands in production; not built here.
+
 # Future SIGNAL candidate: cryptographic signal decoder (removed from RADIO)
 
 Removed from the docked `:radio` module per the Core Apps Fix-Pass (Decision 86) — RADIO is a

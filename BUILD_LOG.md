@@ -11,7 +11,101 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Core Apps Fix-Pass (Decision 86) — dock COMMS/FILES/AUDIO/RADIO into the
+**Current milestone:** SIGNAL + CONFIG Task Brief v1.0 — the last two of the eight core instruments,
+built natively in this monorepo from the first commit (no AI-Studio generation session, no audit
+pass needed per the brief's §0) — **CODE COMPLETE, pushed for CI.** Fold 6 hardware confirmation is
+the Director's next action (see checklist below); this session had no Android SDK / device, so CI
+is the real compiler exactly as every prior session in this repo.
+
+> **Step 0 — CLAUDE.md toolchain reconciliation (isolated commit, before any module code):**
+> `CLAUDE.md`'s own line said Kotlin 2.0.21; the monorepo has actually run **2.2.21** since QUARK
+> Phase 1 (a real `litertlm-android` SDK requirement), and the Core Apps Fix-Pass's own BUILD_LOG
+> entry already confirmed this same drift. Fixed as a small, isolated doc commit per the brief's
+> instruction. **Checked whether anything else silently drifted alongside it:** no — AGP 8.7.2 /
+> Gradle 8.9 / Compose BOM 2024.10.01 / minSdk 33 all still match between `CLAUDE.md` and the root
+> `build.gradle.kts` on this branch (the Fix-Pass's own toolchain note confirms the same four values).
+> Kotlin was the only stale line.
+
+> **SIGNAL — link diagnostics (`:signal`, `com.quantumos.signal`):** four `SegmentedGauge` rows
+> (shared from `:app-shell`, not reimplemented) for cellular / Wi-Fi / GPS / Bluetooth, each backed by
+> a real, event-driven Android platform listener (`SignalSensors`) — `TelephonyCallback.
+> SignalStrengthsListener`, a Wi-Fi `RSSI_CHANGED`/`WIFI_STATE_CHANGED` receiver, `GnssStatus.
+> Callback`, and a Bluetooth adapter-state/ACL receiver. No polling loop anywhere: each gauge only
+> updates on its own genuine change event, registered/unregistered by the screen's own
+> `DisposableEffect` lifecycle so nothing runs while SIGNAL is closed. A rolling **signal sparkline**
+> (Canvas polyline, 40-point trace of the composite bar level) appends a point only on those same
+> real events or on a scan. **RUN SCAN** is one explicit, user-triggered, bounded stepped beat (900ms)
+> that forces a fresh trace point — never a continuous background scan. The pure bar-level mapping
+> (`SignalLevels`) lives in `:core`, unit-tested with zero emulator.
+> - **Permissions added** (SIGNAL only): `READ_PHONE_STATE` (cellular), `ACCESS_FINE_LOCATION`
+>   (GPS/GNSS), `BLUETOOTH_CONNECT` (Bluetooth state/bonded-device query). Wi-Fi needs none. Gated via
+>   Accompanist Permissions (same library/version `:audio`'s mic-permission flow already uses) — each
+>   gauge shows its own "ACCESS REQUIRED — TAP TO GRANT" row until granted, plus one combined "GRANT
+>   DIAGNOSTIC ACCESS" action; nothing crashes or fakes a reading if denied.
+> - **Decoder seed feature:** `com.quantumos.core.FieldDecoder` (pure, unit-tested) ports the
+>   *interaction shape* of RADIO's removed cryptographic decoder (`docs/future-signal/radio-decoder.md`)
+>   as a self-contained **offline** decode (ROT13 / Base64 / Hex / Morse, tag-based + auto-detect) —
+>   explicitly **not** wired to any AI backend, per the brief's scope call. **Flagged fast-follow**
+>   (§2/§6): once the QUARK-brain-promotion thread lands `AiAssistBridge` in production, wiring this
+>   decoder to QUARK's own on-device brain instead of the local heuristic is a natural, cheap next
+>   step — not built here, not blocking this brief.
+> - **No network dependency** — no `INTERNET` permission anywhere in `:signal`.
+
+> **CONFIG — the single settings home (`:config`, `com.quantumos.config`):** Phosphor / Boot Pace /
+> Deployment Region, all three durable via a **shared** `SettingsStore` (relocated `:app→:app-shell`
+> so both the launcher and this docked module read/write the exact same `SharedPreferences` file —
+> one source of truth, not two). The old inline STATUS-channel "CONFIG // FIELD SETTINGS" hop is
+> **removed** — CONFIG is now the only settings surface (acceptance §5). Unlike every other docked
+> module's throwaway local `remember { PhosphorHue.GREEN }`, CONFIG's own chrome hue is seeded live
+> from the shared store — its whole reason to exist is to *be* the durable setting.
+> - **Phosphor sync, closed for the launcher pair the brief names:** phosphor hue was previously
+>   in-memory-only in `QuantumStateEngine` (M4's known "resets to green on relaunch" gap). It now
+>   persists through the same store CONFIG uses, and `QuantumRuntime.resyncPersistedSettings()` runs
+>   on `LauncherActivity`'s and `QuarkAssistantActivity`'s own `ON_RESUME` (mirroring the existing M4
+>   overlay-permission re-check pattern) to pick up a CONFIG-driven change — including replaying
+>   QUARK's existing region-switch acknowledgement line if the region changed while CONFIG was open.
+>   **Explicitly NOT touched** (brief §4 hard stop): the phosphor-hue-sync gap between the *six
+>   content* docked modules (COMMS/FILES/AUDIO/RADIO/CAM/MAPS, each still its own local toggle) and
+>   the launcher — that stays the known, tracked-separately gap it already was.
+> - **No network dependency.**
+
+> **`:core` changes:** `DockedModule` gains `SIGNAL`/`CONFIG`; `InstrumentConsole.INSTRUMENTS` now
+> docks all eight (previously SIGNAL alone showed STANDBY and CONFIG hopped to STATUS) —
+> `QuantumStateEngineTest` updated to match. New `FieldDecoder`/`FieldSignalFormat`/`SignalLevels`,
+> unit-tested (`FieldDecoderTest`).
+
+> **Acceptance criteria (brief §5), self-assessed pending Fold 6:**
+> 1. ✅ CLAUDE.md reads Kotlin 2.2.21.
+> 2. ✅ Both dock into the shared App Shell (nameplate, registration marks, CRT shader, "◄ HOME");
+>    the floating QUARK trigger is a system-wide overlay service, unaffected by which docked Activity
+>    is foreground, so it needed no per-module wiring — verified by reading `QuarkTriggerService`, not
+>    assumed.
+> 3. ✅ Chakra Petch only (`Fonts.ChakraPetch` throughout); house SegmentedGauge/PleaseStandbyCard
+>    reused, zero Material progress/spinner widgets. No house line-icon set exists yet project-wide
+>    (known, flagged gap since the Core Apps Fix-Pass) — neither module needed a glyph Material
+>    doesn't already cover, so this pass adds no new icon debt either way.
+> 4. ✅ real device data via the listeners above; RUN SCAN is user-triggered only — pending Fold 6 eyes.
+> 5. ✅ Phosphor/Boot Pace/Deployment Region all functional + persist; STATUS's inline duplicate removed.
+> 6. ✅ no `INTERNET` permission in either module's manifest.
+> 7. ✅ by construction — every SIGNAL listener is event-driven/lifecycle-scoped, no `while(true)`/
+>    timer poll anywhere in either module; profiling on-device is still the Director's real proof.
+> 8. ✅ (see #2 — system-wide overlay, not module-specific).
+> 9. ⏳ pushed; CI result pending as of this entry.
+
+> **Director actions required (Fold 6):**
+> 1. Install the CI build; confirm `gradle test` + `assembleDebug` were green on this push.
+> 2. Tap SIGNAL — grant the combined diagnostic-access permission, confirm all four gauges move on
+>    real changes (toggle Wi-Fi, watch cellular bars, walk near/away from a paired Bluetooth device,
+>    step outside for GPS), confirm RUN SCAN adds a sparkline point without a background scan running
+>    the rest of the time, and try the Field Decoder with a tagged and an untagged payload.
+> 3. Tap CONFIG — cycle all three settings, force-restart the app, confirm all three survived. Cycle
+>    Phosphor in CONFIG, back out to HOME, confirm the Vitality panel's own Phosphor row now reads the
+>    same hue (the resync-on-resume check).
+> 4. Confirm the floating QUARK trigger still floats, drags, and taps correctly from inside both.
+> 5. Confirm STATUS no longer shows a "CONFIG // FIELD SETTINGS" section — CONFIG is the only settings
+>    surface now.
+
+**Previous milestone:** Core Apps Fix-Pass (Decision 86) — dock COMMS/FILES/AUDIO/RADIO into the
 shared App Shell, closing the per-app findings from the Core Apps Audit Pass — **CI-GREEN
 (`gradle test` + `assembleDebug` all passed) AND sideloaded/confirmed on the Fold 6: all four
 apps work fine.** Milestone closed.

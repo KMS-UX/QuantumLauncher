@@ -304,10 +304,10 @@ class QuantumStateEngineTest {
     }
 
     // CAM/MAPS dock into :optics/:nav (App Shell Integration, Phase 3); COMMS/FILES/AUDIO/RADIO
-    // dock into :comms/:files/:audio/:radio (Core Apps Fix-Pass, Decision 86). Only SIGNAL has
-    // neither a docked module nor an in-app hop, so it alone stays STANDBY; CONFIG hops to STATUS.
+    // dock into :comms/:files/:audio/:radio (Core Apps Fix-Pass, Decision 86); SIGNAL/CONFIG dock
+    // into :signal/:config (SIGNAL + CONFIG Task Brief) — closing the eight core instruments.
     @Test
-    fun instrumentConsole_allBuiltInstrumentsDockOrHop() {
+    fun instrumentConsole_allEightInstrumentsDock() {
         val specs = InstrumentConsole.INSTRUMENTS
         assertEquals(DockedModule.OPTICS, specs.single { it.id == InstrumentId.CAM }.dockedModule)
         assertEquals(DockedModule.NAV, specs.single { it.id == InstrumentId.MAPS }.dockedModule)
@@ -315,9 +315,10 @@ class QuantumStateEngineTest {
         assertEquals(DockedModule.FILES, specs.single { it.id == InstrumentId.FILES }.dockedModule)
         assertEquals(DockedModule.AUDIO, specs.single { it.id == InstrumentId.AUDIO }.dockedModule)
         assertEquals(DockedModule.RADIO, specs.single { it.id == InstrumentId.RADIO }.dockedModule)
-        assertEquals(NavigationChannel.STATUS, specs.single { it.id == InstrumentId.CONFIG }.opensChannel)
+        assertEquals(DockedModule.SIGNAL, specs.single { it.id == InstrumentId.SIGNAL }.dockedModule)
+        assertEquals(DockedModule.CONFIG, specs.single { it.id == InstrumentId.CONFIG }.dockedModule)
         val standby = specs.filter { it.dockedModule == null && it.opensChannel == null }
-        assertEquals(setOf(InstrumentId.SIGNAL), standby.map { it.id }.toSet())
+        assertEquals(emptySet<InstrumentId>(), standby.map { it.id }.toSet())
     }
 
     // ---------- Launcher Restructure Phase 2 (v5) — APPS pager ----------

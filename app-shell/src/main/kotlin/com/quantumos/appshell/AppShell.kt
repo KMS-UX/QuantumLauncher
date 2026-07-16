@@ -280,3 +280,38 @@ fun PleaseStandbyCard(subline: String, color: Color, dimColor: Color, font: Font
         }
     }
 }
+
+// Segmented phosphor gauge (M3 Vitality panel) — extracted here (SIGNAL + CONFIG Task Brief) so
+// SIGNAL's four link-diagnostic gauges render "the same visual language as the Vitality panel's
+// Signal/Power/Core Temp gauges" per the brief, instead of a per-module reimplementation. No
+// Material LinearProgressIndicator anywhere in the house — phosphor segments only.
+@Composable
+fun SegmentedGauge(
+    label: String,
+    filled: Int,
+    total: Int,
+    value: String,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily
+) {
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            Text(label.padEnd(10), color = dimColor, fontFamily = font, fontSize = 12.sp)
+            Spacer(Modifier.weight(1f))
+            Text(value, color = color, fontFamily = font, fontSize = 12.sp)
+        }
+        Spacer(Modifier.height(3.dp))
+        Row(Modifier.fillMaxWidth()) {
+            repeat(total) { i ->
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(10.dp)
+                        .background(if (i < filled) color else dimColor.copy(alpha = 0.22f))
+                )
+                if (i < total - 1) Spacer(Modifier.width(2.dp))
+            }
+        }
+    }
+}

@@ -99,11 +99,11 @@ import com.quantumos.appshell.NameplateHeader
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
 import com.quantumos.appshell.QuantumOSLayoutShell
+import com.quantumos.appshell.SegmentedGauge
 import com.quantumos.appshell.TerminalConstraints
 import com.quantumos.appshell.crtOverlay
 import com.quantumos.appshell.crtShader
 import com.quantumos.core.BootLifecycleState
-import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegions
 import com.quantumos.core.DockedModule
 import com.quantumos.core.EnvironmentProfile
@@ -119,10 +119,12 @@ import com.quantumos.core.SystemReadiness
 import com.quantumos.core.VitalityState
 import com.quantumos.audio.AudioActivity
 import com.quantumos.comms.CommsActivity
+import com.quantumos.config.ConfigActivity
 import com.quantumos.files.FilesActivity
 import com.quantumos.nav.NavActivity
 import com.quantumos.optics.OpticsActivity
 import com.quantumos.radio.RadioActivity
+import com.quantumos.signal.SignalActivity
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -202,15 +204,13 @@ class QuantumViewModel : ViewModel() {
     // into CAM/MAPS is the same kind of committed navigation as switching a channel.
     fun signalInstrumentDock() = QuantumRuntime.playCue(SoundCue.UI_CLUNK)
 
-    // M6 STATUS toggles — cycle + persist + (region) QUARK ack, all via the runtime.
-    fun cycleDeploymentRegion() = QuantumRuntime.cycleDeploymentRegion()
-    fun cycleBootPace() = QuantumRuntime.cycleBootPace()
-
     // ---------- M3 Vitality-panel wiring (all delegate to the single engine seam) ----------
     fun toggleVitalityPanel() { _vitalityPanelOpen.value = !_vitalityPanelOpen.value }
     fun stowVitalityPanel() { _vitalityPanelOpen.value = false }
 
-    fun cyclePhosphor() = engine.cyclePhosphorHue()
+    // Phosphor now cycles + persists through the runtime (SIGNAL + CONFIG Task Brief §3) so this
+    // quick action and CONFIG's own control share one durable store, not two independent states.
+    fun cyclePhosphor() = QuantumRuntime.cyclePhosphorHue()
     fun toggleStealth() = engine.toggleStealthMode()
     fun toggleBeacon() = engine.toggleBeacon()
     // Lock is cosmetic (Bible decision 56): lock plays the PLEASE STANDBY → DEVICE SECURED beat;
@@ -288,9 +288,15 @@ class LauncherActivity : ComponentActivity() {
             val lifecycleOwner = LocalLifecycleOwner.current
             var canOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
             // Re-check on resume: the Operator grants it OUTSIDE the app and returns — no restart needed.
+            // Same beat also resyncs CONFIG's persisted phosphor/region/boot-pace into the live engine
+            // (SIGNAL + CONFIG Task Brief §3) — CONFIG is a docked module and can't reach this engine
+            // directly, so a change made there is picked up the moment HOME is resumed.
             DisposableEffect(lifecycleOwner) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_RESUME) canOverlay = Settings.canDrawOverlays(context)
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        canOverlay = Settings.canDrawOverlays(context)
+                        QuantumRuntime.resyncPersistedSettings()
+                    }
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -577,6 +583,8 @@ private fun HomeChannelBody(
             DockedModule.FILES -> FilesActivity::class.java
             DockedModule.AUDIO -> AudioActivity::class.java
             DockedModule.RADIO -> RadioActivity::class.java
+            DockedModule.SIGNAL -> SignalActivity::class.java
+            DockedModule.CONFIG -> ConfigActivity::class.java
         }
         context.startActivity(Intent(context, target))
         dockingModule = null
@@ -1157,38 +1165,8 @@ private fun VitalityPanel(
     }
 }
 
-// In-house segmented gauge — a short row of filled/unfilled phosphor segments + a numeric value.
-// No Material LinearProgressIndicator; themed with the active phosphor.
-@Composable
-private fun SegmentedGauge(
-    label: String,
-    filled: Int,
-    total: Int,
-    value: String,
-    color: Color,
-    dimColor: Color,
-    font: FontFamily
-) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth()) {
-            Text(label.padEnd(10), color = dimColor, fontFamily = font, fontSize = 12.sp)
-            Spacer(Modifier.weight(1f))
-            Text(value, color = color, fontFamily = font, fontSize = 12.sp)
-        }
-        Spacer(Modifier.height(3.dp))
-        Row(Modifier.fillMaxWidth()) {
-            repeat(total) { i ->
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(10.dp)
-                        .background(if (i < filled) color else dimColor.copy(alpha = 0.22f))
-                )
-                if (i < total - 1) Spacer(Modifier.width(2.dp))
-            }
-        }
-    }
-}
+// SegmentedGauge now lives in com.quantumos.appshell (SIGNAL + CONFIG Task Brief) — imported above,
+// so SIGNAL's link-diagnostic gauges share the exact same phosphor-segment renderer, not a copy.
 
 // One Zone-2 quick-action tile. Active = bright phosphor frame; inactive = dim. No Material chrome.
 @Composable
@@ -1575,46 +1553,9 @@ private fun StatusChannelScreen(
         Text("----------------------------------------", color = dimColor, fontFamily = font, fontSize = 13.sp)
         ReadoutRow("READINESS", v.readiness.name, readinessColor, dimColor, font)
 
-        // ----- CONFIG: tap-to-cycle settings (same interaction pattern as Cycle-phosphor). Both
-        // persist across restarts (M6 Step 0/2). -----
-        Spacer(Modifier.height(14.dp))
-        Text("=== CONFIG // FIELD SETTINGS ===", color = color, fontFamily = font, fontSize = 13.sp)
-        Spacer(Modifier.height(6.dp))
-        ConfigCycleRow(
-            label = "DEPLOYMENT REGION",
-            value = DeploymentRegions.label(state.deploymentRegion),
-            color = color, dimColor = dimColor, font = font
-        ) { vm.cycleDeploymentRegion() }
-        ConfigCycleRow(
-            label = "BOOT PACE",
-            value = if (state.bootPace == BootPace.DELIBERATE) "DELIBERATE" else "SNAPPY",
-            color = color, dimColor = dimColor, font = font
-        ) { vm.cycleBootPace() }
-    }
-}
-
-// A tappable STATUS settings row: dim label · bright value · ► cycle affordance. Tap cycles the
-// setting (and persists it). Same tap-to-cycle pattern as the Vitality-panel Phosphor control.
-@Composable
-private fun ConfigCycleRow(
-    label: String,
-    value: String,
-    color: Color,
-    dimColor: Color,
-    font: FontFamily,
-    onClick: () -> Unit
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label.padEnd(18), color = dimColor, fontFamily = font, fontSize = 13.sp)
-        Text(": $value", color = color, fontFamily = font, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.weight(1f))
-        Text("►", color = color, fontFamily = font, fontSize = 13.sp)
+        // CONFIG's Boot Pace / Deployment Region rows used to live inline here (M6). SIGNAL + CONFIG
+        // Task Brief §3 makes CONFIG a real docked module and the single settings home — this inline
+        // hop is removed so there is exactly one settings surface, not two (brief acceptance §5).
     }
 }
 
