@@ -68,8 +68,10 @@ import com.quantumos.core.SoundCue
 import com.quantumos.quarkbrain.BrainReadyState
 import com.quantumos.quarkbrain.QuarkModelConfig
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.appshell.crtShader
 import com.quantumos.shell.ui.QuantumRuntime
 import kotlinx.coroutines.delay
@@ -557,14 +559,14 @@ private fun CommandRail(font: FontFamily, color: Color, dimColor: Color) {
     val parser = QuantumRuntime.parser
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RailButton("STATUS", Modifier.weight(1f), color, dimColor, font) { parser.railStatusReport() }
-            RailButton("STEALTH", Modifier.weight(1f), color, dimColor, font) { parser.railEngageStealth() }
-            RailButton("PHOSPHOR", Modifier.weight(1f), color, dimColor, font) { parser.railCyclePhosphor() }
+            RailButton("STATUS", Glyph.StatusReport, Modifier.weight(1f), color, dimColor, font) { parser.railStatusReport() }
+            RailButton("STEALTH", Glyph.Stealth, Modifier.weight(1f), color, dimColor, font) { parser.railEngageStealth() }
+            RailButton("PHOSPHOR", Glyph.Phosphor, Modifier.weight(1f), color, dimColor, font) { parser.railCyclePhosphor() }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RailButton("BEACON", Modifier.weight(1f), color, dimColor, font) { parser.railLightBeacon() }
-            RailButton("SAY", Modifier.weight(1f), color, dimColor, font) { parser.railSaySomething() }
-            RailButton("WARN", Modifier.weight(1f), color, dimColor, font) { parser.railTriggerWarn() }
+            RailButton("BEACON", Glyph.Beacon, Modifier.weight(1f), color, dimColor, font) { parser.railLightBeacon() }
+            RailButton("SAY", Glyph.Say, Modifier.weight(1f), color, dimColor, font) { parser.railSaySomething() }
+            RailButton("WARN", Glyph.Warn, Modifier.weight(1f), color, dimColor, font) { parser.railTriggerWarn() }
         }
     }
 }
@@ -572,19 +574,22 @@ private fun CommandRail(font: FontFamily, color: Color, dimColor: Color) {
 @Composable
 private fun RailButton(
     label: String,
+    glyph: Glyph,
     modifier: Modifier,
     color: Color,
     dimColor: Color,
     font: FontFamily,
     onClick: () -> Unit
 ) {
-    Box(
+    Column(
         modifier
             .clickable { onClick() }
             .border(BorderStroke(1.dp, color))
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
+            .padding(vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        QuantumIcon(glyph, tint = color, size = 16.dp)
+        Spacer(Modifier.height(4.dp))
         Text(label, color = color, fontFamily = font, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }

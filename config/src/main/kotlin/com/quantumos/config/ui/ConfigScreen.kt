@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -18,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.core.BootPace
 import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.DeploymentRegions
@@ -65,6 +68,7 @@ fun ConfigScreen(
         Spacer(Modifier.height(18.dp))
 
         SettingCycleRow(
+            glyph = Glyph.Phosphor,
             label = "PHOSPHOR",
             value = phosphorHue.name,
             color = themeColor,
@@ -72,6 +76,7 @@ fun ConfigScreen(
             onClick = onCyclePhosphor
         )
         SettingCycleRow(
+            glyph = Glyph.BootPace,
             label = "BOOT PACE",
             value = if (bootPace == BootPace.DELIBERATE) "DELIBERATE" else "SNAPPY",
             color = themeColor,
@@ -79,6 +84,7 @@ fun ConfigScreen(
             onClick = onCycleBootPace
         )
         SettingCycleRow(
+            glyph = Glyph.Region,
             label = "DEPLOYMENT REGION",
             value = DeploymentRegions.label(region),
             color = themeColor,
@@ -107,6 +113,7 @@ fun ConfigScreen(
 // (and persists it, see ConfigViewModel). Same tap-to-cycle pattern the old STATUS rows used.
 @Composable
 private fun SettingCycleRow(
+    glyph: Glyph,
     label: String,
     value: String,
     color: Color,
@@ -120,6 +127,8 @@ private fun SettingCycleRow(
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        QuantumIcon(glyph, tint = color, size = 16.dp)
+        Spacer(Modifier.width(8.dp))
         Text(label.padEnd(18), color = dimColor, fontFamily = Fonts.ChakraPetch, fontSize = 13.sp)
         Text(": $value", color = color, fontFamily = Fonts.ChakraPetch, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))

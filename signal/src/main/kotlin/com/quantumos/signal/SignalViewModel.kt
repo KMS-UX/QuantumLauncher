@@ -3,9 +3,12 @@ package com.quantumos.signal
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.quantumos.core.AiAssistBridge
+import com.quantumos.core.AiAssistResult
 import com.quantumos.core.FieldDecodeResult
-import com.quantumos.core.FieldDecoder
+import com.quantumos.core.FieldSignalFormat
 import com.quantumos.core.SignalLevels
+import com.quantumos.quarkbrain.QuarkBrainProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,7 +40,10 @@ data class SignalUiState(
     val decodeResult: FieldDecodeResult? = null
 )
 
-class SignalViewModel(application: Application) : AndroidViewModel(application) {
+class SignalViewModel @JvmOverloads constructor(
+    application: Application,
+    private val aiAssistBridge: AiAssistBridge = QuarkBrainProvider.bridge(application)
+) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(SignalUiState())
     val state: StateFlow<SignalUiState> = _state.asStateFlow()
@@ -106,7 +112,9 @@ class SignalViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // ---------- offline field decoder (Task Brief §2 decoder seed feature -- no AI, no network) ----------
+    // ---------- field decoder -- wired to QUARK's production on-device brain (Core Apps Polish Pass,
+    // Item 3 / decision 91's fast-follow). Same RUN DECODE trigger, same stepped beat, same result
+    // surface as the old offline-only stub -- this is a backend swap, not a UI change. ----------
     fun updateDecoderInput(text: String) = _state.update { it.copy(decoderInput = text) }
 
     fun runDecode() {
@@ -115,9 +123,23 @@ class SignalViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _state.update { it.copy(isDecoding = true, decodeResult = null) }
             delay(DECODE_BEAT_MS)        // one bounded stepped beat, mirrors :comms's own terminal
-            _state.update { it.copy(isDecoding = false, decodeResult = FieldDecoder.decode(raw)) }
+            val result = when (val reply = aiAssistBridge.ask(decodePrompt(raw))) {
+                is AiAssistResult.Answer -> FieldDecodeResult(FieldSignalFormat.AI, reply.text, true)
+                // Honest degrade (brief §4), never a silent failure or crash -- same reason string
+                // QUARK's brain already surfaces everywhere else (first-run not acquired, no network
+                // to fetch weights, mid-load, etc.), just framed as a link-status line here.
+                is AiAssistResult.Unavailable ->
+                    FieldDecodeResult(FieldSignalFormat.UNKNOWN, "LINK UNAVAILABLE // ${reply.reason}", false)
+            }
+            _state.update { it.copy(isDecoding = false, decodeResult = result) }
         }
     }
+
+    private fun decodePrompt(raw: String) =
+        "You are SIGNAL, a field link-diagnostics decoder. Decode or interpret the following " +
+            "intercepted payload for the Operator. If it is encoded (Base64/Hex/Morse/ROT13/cipher), " +
+            "decode it and state the plaintext. If it is already plain text, give a terse one-line " +
+            "read on its likely meaning. Respond tersely, field-report style, no preamble.\n\nPAYLOAD:\n$raw"
 
     companion object {
         private const val SPARKLINE_CAPACITY = 40

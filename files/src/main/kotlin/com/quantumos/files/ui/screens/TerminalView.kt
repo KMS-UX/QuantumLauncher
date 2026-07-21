@@ -11,9 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -29,7 +26,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.files.viewmodel.FileExplorerViewModel
 
 /*
@@ -118,11 +117,7 @@ fun TerminalView(
                     }
                 }
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Send,
-                    contentDescription = "Execute Command",
-                    tint = primaryColor
-                )
+                QuantumIcon(Glyph.Send, tint = primaryColor, size = 20.dp)
             }
         }
     }

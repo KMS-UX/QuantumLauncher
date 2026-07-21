@@ -11,11 +11,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.audio.ui.RecorderScreen
 import com.quantumos.audio.ui.PlayerScreen
 import com.quantumos.audio.ui.QuarkScreen
@@ -23,7 +22,6 @@ import com.quantumos.audio.ui.ConfigScreen
 import com.quantumos.audio.ui.LogScreen
 import com.quantumos.audio.ui.components.AppShell
 import com.quantumos.audio.ui.components.ChannelTabs
-import com.quantumos.core.PhosphorHue
 
 /*
  * AudioActivity -- docked into the launcher's shared App Shell (Core Apps Fix-Pass, Decision 86).
@@ -33,9 +31,9 @@ import com.quantumos.core.PhosphorHue
  * LauncherActivity on HOME. The "◄ HOME" line in AppShell's header is the same return path, made
  * explicit and tappable.
  *
- * themeHue is a plain composition-level `remember`, not persisted, matching Optics/Nav's existing
- * pattern for docked modules (a known, pre-existing limitation the Director has already accepted for
- * the other docked modules -- not something to fix in this session).
+ * themeHue now reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one process-wide live
+ * source of truth every docked module + CONFIG + the launcher shares, replacing the old per-module
+ * `remember { mutableStateOf(PhosphorHue.GREEN) }` that never saw a hue change made anywhere else.
  *
  * The Recorder screen is the default/primary screen (AudioChannel.RECORDER default in AudioViewModel,
  * matching the source app's already-correct default + back-routing).
@@ -49,17 +47,15 @@ class AudioActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            var themeHue by remember { mutableStateOf(PhosphorHue.GREEN) }
+            val context = LocalContext.current
+            PhosphorHueRuntime.init(context)
+            val themeHue by PhosphorHueRuntime.activeHue.collectAsState()
             val themeColor = Phosphor.bright(themeHue)
             val dimColor = Phosphor.dim(themeHue)
 
             val onCycleHue: () -> Unit = {
-                themeHue = when (themeHue) {
-                    PhosphorHue.GREEN -> PhosphorHue.AMBER
-                    PhosphorHue.AMBER -> PhosphorHue.CYAN
-                    PhosphorHue.CYAN -> PhosphorHue.GREEN
-                }
-                viewModel.addLog("AUDIO: PHOSPHOR LINE -> ${themeHue.name}")
+                PhosphorHueRuntime.cycleHue(context)
+                viewModel.addLog("AUDIO: PHOSPHOR LINE -> ${PhosphorHueRuntime.activeHue.value.name}")
             }
 
             AppShell(

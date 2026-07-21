@@ -8,6 +8,7 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.SystemClock
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.appshell.SettingsStore
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.DeploymentRegion
@@ -249,12 +250,15 @@ object QuantumRuntime {
 
         // Apply persisted settings BEFORE the cold-boot sequence so the chosen pace takes effect this
         // boot, the region is right from the first frame (M6 Step 0/2), and the phosphor hue reads
-        // from CONFIG's durable store (SIGNAL + CONFIG Task Brief §3) instead of always booting green.
+        // from PhosphorHueRuntime's durable-backed value (Core Apps Polish Pass, Item 2) instead of
+        // always booting green.
         appContext?.let { ctx ->
             engine.setBootPace(SettingsStore.loadBootPace(ctx))
             engine.setDeploymentRegion(SettingsStore.loadRegion(ctx))
-            engine.updateEnvironmentProfile { it.copy(activeHue = SettingsStore.loadPhosphorHue(ctx)) }
+            PhosphorHueRuntime.init(ctx)
+            engine.updateEnvironmentProfile { it.copy(activeHue = PhosphorHueRuntime.activeHue.value) }
         }
+        startPhosphorHueObserver()
 
         startAudioPlayback()
 
@@ -291,29 +295,49 @@ object QuantumRuntime {
         sound.play(token, engine.masterState.value.environment.isStealthMode, gain)
 
     // ---------- M3/M6 phosphor — cycle (Vitality panel's quick action) + persist in one place ----------
-    // CONFIG (SIGNAL + CONFIG Task Brief) is the durable source of truth for this same setting; both
-    // write through this one store so they can't drift into two independent values (brief §3).
+    // CONFIG and every docked module read/write PhosphorHueRuntime, the one process-wide live source
+    // of truth (Core Apps Polish Pass, Item 2) — this just applies the SAME cycle to the engine (so
+    // the sweep cue + LOG line still fire, exactly as before) and mirrors the result back into
+    // PhosphorHueRuntime so any docked module on screen recolors immediately, no restart.
     fun cyclePhosphorHue() {
         engine.cyclePhosphorHue()
-        appContext?.let { SettingsStore.savePhosphorHue(it, engine.masterState.value.environment.activeHue) }
+        appContext?.let { PhosphorHueRuntime.setHue(it, engine.masterState.value.environment.activeHue) }
+    }
+
+    private var phosphorObserverStarted = false
+
+    // Mirrors PhosphorHueRuntime -> the engine, so a hue change made from CONFIG or any OTHER docked
+    // module (which can't reach this live engine directly — see resyncPersistedSettings's own note on
+    // the circular-dependency constraint) still recolors the launcher + QUARK immediately, not just on
+    // the next ON_RESUME. cyclePhosphorHue() above already keeps the reverse direction in sync.
+    private fun startPhosphorHueObserver() {
+        if (phosphorObserverStarted) return
+        phosphorObserverStarted = true
+        appScope.launch {
+            PhosphorHueRuntime.activeHue.collect { hue ->
+                if (engine.masterState.value.environment.activeHue != hue) {
+                    engine.updateEnvironmentProfile { it.copy(activeHue = hue) }
+                }
+            }
+        }
     }
 
     /*
      * CONFIG is a docked library module and cannot reach this live engine directly (it would be a
      * circular dependency — :app depends on :config to launch it) — see the App Shell Integration
-     * BUILD_LOG note on AiAssistBridge for the same constraint. So CONFIG writes phosphor/region/
-     * boot-pace straight to the shared SettingsStore, and the launcher re-reads it here on ON_RESUME
-     * (the same "granted outside the app, re-detected on return" pattern as the M4 overlay
-     * permission), applying anything CONFIG changed to the live engine — including firing QUARK's
-     * existing region-switch acknowledgement line so a CONFIG-driven region change still speaks and
-     * logs exactly like the old STATUS-row toggle did.
+     * BUILD_LOG note on AiAssistBridge for the same constraint. So CONFIG writes region/boot-pace
+     * straight to the shared SettingsStore, and the launcher re-reads it here on ON_RESUME (the same
+     * "granted outside the app, re-detected on return" pattern as the M4 overlay permission), applying
+     * anything CONFIG changed to the live engine — including firing QUARK's existing region-switch
+     * acknowledgement line so a CONFIG-driven region change still speaks and logs exactly like the old
+     * STATUS-row toggle did.
+     *
+     * Phosphor hue is NOT resynced here anymore (Core Apps Polish Pass, Item 2): PhosphorHueRuntime's
+     * observer (startPhosphorHueObserver, above) keeps the engine in live sync continuously, not just
+     * on ON_RESUME — the fix for the exact "changing hue anywhere" gap this pass closes.
      */
     fun resyncPersistedSettings() {
         val ctx = appContext ?: return
-        val persistedHue = SettingsStore.loadPhosphorHue(ctx)
-        if (persistedHue != engine.masterState.value.environment.activeHue) {
-            engine.updateEnvironmentProfile { it.copy(activeHue = persistedHue) }
-        }
         val persistedRegion: DeploymentRegion = SettingsStore.loadRegion(ctx)
         if (persistedRegion != engine.masterState.value.deploymentRegion) {
             engine.setDeploymentRegion(persistedRegion)

@@ -238,6 +238,27 @@ fun NameplateHeader(channelName: String, color: Color, dimColor: Color, font: Fo
     }
 }
 
+// Shared "◄ HOME" return affordance every docked module's own AppShell wrapper places over the
+// nameplate's top-end corner (Item 1: the house back-arrow icon, drawn once here instead of each
+// module's wrapper hand-rolling the same text row — see comms/files/audio/config/optics/radio/
+// signal/nav AppShell.kt, all identical before this pass).
+@Composable
+fun BackHomeAffordance(
+    color: Color,
+    font: FontFamily,
+    onReturnHome: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.clickable { onReturnHome() },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        QuantumIcon(Glyph.Back, tint = color, size = 11.dp)
+        Spacer(Modifier.width(4.dp))
+        Text(text = "HOME", color = color, fontFamily = font, fontSize = 11.sp)
+    }
+}
+
 // Channel navigation strip below the nameplate — launcher-only chrome (HOME/APPS/STATUS/LOG), kept
 // here so it stays a single source alongside the header it sits under.
 @Composable
@@ -255,15 +276,28 @@ fun ChannelStrip(
     ) {
         NavigationChannel.entries.forEach { channel ->
             val active = channel == current
-            Text(
-                text = if (active) "[${channel.name}]" else " ${channel.name} ",
-                color = if (active) color else dimColor,
-                fontFamily = font,
-                fontSize = 11.sp,
+            val tint = if (active) color else dimColor
+            val glyph = when (channel) {
+                NavigationChannel.HOME -> Glyph.ChannelHome
+                NavigationChannel.APPS -> Glyph.ChannelApps
+                NavigationChannel.STATUS -> Glyph.ChannelStatus
+                NavigationChannel.LOG -> Glyph.ChannelLog
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clickable { onSelect(channel) }
                     .padding(horizontal = 6.dp, vertical = 4.dp)
-            )
+            ) {
+                QuantumIcon(glyph, tint = tint, size = 12.dp)
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = if (active) "[${channel.name}]" else " ${channel.name} ",
+                    color = tint,
+                    fontFamily = font,
+                    fontSize = 11.sp
+                )
+            }
         }
     }
 }

@@ -5,12 +5,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import com.quantumos.appshell.Phosphor
-import com.quantumos.core.PhosphorHue
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.signal.ui.SignalScreen
 import com.quantumos.signal.ui.components.AppShell
 
@@ -24,9 +23,8 @@ import com.quantumos.signal.ui.components.AppShell
  * LauncherActivity on HOME. The "◄ HOME" line in AppShell's header is the same return path, made
  * explicit and tappable.
  *
- * Active phosphor hue is local, per-module state (PhosphorHue, defaulting GREEN) -- matching how
- * every other docked module does it, the same known pre-existing phosphor-sync gap the brief
- * explicitly keeps out of scope (§4).
+ * Active phosphor hue now reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one
+ * process-wide live source of truth every docked module + CONFIG + the launcher shares.
  */
 class SignalActivity : ComponentActivity() {
 
@@ -37,7 +35,9 @@ class SignalActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            var themeHue by remember { mutableStateOf(PhosphorHue.GREEN) }
+            val context = LocalContext.current
+            PhosphorHueRuntime.init(context)
+            val themeHue by PhosphorHueRuntime.activeHue.collectAsState()
             val themeColor = Phosphor.bright(themeHue)
             val themeColorDim = Phosphor.dim(themeHue)
 
@@ -51,13 +51,7 @@ class SignalActivity : ComponentActivity() {
                     themeColor = themeColor,
                     themeColorDim = themeColorDim,
                     warnColor = Phosphor.Warn,
-                    onCycleTheme = {
-                        themeHue = when (themeHue) {
-                            PhosphorHue.GREEN -> PhosphorHue.AMBER
-                            PhosphorHue.AMBER -> PhosphorHue.CYAN
-                            PhosphorHue.CYAN -> PhosphorHue.GREEN
-                        }
-                    },
+                    onCycleTheme = { PhosphorHueRuntime.cycleHue(context) },
                     contentPadding = padding
                 )
             }

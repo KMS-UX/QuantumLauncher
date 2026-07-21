@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.core.AiAssistBridge
 import com.quantumos.core.AiAssistResult
 import com.quantumos.core.PhosphorHue
@@ -77,7 +78,11 @@ class FileExplorerViewModel @JvmOverloads constructor(
     private val aiAssistBridge: AiAssistBridge = QuarkBrainProvider.bridge(application)
 ) : AndroidViewModel(application) {
 
-    // --- System UI / theme state (local to this module -- see class doc) ---
+    // --- System UI / theme state ---
+    // activeHue mirrors PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one process-wide
+    // live source of truth every docked module + CONFIG + the launcher shares, kept as Compose
+    // snapshot state (rather than a StateFlow FILES' own screens collect) so `viewModel.activeHue`
+    // keeps working exactly as every existing call site already reads it.
     var activeHue by mutableStateOf(PhosphorHue.GREEN)
         private set
     var stealthMode by mutableStateOf(false)
@@ -142,6 +147,12 @@ class FileExplorerViewModel @JvmOverloads constructor(
         monitorBattery()
         logTerminal("QuantumOS FILES access system loaded.")
         logTerminal("Terminal initialized. Type 'help' for field protocols.")
+
+        PhosphorHueRuntime.init(application)
+        activeHue = PhosphorHueRuntime.activeHue.value
+        viewModelScope.launch {
+            PhosphorHueRuntime.activeHue.collect { activeHue = it }
+        }
     }
 
     // --- Navigation & core file system ---
@@ -337,7 +348,7 @@ class FileExplorerViewModel @JvmOverloads constructor(
 
     // --- Global theme & controls ---
     fun selectHue(hue: PhosphorHue) {
-        activeHue = hue
+        PhosphorHueRuntime.setHue(getApplication(), hue)   // activeHue updates via the init{} collector
         logTerminal("SYS_CONF: Phosphor hue changed to $hue.")
         triggerQuarkFeedback(QuarkChatState.HAPPY, "Phosphor frequency retuned to $hue.")
     }

@@ -39,10 +39,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
+import com.quantumos.appshell.BackHomeAffordance
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.NameplateHeader
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.appshell.crtOverlay
 import com.quantumos.core.PhosphorHue
 import com.quantumos.nav.GpsReadout
@@ -100,15 +103,11 @@ fun NavScreen(
             Box(Modifier.fillMaxWidth()) {
                 NameplateHeader(channelName = "NAV", color = color, dimColor = dim, font = font)
                 // Explicit return-to-HOME affordance, alongside the back gesture.
-                Text(
-                    text = "◄ HOME",
+                BackHomeAffordance(
                     color = dim,
-                    fontFamily = font,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 40.dp)
-                        .clickable { onReturnHome() }
+                    font = font,
+                    onReturnHome = onReturnHome,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 40.dp)
                 )
             }
 
@@ -276,13 +275,15 @@ private fun PresetChip(
     font: FontFamily,
     onClick: () -> Unit,
 ) {
-    Box(
+    Row(
         Modifier
             .border(BorderStroke(1.dp, dim))
             .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 7.dp),
-        contentAlignment = Alignment.Center
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        QuantumIcon(Glyph.Waypoint, tint = color, size = 11.dp)
+        Spacer(Modifier.width(5.dp))
         Text(label, color = color, fontFamily = font, fontSize = 10.sp, letterSpacing = 0.5.sp)
     }
 }
@@ -305,7 +306,7 @@ private fun LocateControl(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("◎", color = color, fontFamily = font, fontSize = 14.sp)
+        QuantumIcon(Glyph.YouMarker, tint = color, size = 14.dp)
         Spacer(Modifier.width(6.dp))
         Text("MY POSITION", color = color, fontFamily = font, fontSize = 10.sp, letterSpacing = 0.5.sp)
     }

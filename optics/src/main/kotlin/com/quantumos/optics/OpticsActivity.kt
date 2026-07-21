@@ -1,6 +1,7 @@
 package com.quantumos.optics
 
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PhosphorHueRuntime
 
 import android.os.Bundle
 import android.content.Context
@@ -65,9 +66,15 @@ class OpticsActivity : ComponentActivity(), SensorEventListener {
         enableEdgeToEdge()
         setContent {
             OpticsTheme {
-                var currentThemeColor by remember { mutableStateOf(Phosphor.GreenBright) }
-                var currentThemeColorDim by remember { mutableStateOf(Phosphor.GreenDim) }
-                var activeColorName by remember { mutableStateOf("GREEN") }
+                val context = LocalContext.current
+                PhosphorHueRuntime.init(context)
+                // Reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one process-wide
+                // live source of truth every docked module + CONFIG + the launcher shares, replacing
+                // the old local remember-only hue state.
+                val activeHue by PhosphorHueRuntime.activeHue.collectAsState()
+                val currentThemeColor = Phosphor.bright(activeHue)
+                val currentThemeColorDim = Phosphor.dim(activeHue)
+                val activeColorName = activeHue.name
 
                 // Frame spool / index counter like classic Leica manual winding count
                 var frameCounter by remember { mutableStateOf(1) }
@@ -110,8 +117,6 @@ class OpticsActivity : ComponentActivity(), SensorEventListener {
                 var latitude by remember { mutableStateOf(35.6895) }
                 var longitude by remember { mutableStateOf(139.6917) }
                 var altitude by remember { mutableStateOf(42.5) }
-
-                val context = LocalContext.current
 
                 AppShell(
                     title = "Optics",
@@ -479,25 +484,7 @@ class OpticsActivity : ComponentActivity(), SensorEventListener {
                         latestCapturedUri = latestCapturedUri,
                         onFlashComplete = { triggerShutterFlash = false },
                         onBindCamera = { imgCap -> imageCaptureInstance = imgCap },
-                        onCycleColor = {
-                            when (activeColorName) {
-                                "GREEN" -> {
-                                    currentThemeColor = Phosphor.AmberBright
-                                    currentThemeColorDim = Phosphor.AmberDim
-                                    activeColorName = "AMBER"
-                                }
-                                "AMBER" -> {
-                                    currentThemeColor = Phosphor.CyanBright
-                                    currentThemeColorDim = Phosphor.CyanDim
-                                    activeColorName = "CYAN"
-                                }
-                                else -> {
-                                    currentThemeColor = Phosphor.GreenBright
-                                    currentThemeColorDim = Phosphor.GreenDim
-                                    activeColorName = "GREEN"
-                                }
-                            }
-                        },
+                        onCycleColor = { PhosphorHueRuntime.cycleHue(context) },
                         activeFilmProfile = activeFilmProfile,
                         onFilmProfileChange = { activeFilmProfile = it },
                         burnEnabled = burnEnabled,

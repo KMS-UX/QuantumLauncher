@@ -23,11 +23,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CutCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -51,6 +48,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.radio.RadioBand
 import com.quantumos.radio.RadioPreset
 import com.quantumos.radio.RadioViewModel
@@ -87,8 +86,10 @@ fun BandSelectionRow(
             .fillMaxWidth()
             .border(1.dp, color.copy(alpha = 0.3f))
             .padding(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        QuantumIcon(Glyph.TunerDial, tint = color, size = 18.dp)
         RadioBand.entries.forEach { band ->
             val isSelected = band == selectedBand
             Button(
@@ -478,13 +479,16 @@ fun PresetListColumn(
             .background(Color.Black.copy(alpha = 0.2f))
             .padding(12.dp)
     ) {
-        Text(
-            text = "CARRIER PRESETS",
-            color = color.copy(alpha = 0.6f),
-            fontFamily = Fonts.ChakraPetch,
-            fontSize = 10.sp,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 8.dp)) {
+            QuantumIcon(Glyph.Preset, tint = color.copy(alpha = 0.6f), size = 12.dp)
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = "CARRIER PRESETS",
+                color = color.copy(alpha = 0.6f),
+                fontFamily = Fonts.ChakraPetch,
+                fontSize = 10.sp
+            )
+        }
 
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -526,12 +530,7 @@ fun PresetListColumn(
                         if (preset.isEncrypted) {
                             // Fix: standalone app hardcoded amber (#FFB000) here regardless of the
                             // active hue. Uses the active phosphor `color` instead -- one token source.
-                            Icon(
-                                imageVector = Icons.Filled.Lock,
-                                contentDescription = "Encrypted",
-                                tint = color,
-                                modifier = Modifier.size(12.dp)
-                            )
+                            QuantumIcon(Glyph.Lock, tint = color, size = 12.dp)
                             Spacer(modifier = Modifier.width(4.dp))
                         }
                         Text(

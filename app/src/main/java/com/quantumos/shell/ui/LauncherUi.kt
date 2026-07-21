@@ -95,9 +95,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.shell.overlay.QuarkTriggerService
 import com.quantumos.appshell.ChannelStrip
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.NameplateHeader
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.appshell.QuantumOSLayoutShell
 import com.quantumos.appshell.SegmentedGauge
 import com.quantumos.appshell.TerminalConstraints
@@ -1118,6 +1120,7 @@ private fun VitalityPanel(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ActionCell(
                     modifier = Modifier.weight(1f),
+                    glyph = Glyph.Stealth,
                     title = "STEALTH",
                     status = if (environment.isStealthMode) "ENGAGED" else "STANDBY",
                     active = environment.isStealthMode,
@@ -1125,6 +1128,7 @@ private fun VitalityPanel(
                 )
                 ActionCell(
                     modifier = Modifier.weight(1f),
+                    glyph = Glyph.Phosphor,
                     title = "PHOSPHOR",
                     status = environment.activeHue.name,
                     active = false,                    // momentary cycle, not a sticky toggle
@@ -1135,6 +1139,7 @@ private fun VitalityPanel(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ActionCell(
                     modifier = Modifier.weight(1f),
+                    glyph = Glyph.Beacon,
                     title = "BEACON",
                     status = if (environment.isBeaconActive) "ACTIVE" else "DARK",
                     active = environment.isBeaconActive,
@@ -1142,6 +1147,7 @@ private fun VitalityPanel(
                 )
                 ActionCell(
                     modifier = Modifier.weight(1f),
+                    glyph = Glyph.Lock,
                     title = "LOCK",
                     status = "COSMETIC",
                     active = false,
@@ -1172,6 +1178,7 @@ private fun VitalityPanel(
 @Composable
 private fun ActionCell(
     modifier: Modifier,
+    glyph: Glyph,
     title: String,
     status: String,
     active: Boolean,
@@ -1187,7 +1194,11 @@ private fun ActionCell(
             .border(BorderStroke(1.dp, edge))
             .padding(horizontal = 12.dp, vertical = 12.dp)
     ) {
-        Text(title, color = edge, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            QuantumIcon(glyph, tint = edge, size = 16.dp)
+            Spacer(Modifier.width(6.dp))
+            Text(title, color = edge, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             text = if (active) "[●] $status" else "[ ] $status",
