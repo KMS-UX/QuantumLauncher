@@ -8,7 +8,7 @@ package com.quantumos.core
  * :comms's own cipher terminal (Base64/Morse/ROT13), extended with hex. No AI, no network.
  * Pure Kotlin, no Android deps, so it unit-tests with zero emulator.
  */
-enum class FieldSignalFormat { BASE64, HEX, MORSE, ROT13, UNKNOWN }
+enum class FieldSignalFormat { BASE64, HEX, MORSE, ROT13, AI, UNKNOWN }
 
 data class FieldDecodeResult(val format: FieldSignalFormat, val output: String, val success: Boolean)
 
@@ -66,6 +66,7 @@ object FieldDecoder {
         FieldSignalFormat.HEX -> FieldDecodeResult(format, decodeHex(payload), true)
         FieldSignalFormat.MORSE -> FieldDecodeResult(format, decodeMorse(payload), true)
         FieldSignalFormat.ROT13 -> FieldDecodeResult(format, decodeRot13(payload), true)
+        FieldSignalFormat.AI -> FieldDecodeResult(format, "", false)   // never routed here -- see SIGNAL's AiAssistBridge call
         FieldSignalFormat.UNKNOWN -> FieldDecodeResult(format, "", false)
     }
 

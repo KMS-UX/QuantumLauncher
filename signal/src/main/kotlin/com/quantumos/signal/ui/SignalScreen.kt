@@ -38,8 +38,10 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.appshell.SegmentedGauge
 import com.quantumos.core.FieldDecodeResult
 import com.quantumos.signal.GaugeReading
@@ -121,14 +123,14 @@ fun SignalScreen(
 
         Spacer(Modifier.height(14.dp))
 
-        GaugeOrPermissionGate("CELLULAR", state.cellular, themeColor, themeColorDim, warnColor) {
+        GaugeOrPermissionGate("CELLULAR", Glyph.Cellular, state.cellular, themeColor, themeColorDim, warnColor) {
             permissionsState.launchMultiplePermissionRequest()
         }
-        GaugeOrPermissionGate("WI-FI", state.wifi, themeColor, themeColorDim, warnColor, needsGrant = false) {}
-        GaugeOrPermissionGate("GPS", state.gps, themeColor, themeColorDim, warnColor) {
+        GaugeOrPermissionGate("WI-FI", Glyph.Wifi, state.wifi, themeColor, themeColorDim, warnColor, needsGrant = false) {}
+        GaugeOrPermissionGate("GPS", Glyph.Gps, state.gps, themeColor, themeColorDim, warnColor) {
             permissionsState.launchMultiplePermissionRequest()
         }
-        GaugeOrPermissionGate("BLUETOOTH", state.bluetooth, themeColor, themeColorDim, warnColor) {
+        GaugeOrPermissionGate("BLUETOOTH", Glyph.Bluetooth, state.bluetooth, themeColor, themeColorDim, warnColor) {
             permissionsState.launchMultiplePermissionRequest()
         }
 
@@ -177,17 +179,23 @@ fun SignalScreen(
                 )
             }
         } else {
-            Text(
-                "[ RUN SCAN ]",
-                color = themeColor,
-                fontFamily = Fonts.ChakraPetch,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clickable { viewModel.runScan() }
                     .border(width = 1.dp, color = themeColor, shape = RoundedCornerShape(4.dp))
                     .padding(horizontal = 14.dp, vertical = 8.dp)
-            )
+            ) {
+                QuantumIcon(Glyph.RunScan, tint = themeColor, size = 14.dp)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "[ RUN SCAN ]",
+                    color = themeColor,
+                    fontFamily = Fonts.ChakraPetch,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         Spacer(Modifier.height(18.dp))
@@ -212,6 +220,7 @@ fun SignalScreen(
 @Composable
 private fun GaugeOrPermissionGate(
     label: String,
+    glyph: Glyph,
     reading: GaugeReading,
     bright: Color,
     dim: Color,
@@ -220,15 +229,21 @@ private fun GaugeOrPermissionGate(
     onRequestGrant: () -> Unit
 ) {
     if (reading.permissionGranted) {
-        SegmentedGauge(
-            label = label,
-            filled = reading.bars,
-            total = 4,
-            value = reading.label,
-            color = bright,
-            dimColor = dim,
-            font = Fonts.ChakraPetch
-        )
+        Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 2.dp)) {
+            QuantumIcon(glyph, tint = bright, size = 16.dp, modifier = Modifier.padding(top = 3.dp))
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.weight(1f)) {
+                SegmentedGauge(
+                    label = label,
+                    filled = reading.bars,
+                    total = 4,
+                    value = reading.label,
+                    color = bright,
+                    dimColor = dim,
+                    font = Fonts.ChakraPetch
+                )
+            }
+        }
     } else {
         Row(
             Modifier

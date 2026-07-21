@@ -29,6 +29,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.comms.CommsUiState
 import com.quantumos.comms.CommsViewModel
 import com.quantumos.comms.ui.components.LivePulseDot
@@ -80,6 +82,8 @@ private fun ChannelListLog(
                     .padding(horizontal = 16.dp, vertical = 10.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    QuantumIcon(Glyph.CommsChannel, tint = bright, size = 14.dp)
+                    Spacer(Modifier.width(6.dp))
                     LivePulseDot(pulseTrigger = channel.pulseTrigger, color = bright)
                     Spacer(Modifier.width(8.dp))
                     Text(

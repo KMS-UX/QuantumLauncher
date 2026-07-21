@@ -1,12 +1,10 @@
 package com.quantumos.nav
 
 import androidx.lifecycle.ViewModel
-import com.quantumos.core.PhosphorHue
 import com.quantumos.nav.core.CoordinateParseResult
 import com.quantumos.nav.core.DEFAULT_SECTOR
 import com.quantumos.nav.core.NavCoordinates
 import com.quantumos.nav.core.SectorPreset
-import com.quantumos.nav.core.next
 import com.quantumos.nav.core.parseCoordinates
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,8 +27,9 @@ data class WarpRequest(val id: Long, val destination: NavCoordinates, val zoom: 
  */
 class NavViewModel : ViewModel() {
 
-    private val _activeHue = MutableStateFlow(PhosphorHue.GREEN)
-    val activeHue: StateFlow<PhosphorHue> = _activeHue.asStateFlow()
+    // Phosphor hue lives in PhosphorHueRuntime (:app-shell) now (Core Apps Polish Pass, Item 2) --
+    // it needs a Context for the durable store this plain (non-Android) ViewModel doesn't hold, so
+    // NavActivity reads/cycles it directly rather than proxying through here.
 
     private val _gps = MutableStateFlow<GpsReadout>(GpsReadout.Scanning)
     val gps: StateFlow<GpsReadout> = _gps.asStateFlow()
@@ -43,8 +42,6 @@ class NavViewModel : ViewModel() {
     val warp: StateFlow<WarpRequest?> = _warp.asStateFlow()
 
     private var warpCounter = 0L
-
-    fun cyclePhosphor() { _activeHue.value = _activeHue.value.next() }
 
     fun onGpsFix(lat: Double, lng: Double, alt: Double) { _gps.value = GpsReadout.Fix(lat, lng, alt) }
     fun onGpsPermissionDenied() { _gps.value = GpsReadout.PermissionDenied }

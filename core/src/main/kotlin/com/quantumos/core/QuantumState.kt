@@ -34,6 +34,16 @@ enum class BootPace(val stepDurationMs: Long) { SNAPPY(100L), DELIBERATE(600L) }
 
 enum class NavigationChannel { HOME, APPS, STATUS, LOG }
 enum class PhosphorHue { GREEN, AMBER, CYAN }
+
+// Shared green -> amber -> cyan -> green cycle order (Core Apps Polish Pass, Item 2) -- the one
+// place this rotation is defined, so PhosphorHueRuntime (:app-shell) and the engine's own
+// cyclePhosphorHue() below can never drift into two different orders.
+fun PhosphorHue.next(): PhosphorHue = when (this) {
+    PhosphorHue.GREEN -> PhosphorHue.AMBER
+    PhosphorHue.AMBER -> PhosphorHue.CYAN
+    PhosphorHue.CYAN -> PhosphorHue.GREEN
+}
+
 enum class SystemReadiness { NOMINAL, DEGRADED, CRITICAL }
 enum class QuarkReflexPosture { IDLE, SCAN, HAPPY, WARN }
 
@@ -321,11 +331,7 @@ class QuantumStateEngine(
 
     // Phosphor: cycle the active hue green → amber → cyan → green, live across the whole UI.
     fun cyclePhosphorHue() {
-        val next = when (_masterState.value.environment.activeHue) {
-            PhosphorHue.GREEN -> PhosphorHue.AMBER
-            PhosphorHue.AMBER -> PhosphorHue.CYAN
-            PhosphorHue.CYAN -> PhosphorHue.GREEN
-        }
+        val next = _masterState.value.environment.activeHue.next()
         updateEnvironmentProfile { it.copy(activeHue = next) }
         emitAudioCue(SoundCue.SWEEP_PHOSPHOR)            // phosphor retune sweep (fires from the action)
         logEvent("ENV: Phosphor line shifted -> $next")

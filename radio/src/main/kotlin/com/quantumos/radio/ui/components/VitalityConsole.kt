@@ -20,14 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CutCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ColorLens
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.QuantumIcon
 
 /*
  * RADIO's own local "vitals" quick-actions console -- the same shape as the standalone app's
@@ -142,7 +138,7 @@ fun VitalityDropdownConsole(
                     fontSize = 12.sp
                 )
                 IconButton(onClick = onClose) {
-                    Icon(imageVector = Icons.Filled.Close, contentDescription = "Close", tint = color)
+                    QuantumIcon(Glyph.Close, tint = color, size = 16.dp)
                 }
             }
 
@@ -204,12 +200,7 @@ fun VitalityDropdownConsole(
                     shape = CutCornerShape(4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (stealthMode) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = "Stealth",
-                            tint = color,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        QuantumIcon(Glyph.Stealth, tint = color, size = 16.dp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = if (stealthMode) "ACTIVE STEALTH" else "STEALTH MODE",
@@ -228,12 +219,7 @@ fun VitalityDropdownConsole(
                     shape = CutCornerShape(4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.ColorLens,
-                            contentDescription = "Color theme",
-                            tint = color,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        QuantumIcon(Glyph.Phosphor, tint = color, size = 16.dp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("CYCLE PHOSPHOR", color = color, fontSize = 10.sp, fontFamily = Fonts.ChakraPetch)
                     }

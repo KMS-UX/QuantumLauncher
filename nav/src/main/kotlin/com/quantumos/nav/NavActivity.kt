@@ -22,6 +22,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.nav.core.SectorPresets
 import com.quantumos.nav.ui.NavScreen
 
@@ -43,7 +44,8 @@ class NavActivity : ComponentActivity() {
         setContent {
             val vm: NavViewModel = viewModel()
             val context = LocalContext.current
-            val activeHue by vm.activeHue.collectAsState()
+            PhosphorHueRuntime.init(context)
+            val activeHue by PhosphorHueRuntime.activeHue.collectAsState()
             val gps by vm.gps.collectAsState()
             val statusLine by vm.statusLine.collectAsState()
             val warp by vm.warp.collectAsState()
@@ -109,7 +111,7 @@ class NavActivity : ComponentActivity() {
                 gps = gps,
                 statusLine = statusLine,
                 warp = warp,
-                onCyclePhosphor = { vm.cyclePhosphor() },
+                onCyclePhosphor = { PhosphorHueRuntime.cycleHue(context) },
                 onWarpEntry = { lat, lng -> vm.warpToEntry(lat, lng) },
                 onWarpPreset = { index -> vm.warpToPreset(SectorPresets.ALL[index]) },
                 onLocate = { vm.warpToCurrentLocation() },

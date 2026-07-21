@@ -12,14 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.Radio
-import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -33,12 +27,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.files.viewmodel.FileExplorerViewModel
 import com.quantumos.files.viewmodel.FileItem
 
@@ -88,28 +83,28 @@ fun FilesScreen(
         ) {
             ChannelTabButton(
                 label = "EXPLORER",
-                icon = Icons.Filled.Folder,
+                glyph = Glyph.Folder,
                 isActive = activeChannel == FileChannel.EXPLORER,
                 color = themeColor,
                 onClick = { activeChannel = FileChannel.EXPLORER }
             )
             ChannelTabButton(
                 label = "TERMINAL",
-                icon = Icons.Filled.Terminal,
+                glyph = Glyph.Terminal,
                 isActive = activeChannel == FileChannel.TERMINAL,
                 color = themeColor,
                 onClick = { activeChannel = FileChannel.TERMINAL }
             )
             ChannelTabButton(
                 label = "DECRYPT",
-                icon = Icons.Filled.Psychology,
+                glyph = Glyph.Decrypt,
                 isActive = activeChannel == FileChannel.DECRYPTOR,
                 color = themeColor,
                 onClick = { activeChannel = FileChannel.DECRYPTOR }
             )
             ChannelTabButton(
                 label = "QUARK",
-                icon = Icons.Filled.Radio,
+                glyph = Glyph.QuarkChat,
                 isActive = activeChannel == FileChannel.QUARK_CHAT,
                 color = themeColor,
                 onClick = { activeChannel = FileChannel.QUARK_CHAT }
@@ -208,7 +203,7 @@ fun FilesScreen(
 @Composable
 fun ChannelTabButton(
     label: String,
-    icon: ImageVector,
+    glyph: Glyph,
     isActive: Boolean,
     color: Color,
     onClick: () -> Unit
@@ -226,12 +221,7 @@ fun ChannelTabButton(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color.copy(alpha = alpha),
-                modifier = Modifier.size(20.dp)
-            )
+            QuantumIcon(glyph, tint = color.copy(alpha = alpha), size = 20.dp)
             Text(
                 text = label,
                 fontFamily = Fonts.ChakraPetch,

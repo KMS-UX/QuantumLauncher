@@ -11,6 +11,121 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
+**Current milestone:** Core Apps Polish Pass Task Brief v1.0 (`docs/QuantumOS-Core-Apps-Polish-Pass-
+Task-Brief-v1_0.md`) — three deferred-but-decided gaps closed across the eight core instruments:
+house line-icons (decision 60), phosphor-hue live sync, and SIGNAL's decoder wired to the now-
+production `AiAssistBridge` (decision 91's fast-follow). **CI compile could not be verified locally
+this session either** — same "no network path to Google's Maven / AGP" wall the prior (QUARK Brain
+Promotion) session hit; see that session's own "Build reality" note below, unchanged this session.
+Every change in this pass is unverified by a build — CI on push is the first real compiler run.
+
+> **What changed — Item 1 (house line-icons):** new `Glyph` enum + `QuantumIcon(glyph, tint, size)`
+> composable in `app-shell/QuantumIcons.kt` — Canvas/Path line-icons in the same stroke discipline as
+> the launcher's pre-existing `InstrumentIcon` working set (not reused/moved — that set covers the
+> eight instrument-tile glyphs, a separate, already-correct inventory the brief's §2 list doesn't
+> include). ~35 glyphs cover every §2 inventory slot plus every *actual* stock-Material-icon usage
+> found during the pass (see flag below — several §2 slots were already glyph-free text, not stock
+> icons; several *un-listed* slots WERE stock icons). Wired into: the shared `NameplateHeader`'s new
+> `BackHomeAffordance` composable (replacing eight modules' identical hand-rolled "◄ HOME" `Text` —
+> comms/files/audio/config/optics/radio/signal/nav all now call the one shared composable) +
+> `ChannelStrip`'s HOME/APPS/STATUS/LOG icons; the Vitality panel's `ActionCell` (Stealth/Phosphor/
+> Beacon/Lock) and QUARK's `CommandRail` (all six buttons); COMMS' channel row; FILES' tab strip +
+> explorer row icons (+ the four seeded category folders get distinct glyphs) + send buttons; AUDIO's
+> transport controls + Mic; RADIO's Vitality console (Close/Stealth/Phosphor) + band selector + preset
+> lock badge; SIGNAL's four gauges + RUN SCAN; CONFIG's three settings rows; MAPS' preset chips +
+> locate control. **Flag per brief §7:** CAM's shutter was already a bespoke Canvas dial (original,
+> themed, no stock icon — left as-is, it already meets the house-style bar); CAM's "PHOTO/VIDEO mode
+> toggle" does not exist in the current Optics module (photo-only, no video capture mode anywhere in
+> the code) — nothing to reskin, and inventing the toggle itself is out of this brief's scope. Also
+> found and fixed several stock-icon slots the brief's own §2 inventory did NOT list: FILES' internal
+> tab icons (Folder/Terminal/Psychology/Radio) and Send buttons (chat + terminal), AUDIO's Play/Pause/
+> Stop/Mic, RADIO's VitalityConsole Close/Visibility/ColorLens + the preset Lock badge.
+>
+> **What changed — Item 2 (phosphor-hue live sync):** new `PhosphorHueRuntime` object
+> (`app-shell/PhosphorHueRuntime.kt`) — the one process-wide `StateFlow<PhosphorHue>`, backed by the
+> existing `SettingsStore`. This is the actual fix for the brief's "single source of truth" ask: seven
+> of the eight docked modules (all but CONFIG) turned out to hold their own independent, unsynced,
+> always-GREEN `remember { mutableStateOf(PhosphorHue.GREEN) }` (or ViewModel-local equivalent) —
+> confirmed by direct code read, not assumed. All eight docked modules + CONFIG now read/cycle this
+> one object directly (all modules are `com.android.library` inside the single `com.quantumos.shell`
+> application — same process — confirmed via every module's `build.gradle.kts`, so a plain shared
+> `StateFlow` genuinely propagates live across whichever Activities are on the back stack, no IPC
+> needed). `QuantumRuntime` (`:app`) bridges bidirectionally so the launcher engine's own
+> `environment.activeHue` (still the field every existing UI read/animation depends on) and
+> `PhosphorHueRuntime` can never drift: `cyclePhosphorHue()` still fires through `engine.
+> cyclePhosphorHue()` first (so the sweep cue + LOG line are unchanged) then mirrors the result into
+> `PhosphorHueRuntime`; a new `startPhosphorHueObserver()` app-scoped collector applies any EXTERNAL
+> change (from CONFIG or any docked module) back into the engine immediately, replacing the old
+> ON_RESUME-only `resyncPersistedSettings()` phosphor branch (removed — now redundant; region/boot-pace
+> resync there is untouched). `ConfigViewModel`'s own hue `MutableStateFlow` (the exact "two
+> independent toggles" drift risk the brief's §3/acceptance §4 named) is deleted outright; it now
+> delegates straight to `PhosphorHueRuntime`. `PhosphorHue.next()` promoted from a private extension
+> in `:nav` into `:core` (`QuantumState.kt`, next to the enum) as the one shared cycle-order
+> definition; the engine's own `cyclePhosphorHue()` now calls it too instead of duplicating the
+> `when`. `NavViewModel`'s hue field/`cyclePhosphor()` removed (it's a plain `ViewModel`, no `Context`
+> for the durable store) — `NavActivity` now reads/cycles `PhosphorHueRuntime` directly, same pattern
+> as radio/audio/comms/signal's Activities; FILES keeps its existing `viewModel.activeHue` Compose-
+> state property (external call-site shape unchanged) but it's now driven by a `PhosphorHueRuntime`
+> collector in `init{}` instead of being the source of truth itself.
+>
+> **What changed — Item 3 (SIGNAL decoder → production brain):** `SignalViewModel.runDecode()` now
+> calls `QuarkBrainProvider.bridge(application).ask(...)` (added `implementation(project(":quark-
+> brain"))` to `signal/build.gradle.kts`) instead of the local `FieldDecoder.decode()` heuristic —
+> exact same pattern FILES already proved (`AiAssistResult.Answer`/`Unavailable` mapped into the
+> unchanged `FieldDecodeResult` shape SIGNAL's UI already renders, zero UI changes). `Answer` → a new
+> `FieldSignalFormat.AI` result tag (added to the enum, `FieldDecoder.kt`'s exhaustive `decodeAs` `when`
+> updated for it, never actually reached from that path); `Unavailable` → `"LINK UNAVAILABLE // ${reason}"`
+> at `success=false`, reusing `QuarkAiAssistBridge`'s own existing first-run/no-network/loading reason
+> strings verbatim — the same honest degrade QUARK's brain already gives everywhere else, framed as a
+> link-status line, never a silent failure or crash. RUN SCAN / the stepped "RESOLVING PAYLOAD…" beat /
+> the RUN DECODE trigger shape are all untouched (backend swap only, per brief §4). `core/FieldDecoder.kt`
+> itself (the pure offline Base64/Hex/Morse/ROT13 heuristic) is left in place, still unit-tested — it's
+> real, useful, tested logic, just no longer SIGNAL's primary path; deleting it wasn't asked for.
+>
+> **Acceptance criteria (brief §6), self-assessed — CANNOT be confirmed without CI + the Fold 6:**
+> 1. ✅ by code read — zero `Icons.*`/Material-icon imports remain anywhere in the repo (repo-wide grep,
+>    confirmed after the pass); every §2 slot now renders a `QuantumIcon` or was already icon-free text.
+> 2. ⏳ Geometry is deliberately simple/high-contrast at small sizes (12–20dp command-rail/gauge range)
+>    but has never rendered on a real screen or the AGSL CRT shader — this is the headline on-device
+>    check, flagged for the Director explicitly, not assumed.
+> 3. ⏳ Live-sync logic is in place and code-reviewed (see above) but needs the Fold 6 to prove hue
+>    changed in CONFIG/a docked module actually repaints another already-open module without restart.
+> 4. ✅ by construction — `ConfigViewModel.phosphorHue` and the Vitality panel's `cyclePhosphorHue()`
+>    both resolve to the same `PhosphorHueRuntime` object; no second `MutableStateFlow` remains.
+> 5. ⏳ Backend call is real (`QuarkBrainProvider.bridge(...).ask(...)`, no stub) but needs a loaded
+>    on-device model to actually observe a non-`Unavailable` decode in a production build.
+> 6. ✅ by code read — `Unavailable` maps to an honest `"LINK UNAVAILABLE // <reason>"` line with
+>    `success=false`, never a thrown exception or a blank/frozen state.
+> 7. ✅ by construction — no new `while(true)`/timer/poll anywhere in this diff; `PhosphorHueRuntime` is
+>    StateFlow-collected (event-driven), icons are static Canvas draws (redraw only on recomposition
+>    from an actual state change, same discipline as `InstrumentIcon`).
+> 8. ⏳ CI status genuinely unknown until the next push — see "Build reality" above.
+>
+> **Director actions required (Fold 6) — this entire pass is unconfirmed until these run:**
+> 1. **Push this branch and watch CI first** — local `gradle :core:test` still can't even resolve the
+>    root build's AGP plugin in this cloud container (confirmed again this session, same wall as
+>    QUARK Brain Promotion). Do not sideload before CI is green.
+> 2. Read every replaced icon slot at its real deployed size (command rail ~16dp, SIGNAL gauges ~16dp,
+>    channel strip ~12dp) across all three hues — confirm legibility, not just "something renders."
+> 3. From HOME's Vitality panel, cycle Phosphor, then open each of the eight docked modules WITHOUT
+>    force-closing the app between them — confirm each already-open module's chrome recolors live.
+>    Then reverse: cycle from inside a docked module (e.g. RADIO's Vitality console), confirm HOME +
+>    QUARK + every other open module follow, and CONFIG's own row shows the new hue on next visit.
+> 4. In SIGNAL, run a decode with the on-device brain NOT yet acquired — confirm the "LINK UNAVAILABLE"
+>    line reads honest and in-character, not raw/technical. Then acquire the brain (via the QUARK
+>    Assistant View's existing panel) and re-run a decode — confirm a real, non-canned response.
+> 5. Profile idle draw (the House Style "zero idle redraw" rule) on at least one screen with several
+>    new icons visible at rest — confirm nothing added a redraw loop.
+>
+> **Known follow-ups flagged, not fixed here (out of scope, noted per SESSION-PLAYBOOK's "flag,
+> don't silently lock" rule):** CAM has no PHOTO/VIDEO mode at all (see flag above) — a real feature
+> gap, not an icon gap; belongs to a future CAM-scoped brief, not this polish pass. The pixel-level
+> icon masters + Atom-Lockup app badge (decision 60's other deferred half) remain a later identity
+> pass, explicitly out of scope per brief §5.
+
+---
+
+## ▶ Prior milestone (QUARK Brain Promotion — see below for full detail)
 **Current milestone:** QUARK Brain Promotion Task Brief v1.0 (`docs/QuantumOS-QUARK-Brain-Promotion-
 Task-Brief-v1_0.md`) — wiring, not invention: the already-hardware-confirmed on-device brain (Phase
 1) and voice pipeline (Phase 2a/2b) are promoted from behind the triple-tap debug toggle into the
@@ -1319,3 +1434,15 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   (2) add the three secrets in GitHub repo settings; (3) re-run CI to produce the signed release
   APK artifact; (4) complete the Step 3 field-test on the Fold 6.** Checkpoint β is confirmed when
   all field-test items pass.
+- **Core Apps Polish Pass session (2026-07-21):** three deferred-but-decided gaps closed across the
+  eight core instruments (see ▶ RESUME HERE at the top for full detail). House line-icons: new shared
+  `Glyph`/`QuantumIcon` (`:app-shell`), zero stock Material icons remain anywhere in the repo.
+  Phosphor-hue live sync: new `PhosphorHueRuntime` (`:app-shell`) as the one process-wide source of
+  truth, fixing seven docked modules' independent unsynced local hue state (a real bug, confirmed by
+  direct code read) and CONFIG's own duplicate `MutableStateFlow`; `QuantumRuntime` bridges it to the
+  launcher engine bidirectionally. SIGNAL decoder: `runDecode()` now calls `QuarkBrainProvider.bridge()
+  .ask(...)` (added `:quark-brain` dep to `:signal`) instead of the local `FieldDecoder` heuristic,
+  honest `"LINK UNAVAILABLE"` degrade on `Unavailable`. **Could not verify locally** — same "no network
+  path to Google's Maven/AGP" container wall the QUARK Brain Promotion session hit; CI on push is the
+  first real compiler run. **Pending Director confirmation on the Fold 6** (icon legibility at deployed
+  size, live cross-module hue sync, a real SIGNAL decode) before this pass is closed.

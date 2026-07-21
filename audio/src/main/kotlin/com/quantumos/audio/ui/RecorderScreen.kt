@@ -24,14 +24,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -52,8 +47,10 @@ import com.google.accompanist.permissions.rememberPermissionState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.audio.AudioViewModel
 
 /*
@@ -221,12 +218,7 @@ fun RecorderScreen(
                             .size(width = 150.dp, height = 56.dp)
                             .border(width = 2.dp, color = Phosphor.Warn, shape = RoundedCornerShape(8.dp))
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.FiberManualRecord,
-                            contentDescription = "Record",
-                            tint = Phosphor.Warn,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        QuantumIcon(Glyph.Record, tint = Phosphor.Warn, size = 16.dp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "RECORD",
@@ -245,12 +237,7 @@ fun RecorderScreen(
                             .size(width = 150.dp, height = 56.dp)
                             .border(width = 2.dp, color = themeColor, shape = RoundedCornerShape(8.dp))
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.Stop,
-                            contentDescription = "Stop",
-                            tint = themeColor,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        QuantumIcon(Glyph.Stop, tint = themeColor, size = 16.dp)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "STOP",
@@ -291,12 +278,7 @@ fun RecorderScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Filled.Mic,
-                                    contentDescription = null,
-                                    tint = themeColor.copy(alpha = 0.3f),
-                                    modifier = Modifier.size(36.dp)
-                                )
+                                QuantumIcon(Glyph.Mic, tint = themeColor.copy(alpha = 0.3f), size = 36.dp)
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "CAPTURE BUFFER EMPTY",
@@ -324,12 +306,7 @@ fun RecorderScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Filled.Mic,
-                                    contentDescription = null,
-                                    tint = themeColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
+                                QuantumIcon(Glyph.Mic, tint = themeColor, size = 16.dp)
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(

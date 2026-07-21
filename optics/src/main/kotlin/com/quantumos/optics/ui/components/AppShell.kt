@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import android.content.res.Configuration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.quantumos.appshell.BackHomeAffordance
 import com.quantumos.appshell.Fonts
 import com.quantumos.appshell.NameplateHeader
 import com.quantumos.appshell.Phosphor
@@ -71,15 +72,11 @@ fun AppShell(
                 )
                 // Explicit return-to-HOME affordance, alongside the back gesture (no BackHandler
                 // consumes it here -- system back already returns to the still-live launcher).
-                Text(
-                    text = "◄ HOME",
+                BackHomeAffordance(
                     color = themeColor.copy(alpha = 0.6f),
-                    fontFamily = Fonts.ChakraPetch,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 34.dp, end = 16.dp)
-                        .clickable { onReturnHome() }
+                    font = Fonts.ChakraPetch,
+                    onReturnHome = onReturnHome,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 34.dp, end = 16.dp)
                 )
             }
 

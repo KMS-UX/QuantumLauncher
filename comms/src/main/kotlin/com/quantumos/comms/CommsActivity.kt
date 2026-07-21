@@ -5,15 +5,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.comms.ui.components.AppShell
 import com.quantumos.comms.ui.screens.CommsScreen
-import com.quantumos.core.PhosphorHue
 
 /*
  * COMMS -- docked into the launcher's shared App Shell (Core Apps Fix-Pass, Decision 86). Launched
@@ -28,10 +27,11 @@ class CommsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            // Local default hue, matching the Optics/Nav/Files docking pattern -- this repo doesn't
-            // yet sync a docked module's phosphor hue with the launcher's live selection (a known,
-            // pre-existing limitation, not something this pass fixes).
-            var hue by remember { mutableStateOf(PhosphorHue.GREEN) }
+            // Reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one process-wide live
+            // source of truth every docked module + CONFIG + the launcher shares.
+            val context = LocalContext.current
+            PhosphorHueRuntime.init(context)
+            val hue by PhosphorHueRuntime.activeHue.collectAsState()
             val bright = Phosphor.bright(hue)
 
             val viewModel: CommsViewModel = viewModel()
@@ -44,13 +44,7 @@ class CommsActivity : ComponentActivity() {
                 CommsScreen(
                     viewModel = viewModel,
                     hue = hue,
-                    onCycleHue = {
-                        hue = when (hue) {
-                            PhosphorHue.GREEN -> PhosphorHue.AMBER
-                            PhosphorHue.AMBER -> PhosphorHue.CYAN
-                            PhosphorHue.CYAN -> PhosphorHue.GREEN
-                        }
-                    },
+                    onCycleHue = { PhosphorHueRuntime.cycleHue(context) },
                     contentPadding = padding
                 )
             }

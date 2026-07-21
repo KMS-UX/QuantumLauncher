@@ -20,12 +20,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -41,7 +37,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.files.viewmodel.FileExplorerViewModel
 import com.quantumos.files.viewmodel.FileItem
 
@@ -50,9 +48,17 @@ import com.quantumos.files.viewmodel.FileItem
  * :app-shell's Phosphor tokens/Chakra Petch font instead of hardcoded hex + FontFamily.Monospace).
  * The generic/unrestricted file browser behavior (raw path breadcrumb, NEW SECTOR/ALLOCATE FILE
  * actions that can create arbitrary folders/files anywhere) is kept exactly as-is (fix-pass §5).
- * Stock Material icons (Folder/Description) stay in place -- no custom line-icon library exists
- * yet (fix-pass §7, a known gap, not solved here).
+ * Row icons now come from the shared QuantumIcons house set (Core Apps Polish Pass §2) -- the four
+ * seeded top-level categories (FIELD-LOGS/CAPTURES/COMMS-CACHE/MAPS) get their own glyph, any other
+ * directory falls back to the generic Folder glyph.
  */
+private fun categoryGlyph(dirName: String): Glyph = when (dirName) {
+    "FIELD-LOGS" -> Glyph.CategoryFieldLogs
+    "CAPTURES" -> Glyph.CategoryCaptures
+    "COMMS-CACHE" -> Glyph.CategoryCommsCache
+    "MAPS" -> Glyph.CategoryMaps
+    else -> Glyph.Folder
+}
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ExplorerView(
@@ -294,11 +300,10 @@ fun FileGridCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top
             ) {
-                Icon(
-                    imageVector = if (file.isDirectory) Icons.Filled.Folder else Icons.Filled.Description,
-                    contentDescription = null,
+                QuantumIcon(
+                    glyph = if (file.isDirectory) categoryGlyph(file.name) else Glyph.FileDoc,
                     tint = primaryColor,
-                    modifier = Modifier.size(24.dp)
+                    size = 24.dp
                 )
 
                 Text(

@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.quantumos.appshell.BackHomeAffordance
 import com.quantumos.appshell.Fonts
 import com.quantumos.appshell.NameplateHeader
 import com.quantumos.appshell.Phosphor
@@ -45,15 +46,11 @@ fun AppShell(
                     dimColor = themeColor.copy(alpha = 0.6f),
                     font = Fonts.ChakraPetch
                 )
-                Text(
-                    text = "◄ HOME",
+                BackHomeAffordance(
                     color = themeColor.copy(alpha = 0.6f),
-                    fontFamily = Fonts.ChakraPetch,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 34.dp, end = 16.dp)
-                        .clickable { onReturnHome() }
+                    font = Fonts.ChakraPetch,
+                    onReturnHome = onReturnHome,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 34.dp, end = 16.dp)
                 )
             }
         }

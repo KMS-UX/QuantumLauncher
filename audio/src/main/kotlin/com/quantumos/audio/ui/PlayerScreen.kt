@@ -28,14 +28,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -56,8 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
+import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
+import com.quantumos.appshell.QuantumIcon
 import com.quantumos.audio.AudioViewModel
 
 /*
@@ -230,11 +227,10 @@ fun PlayerScreen(
                                 .border(width = 1.dp, color = themeColor, shape = RoundedCornerShape(50))
                                 .background(Phosphor.Crt)
                         ) {
-                            Icon(
-                                imageVector = if (isPlayingState) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = "Play or pause",
+                            QuantumIcon(
+                                glyph = if (isPlayingState) Glyph.Pause else Glyph.Play,
                                 tint = themeColor,
-                                modifier = Modifier.size(22.dp)
+                                size = 18.dp
                             )
                         }
                         IconButton(
@@ -244,12 +240,7 @@ fun PlayerScreen(
                                 .border(width = 1.dp, color = themeColor, shape = RoundedCornerShape(50))
                                 .background(Phosphor.Crt)
                         ) {
-                            Icon(
-                                imageVector = Icons.Filled.Stop,
-                                contentDescription = "Stop",
-                                tint = themeColor,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            QuantumIcon(Glyph.Stop, tint = themeColor, size = 16.dp)
                         }
                     }
                 }
@@ -294,11 +285,10 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Filled.PlayArrow,
-                                contentDescription = null,
+                            QuantumIcon(
+                                glyph = Glyph.Play,
                                 tint = if (isSelected) themeColor else dimColor,
-                                modifier = Modifier.size(16.dp)
+                                size = 14.dp
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {

@@ -4,13 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.appshell.Phosphor
-import com.quantumos.core.PhosphorHue
+import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.radio.ui.RadioScreen
 import com.quantumos.radio.ui.components.AppShell
 
@@ -23,9 +22,10 @@ import com.quantumos.radio.ui.components.AppShell
  * explicit and tappable. Mirrors OpticsActivity's structure, simplified: RADIO has no camera/sensor
  * plumbing, so its content is a single RadioScreen composable wrapped in AppShell.
  *
- * Active phosphor hue is local, per-module state (PhosphorHue, defaulting GREEN) -- matching how
- * Optics/Nav do it, a known pre-existing limitation (not a global launcher-wide setting from a docked
- * library module) that this pass doesn't attempt to fix.
+ * Active phosphor hue now reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one
+ * process-wide live source of truth every docked module + CONFIG + the launcher shares, replacing
+ * the old per-module `remember { mutableStateOf(PhosphorHue.GREEN) }` that never saw a hue change
+ * made anywhere else.
  */
 class RadioActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,7 +33,9 @@ class RadioActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            var themeHue by remember { mutableStateOf(PhosphorHue.GREEN) }
+            val context = LocalContext.current
+            PhosphorHueRuntime.init(context)
+            val themeHue by PhosphorHueRuntime.activeHue.collectAsState()
             val themeColor = Phosphor.bright(themeHue)
             val themeColorDim = Phosphor.dim(themeHue)
 
@@ -49,13 +51,7 @@ class RadioActivity : ComponentActivity() {
                     themeColor = themeColor,
                     themeColorDim = themeColorDim,
                     warnColor = Phosphor.Warn,
-                    onCycleTheme = {
-                        themeHue = when (themeHue) {
-                            PhosphorHue.GREEN -> PhosphorHue.AMBER
-                            PhosphorHue.AMBER -> PhosphorHue.CYAN
-                            PhosphorHue.CYAN -> PhosphorHue.GREEN
-                        }
-                    },
+                    onCycleTheme = { PhosphorHueRuntime.cycleHue(context) },
                     contentPadding = padding
                 )
             }
