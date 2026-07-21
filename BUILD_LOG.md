@@ -14,10 +14,15 @@ block at the end of every session.
 **Current milestone:** Core Apps Polish Pass Task Brief v1.0 (`docs/QuantumOS-Core-Apps-Polish-Pass-
 Task-Brief-v1_0.md`) — three deferred-but-decided gaps closed across the eight core instruments:
 house line-icons (decision 60), phosphor-hue live sync, and SIGNAL's decoder wired to the now-
-production `AiAssistBridge` (decision 91's fast-follow). **CI compile could not be verified locally
-this session either** — same "no network path to Google's Maven / AGP" wall the prior (QUARK Brain
-Promotion) session hit; see that session's own "Build reality" note below, unchanged this session.
-Every change in this pass is unverified by a build — CI on push is the first real compiler run.
+production `AiAssistBridge` (decision 91's fast-follow). **CI is green** (run #114, after one fix-up
+round) — unit tests, debug APK, and the signed release APK all built successfully; this session's own
+`gradle` still could not resolve the AGP plugin locally (same "no network path to Google's Maven"
+wall the prior QUARK Brain Promotion session hit — see that session's "Build reality" note below,
+unchanged), so CI was genuinely the first compiler this code ever saw. **CI round 1 failed**
+(`:config:compileDebugKotlin` — `Unresolved reference 'width'` — `ConfigScreen.kt`'s new icon row and
+`SignalScreen.kt`'s new icon rows both used `Modifier.width()` without importing
+`androidx.compose.foundation.layout.width`); fixed and **CI round 2 (run #114) is green**. This is
+compile-verified, not on-device-verified — the acceptance criteria below still need the Fold 6 pass.
 
 > **What changed — Item 1 (house line-icons):** new `Glyph` enum + `QuantumIcon(glyph, tint, size)`
 > composable in `app-shell/QuantumIcons.kt` — Canvas/Path line-icons in the same stroke discipline as
@@ -82,24 +87,27 @@ Every change in this pass is unverified by a build — CI on push is the first r
 > itself (the pure offline Base64/Hex/Morse/ROT13 heuristic) is left in place, still unit-tested — it's
 > real, useful, tested logic, just no longer SIGNAL's primary path; deleting it wasn't asked for.
 >
-> **Acceptance criteria (brief §6), self-assessed — CANNOT be confirmed without CI + the Fold 6:**
+> **Acceptance criteria (brief §6), self-assessed — CI-confirmed for anything a compiler can prove;
+> the Fold 6 pass is still required for anything visual/behavioral:**
 > 1. ✅ by code read — zero `Icons.*`/Material-icon imports remain anywhere in the repo (repo-wide grep,
 >    confirmed after the pass); every §2 slot now renders a `QuantumIcon` or was already icon-free text.
 > 2. ⏳ Geometry is deliberately simple/high-contrast at small sizes (12–20dp command-rail/gauge range)
 >    but has never rendered on a real screen or the AGSL CRT shader — this is the headline on-device
 >    check, flagged for the Director explicitly, not assumed.
-> 3. ⏳ Live-sync logic is in place and code-reviewed (see above) but needs the Fold 6 to prove hue
->    changed in CONFIG/a docked module actually repaints another already-open module without restart.
+> 3. ⏳ Live-sync logic is in place, compiles, and is code-reviewed (see above) but needs the Fold 6 to
+>    prove hue changed in CONFIG/a docked module actually repaints another already-open module live.
 > 4. ✅ by construction — `ConfigViewModel.phosphorHue` and the Vitality panel's `cyclePhosphorHue()`
 >    both resolve to the same `PhosphorHueRuntime` object; no second `MutableStateFlow` remains.
-> 5. ⏳ Backend call is real (`QuarkBrainProvider.bridge(...).ask(...)`, no stub) but needs a loaded
->    on-device model to actually observe a non-`Unavailable` decode in a production build.
+> 5. ⏳ Backend call is real (`QuarkBrainProvider.bridge(...).ask(...)`, no stub) and compiles, but needs
+>    a loaded on-device model to actually observe a non-`Unavailable` decode in a production build.
 > 6. ✅ by code read — `Unavailable` maps to an honest `"LINK UNAVAILABLE // <reason>"` line with
 >    `success=false`, never a thrown exception or a blank/frozen state.
 > 7. ✅ by construction — no new `while(true)`/timer/poll anywhere in this diff; `PhosphorHueRuntime` is
 >    StateFlow-collected (event-driven), icons are static Canvas draws (redraw only on recomposition
 >    from an actual state change, same discipline as `InstrumentIcon`).
-> 8. ⏳ CI status genuinely unknown until the next push — see "Build reality" above.
+> 8. ✅ **CI green** — run #114 (`https://github.com/KMS-UX/QuantumLauncher/actions/runs/29792271765`):
+>    unit tests pass, debug APK built, signed release APK built. Round 1 (run #113) failed on a missing
+>    import (see above); round 2 is clean.
 >
 > **Director actions required (Fold 6) — this entire pass is unconfirmed until these run:**
 > 1. **Push this branch and watch CI first** — local `gradle :core:test` still can't even resolve the
@@ -1443,6 +1451,9 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   launcher engine bidirectionally. SIGNAL decoder: `runDecode()` now calls `QuarkBrainProvider.bridge()
   .ask(...)` (added `:quark-brain` dep to `:signal`) instead of the local `FieldDecoder` heuristic,
   honest `"LINK UNAVAILABLE"` degrade on `Unavailable`. **Could not verify locally** — same "no network
-  path to Google's Maven/AGP" container wall the QUARK Brain Promotion session hit; CI on push is the
-  first real compiler run. **Pending Director confirmation on the Fold 6** (icon legibility at deployed
-  size, live cross-module hue sync, a real SIGNAL decode) before this pass is closed.
+  path to Google's Maven/AGP" container wall the QUARK Brain Promotion session hit. CI round 1 (run
+  #113) failed on a missing `Modifier.width` import in two of the newly-touched icon rows
+  (`ConfigScreen.kt`, `SignalScreen.kt`); fixed, and **CI round 2 (run #114) is green** — unit tests,
+  debug APK, and the signed release APK all built. **Pending Director confirmation on the Fold 6** (icon
+  legibility at deployed size, live cross-module hue sync, a real SIGNAL decode) before this pass is
+  closed.
