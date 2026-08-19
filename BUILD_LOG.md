@@ -11,7 +11,33 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
-**Current milestone:** Core Apps Polish Pass Task Brief v1.0 (`docs/QuantumOS-Core-Apps-Polish-Pass-
+**Current milestone:** QUARK Core App (Dual Embodiment, exploratory) — Phase 2b Extract & Rewire,
+**rebased onto current main (2026-07-13)**. The hologram-renderer branch (`claude/quark-phase-2-
+review-zvys4w`, PR #19) predates the module restructuring (Launcher Restructure Phases 1–2, App
+Shell Integration Phase 3, QUARK Brain Promotion, Core Apps Polish Pass — 33 commits' worth) and had
+gone stale/conflicting. Reset the branch onto `origin/main` and manually reapplied the same three
+changes against the current structure rather than a mechanical `git rebase` — both files it touches
+had diverged substantially upstream (the brain is no longer debug-gated; `Phosphor`/`crtShader`/
+`Fonts` moved from `com.quantumos.shell.ui` into `com.quantumos.appshell`).
+
+- New `com.quantumos.shell.overlay.quark` package (`QuarkVisualProvider` + `QuarkHologramProvider`),
+  now importing `com.quantumos.appshell.Phosphor`/`crtShader` instead of the old `shell.ui` copies —
+  values are identical (verified against `AppShell.kt`), only the import path changed.
+- `QuantumRuntime.isSpeaking: StateFlow<Boolean>` re-added the same way (true before
+  `VoiceEngine.speak()`, false on `onDone`/`stopCurrentSpeech()`) — `startVoiceObserver()`'s shape on
+  main is otherwise unchanged from what this was built against originally.
+- The `// PRESENCE: HOLOGRAM|LINE-ART` dev toggle now sits inside the renamed diagnostics panel
+  (`diagnosticsOpen`, not the old `debugMode` — the brain's debug-gate was removed by QUARK Brain
+  Promotion/decision 88, so this toggle no longer implies "debug mode," just "which presence to look
+  at"), independent of the kill switch and voice engineering controls already there.
+- The CI `continue-on-error` artifact-quota fix from the original branch is **not** re-applied —
+  main already carries an equivalent fix (`bbc5a5c`).
+
+Not yet pushed/CI-verified this round — see below. Still pending, unchanged from before: the
+Director's on-device pass on the Fold 6 (toggle presence mode, confirm zero-idle-redraw + Stealth
+dim/mute both still hold with the hologram renderer active).
+
+**Prior milestone:** Core Apps Polish Pass Task Brief v1.0 (`docs/QuantumOS-Core-Apps-Polish-Pass-
 Task-Brief-v1_0.md`) — three deferred-but-decided gaps closed across the eight core instruments:
 house line-icons (decision 60), phosphor-hue live sync, and SIGNAL's decoder wired to the now-
 production `AiAssistBridge` (decision 91's fast-follow). **CI is green** (run #114, after one fix-up

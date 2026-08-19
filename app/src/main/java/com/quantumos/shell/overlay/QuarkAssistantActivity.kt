@@ -73,6 +73,7 @@ import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
 import com.quantumos.appshell.QuantumIcon
 import com.quantumos.appshell.crtShader
+import com.quantumos.shell.overlay.quark.QuarkHologramProvider
 import com.quantumos.shell.ui.QuantumRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -213,6 +214,14 @@ class QuarkAssistantActivity : ComponentActivity() {
             // the diagnostics panel as an engineering control.
             val voiceOn by QuantumRuntime.voiceEnabled.collectAsState()
 
+            // Phase 2b: coarse speech signal for the reactive presence (see QuantumRuntime.isSpeaking).
+            val isSpeaking by QuantumRuntime.isSpeaking.collectAsState()
+
+            // Phase 2b debug toggle: HOLO/LINE-ART presence switch, for side-by-side comparison
+            // during development only — not a shipping affordance. Independent of the diagnostics
+            // panel's other engineering controls so either presence can be checked on its own.
+            var hologramMode by rememberSaveable { mutableStateOf(false) }
+
             val close: () -> Unit = {
                 QuantumRuntime.stopCurrentSpeech()   // stop any in-flight TTS before leaving
                 parser.speakStowed()
@@ -312,6 +321,15 @@ class QuarkAssistantActivity : ComponentActivity() {
                                                 .padding(top = 2.dp)
                                         )
                                     }
+                                    // Phase 2b: dev-only presence toggle — compares the new hologram
+                                    // provider against the existing line-art QuarkPresence.
+                                    Text(
+                                        "// PRESENCE: ${if (hologramMode) "HOLOGRAM" else "LINE-ART"}",
+                                        color = dimColor, fontFamily = font, fontSize = 9.sp,
+                                        modifier = Modifier
+                                            .clickable { hologramMode = !hologramMode }
+                                            .padding(top = 2.dp)
+                                    )
                                 }
                             }
                             Spacer(Modifier.weight(1f))
@@ -325,8 +343,18 @@ class QuarkAssistantActivity : ComponentActivity() {
                         Spacer(Modifier.height(8.dp))
 
                         // ----- central reactive presence -----
+                        // hologramMode (debug-only, §Phase 2b) swaps in the new QuarkHologramProvider
+                        // alongside — not instead of — the existing line-art QuarkPresence below.
                         Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-                            QuarkPresence(posture = brain.activePosture, color = color, dimColor = dimColor)
+                            if (hologramMode) {
+                                QuarkHologramProvider().RenderPresence(
+                                    state = state,
+                                    isSpeaking = isSpeaking,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                QuarkPresence(posture = brain.activePosture, color = color, dimColor = dimColor)
+                            }
                         }
                         Spacer(Modifier.height(4.dp))
 
