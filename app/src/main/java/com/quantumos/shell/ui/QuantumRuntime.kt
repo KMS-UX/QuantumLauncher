@@ -98,6 +98,12 @@ object QuantumRuntime {
     private var _voiceEngine: VoiceEngine? = null
     private var voiceObserverStarted = false
 
+    // Coarse start/stop speech signal for reactive-presence renderers (e.g. QuarkHologramProvider).
+    // This IS the only speech signal that exists — there's no amplitude/viseme stream — so it's a
+    // plain boolean, not something renderers should treat as more granular than it is.
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
     // Which voice identity to build. QUARK_H2 is her locked, Fold-6-confirmed custom voice (Phase 2b
     // "VOICE LOCKED", closed 2026-07-04) — now the production default. PLACEHOLDER (Android TTS) is
     // the automatic fallback buildVoiceEngine() already applies whenever the H2 sherpa-onnx model
@@ -192,6 +198,7 @@ object QuantumRuntime {
      */
     fun stopCurrentSpeech() {
         _voiceEngine?.stop()
+        _isSpeaking.value = false
     }
 
     /*
@@ -223,10 +230,12 @@ object QuantumRuntime {
 
                 val callTime = System.currentTimeMillis()
                 var audioStartTime = 0L
+                _isSpeaking.value = true
                 _voiceEngine?.speak(
                     text = entry.line,
                     onStart = { t -> audioStartTime = t },
                     onDone = {
+                        _isSpeaking.value = false
                         // Report latency to the LOG channel so the Director can read it.
                         val startLatencyMs = if (audioStartTime > 0) audioStartTime - callTime else -1
                         val playbackMs = System.currentTimeMillis() -
