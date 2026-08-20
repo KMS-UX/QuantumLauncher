@@ -17,6 +17,33 @@ import mathutils
 
 CM = 0.01  # 1 Blender unit = 1 meter; convert cm inputs to meters
 
+# --- Anthropometric-canon correction (Director decision, 2026-08-20) ---
+# Replaces the original Loomis 7.5-head art-canon leg proportions (knee landmark at 33cm from
+# the floor) with values derived from real 167cm-stature anthropometric data, per the sanity
+# check logged in PRODUCTION_LOG.md and the rendered comparison in 02_anthropometric_compare.py
+# (marker-ring renders showing both variants) that the Director reviewed before deciding. Only
+# correcting what that research actually found wrong (hip, knee) — ankle height wasn't covered
+# by either cited source, so it's left at its original value rather than inventing a figure.
+CANON_PELVIS_CM = 78.0        # old pelvis/hip torso landmark, kept only as the tz() reference point
+PELVIS_CM = 84.5              # ergonomics table: hip height = 50.6% of 167cm stature
+KNEE_CM = 56.4                # average of two cited sources: 61.3cm (ergonomics table, 36.7% of
+                               # stature) and 51.4cm (Chumlea clinical regression)
+ANKLE_CM = 8.0                # unchanged — no source cited for ankle height
+TORSO_SCALE = (167.0 - PELVIS_CM) / (167.0 - CANON_PELVIS_CM)  # compress torso+head so total
+                               # stature stays 167cm now that the leg span (floor-to-hip) is longer
+
+
+def tz(h_cm):
+    """Map an old (canon) torso/head z-landmark, in cm, to its corrected position under the
+    anthropometric-canon pelvis height — continuous compression anchored at the new pelvis,
+    validated visually in 02_anthropometric_compare.py before this was folded in here."""
+    return PELVIS_CM + (h_cm - CANON_PELVIS_CM) * TORSO_SCALE
+
+
+def tz_m(z_m):
+    """Same transform as tz(), operating in meters — for _classify_material_index()'s thresholds."""
+    return tz(z_m * 100) / 100
+
 
 def clear_scene():
     bpy.ops.object.select_all(action='SELECT')
@@ -28,7 +55,18 @@ def clear_scene():
 
 
 def ring(bm, center, rx, ry, segments, axis='Z'):
-    """Create a ring of verts around `center` in the plane perpendicular to `axis`."""
+    """Create a ring of verts around `center` in the plane perpendicular to `axis` — i.e. for a
+    limb whose loft travels along `axis`, this is a real cross-section (has extent in the other
+    two dimensions, none along the travel direction itself).
+    'Z': legs (loft runs along Z) — varies X/Y, fixed Z.
+    'X': arms/fingers (loft runs along +/-X) — varies Y/Z, fixed X.
+    'Y': toes (loft runs along +/-Y, one foot's toes separated along X) — varies X/Z, fixed Y.
+    Added for toes specifically: reusing 'Z' left rings with zero Z-extent (a near-flat sliver,
+    thinner than the voxel grid — caused disconnected islands after the anthropometric-canon
+    correction shifted the mesh's bounding box); reusing 'X' left rings with zero X-extent, which
+    is exactly the dimension separating one toe from its neighbor, and voxel remeshing fused them
+    into one blob instead. Neither existing mode is a real cross-section for a Y-traveling,
+    X-separated limb — this one is."""
     verts = []
     for i in range(segments):
         angle = 2 * math.pi * i / segments
@@ -36,10 +74,14 @@ def ring(bm, center, rx, ry, segments, axis='Z'):
             x = center[0] + rx * math.cos(angle)
             y = center[1] + ry * math.sin(angle)
             z = center[2]
-        else:  # axis == 'X' (arms, loft runs along +/-X)
+        elif axis == 'X':  # arms, loft runs along +/-X
             x = center[0]
             y = center[1] + ry * math.sin(angle)
             z = center[2] + rx * math.cos(angle)
+        else:  # axis == 'Y' (toes, loft runs along +/-Y)
+            x = center[0] + rx * math.cos(angle)
+            y = center[1]
+            z = center[2] + ry * math.sin(angle)
         verts.append(bm.verts.new((x, y, z)))
     return verts
 
@@ -86,16 +128,16 @@ def build_torso_and_head(bm, seg=14):
     # Neck taper is spread across four intermediate landmarks (133->150cm) instead of one big
     # radius drop, to avoid the pinched/notched look a single sharp step produced.
     landmarks = [
-        (78, 17, 11),      # pelvis / hip
-        (90, 15, 10),
-        (100, 13.5, 9.5),  # waist
-        (112, 15, 10),
-        (122, 16.5, 11.5),  # bust
-        (129, 15.5, 11),
-        (135, 13, 9.5),    # shoulder base
-        (140.5, 10, 8),    # lower neck
-        (145, 7.5, 6.8),   # neck mid
-        (150, 6, 6),       # neck top / chin
+        (tz(78), 17, 11),      # pelvis / hip
+        (tz(90), 15, 10),
+        (tz(100), 13.5, 9.5),  # waist
+        (tz(112), 15, 10),
+        (tz(122), 16.5, 11.5),  # bust
+        (tz(129), 15.5, 11),
+        (tz(135), 13, 9.5),    # shoulder base
+        (tz(140.5), 10, 8),    # lower neck
+        (tz(145), 7.5, 6.8),   # neck mid
+        (tz(150), 6, 6),       # neck top / chin
     ]
     rings_list = [ring(bm, (0, 0, h * CM), rx * CM, ry * CM, seg) for h, rx, ry in landmarks]
     # Capped at BOTH ends: the neck-top used to stay open on the assumption the head sphere
@@ -110,7 +152,7 @@ def build_torso_and_head(bm, seg=14):
     for v in bm_head.verts:
         v.co.x *= 7.2 * CM
         v.co.y *= 8.5 * CM
-        v.co.z = v.co.z * 9.5 * CM + 159 * CM
+        v.co.z = v.co.z * 9.5 * CM + tz(159) * CM
     bm_head.verts.ensure_lookup_table()
     vert_map = {v: bm.verts.new(v.co) for v in bm_head.verts}
     for f in bm_head.faces:
@@ -136,33 +178,57 @@ def build_toes(bm, side, foot_center_x, seg=6):
     (little toe, shortest), matching real foot proportions."""
     # (medial_offset_cm, length_cm, base_radius_cm) — medial_offset positive = toward the
     # centerline, converted to a signed world-X offset below (mirrors per leg side).
+    #
+    # Root-cause note (found after the anthropometric-canon correction exposed it): this used to
+    # pass axis='Z' to build_limb(), same as build_legs() — correct for a Z-traveling limb, wrong
+    # for toes (which travel along Y): rings had zero Z-extent, relying on the 2-4mm Z-gaps
+    # between landmarks for "thickness," which is thinner than the 4mm voxel grid — confirmed by
+    # dumping the disconnected fragment's actual vertices (<1mm of Z-extent, a flat pancake).
+    # Tried axis='X' next (build_fingers()'s mode) — that fixed the disconnection but broke
+    # something else: 'X' mode fixes X (zero X-extent per ring), and X is exactly the dimension
+    # separating one toe from its neighbor, so adjacent toes fused into one blob instead (verified
+    # via an x-position slice scan: one continuous cluster where Phase 3g's original check found
+    # 6 separate ones). Neither mode is a real cross-section for a Y-traveling, X-separated limb —
+    # added a proper axis='Y' mode to ring() instead (varies X/Z, fixed Y).
     toe_defs = [
         (-2.0, 3.0, 0.9),   # big toe
         (-0.8, 2.7, 0.8),
         (0.5, 2.3, 0.7),
         (1.8, 1.9, 0.6),
-        (3.0, 1.5, 0.55),   # little toe
+        (3.0, 1.5, 0.65),   # little toe — radius nudged up 0.55->0.65cm as extra margin
     ]
     for medial_off, length, base_r in toe_defs:
         tx = foot_center_x - side * medial_off * CM
         landmarks = [
-            ((tx, 7 * CM, 1.2 * CM), base_r * CM, base_r * CM),              # overlap into foot
+            ((tx, 5 * CM, 1.2 * CM), base_r * CM, base_r * CM),              # overlap into foot
             ((tx, 9 * CM, 1.0 * CM), base_r * 0.9 * CM, base_r * 0.9 * CM),  # toe base
-            ((tx, (9 + length) * CM, 0.6 * CM), 0.2 * CM, 0.2 * CM),         # tip
+            ((tx, (9 + length) * CM, 0.6 * CM), 0.3 * CM, 0.3 * CM),         # tip
         ]
-        build_limb(bm, landmarks, 'Z', seg)
+        build_limb(bm, landmarks, 'Y', seg)
 
 
 def build_legs(bm, seg=10):
+    # hip/knee corrected per the anthropometric-canon decision above; ankle unchanged (no source
+    # cited for it). The two intermediate points (upper-thigh, calf) keep the SAME fractional
+    # position along their segment that the canon build used (0.6939 hip->knee for the upper-thigh
+    # pair, 0.52 knee->ankle for calf) rather than picking new absolute numbers — re-applied to
+    # the new segment lengths, validated in 02_anthropometric_compare.py before landing here.
+    hip_start = PELVIS_CM + 4.0  # preserve the canon build's 4cm overlap into the pelvis (82 vs 78)
+    knee = KNEE_CM
+    ankle = ANKLE_CM
+    mid_thigh = hip_start - 0.6939 * (hip_start - knee)
+    upper_thigh = hip_start - 0.5 * 0.6939 * (hip_start - knee)
+    calf = knee - 0.52 * (knee - ankle)
+
     for side in (-1, 1):
         x = side * 9.5 * CM
         landmarks = [
-            ((x, 0, 82 * CM), 8.5 * CM, 8.5 * CM),          # hip, overlapping up into the pelvis
-            ((x, 0, 65 * CM), 8.3 * CM, 8.3 * CM),
-            ((x, 0.5 * CM, 48 * CM), 7.0 * CM, 7.0 * CM),   # mid thigh
-            ((x, 0.5 * CM, 33 * CM), 5.3 * CM, 5.3 * CM),   # knee
-            ((x * 1.02, 0.5 * CM, 20 * CM), 5.0 * CM, 5.0 * CM),  # calf
-            ((x * 1.05, 0.5 * CM, 8 * CM), 3.4 * CM, 3.4 * CM),   # ankle
+            ((x, 0, hip_start * CM), 8.5 * CM, 8.5 * CM),          # hip, overlapping up into the pelvis
+            ((x, 0, upper_thigh * CM), 8.3 * CM, 8.3 * CM),
+            ((x, 0.5 * CM, mid_thigh * CM), 7.0 * CM, 7.0 * CM),   # mid thigh
+            ((x, 0.5 * CM, knee * CM), 5.3 * CM, 5.3 * CM),        # knee
+            ((x * 1.02, 0.5 * CM, calf * CM), 5.0 * CM, 5.0 * CM),  # calf
+            ((x * 1.05, 0.5 * CM, ankle * CM), 3.4 * CM, 3.4 * CM),   # ankle
             ((x * 1.05, 1 * CM, 4 * CM), 3.6 * CM, 4.5 * CM),     # heel / foot top — starts flattening
             ((x * 1.05, 5 * CM, 2 * CM), 3.2 * CM, 6.0 * CM),     # foot mid — elongating forward
             ((x * 1.05, 9 * CM, 1 * CM), 2.0 * CM, 3.0 * CM),     # toe base — toes branch from here
@@ -188,10 +254,11 @@ def build_fingers(bm, side, seg=8):
         x0 = side * start_x * CM
         x_overlap = x0 - side * 1.5 * CM  # pushed back into the palm for a real weld, not a seam
         x_tip = side * (start_x + length) * CM
+        palm_z = tz(130) * CM
         landmarks = [
-            ((x_overlap, y_off * CM, 130 * CM), base_r * CM, base_r * 0.85 * CM),
-            (((x0 + x_tip) / 2, y_off * CM, 130 * CM), base_r * 0.75 * CM, base_r * 0.68 * CM),
-            ((x_tip, y_off * CM, 130 * CM), 0.25 * CM, 0.25 * CM),
+            ((x_overlap, y_off * CM, palm_z), base_r * CM, base_r * 0.85 * CM),
+            (((x0 + x_tip) / 2, y_off * CM, palm_z), base_r * 0.75 * CM, base_r * 0.68 * CM),
+            ((x_tip, y_off * CM, palm_z), 0.25 * CM, 0.25 * CM),
         ]
         build_limb(bm, landmarks, 'X', seg)
 
@@ -201,13 +268,13 @@ def build_arms(bm, seg=10):
         landmarks = [
             # small anchor disc well inside the torso's wider upper-chest zone (not near the
             # neck taper) so its cap doesn't poke through the torso surface near the neck
-            ((side * 11 * CM, 0, 130 * CM), 4.5 * CM, 4.5 * CM),
-            ((side * 20 * CM, 0, 132.5 * CM), 6.2 * CM, 6.2 * CM),
-            ((side * 32 * CM, 0, 132 * CM), 4.6 * CM, 4.6 * CM),   # upper arm mid
-            ((side * 46 * CM, 0, 131 * CM), 3.8 * CM, 3.8 * CM),   # elbow
-            ((side * 60 * CM, 0, 130.3 * CM), 3.3 * CM, 3.3 * CM),  # forearm mid
-            ((side * 71 * CM, 0, 130 * CM), 2.6 * CM, 2.2 * CM),   # wrist
-            ((side * 76 * CM, 0, 130 * CM), 2.3 * CM, 4.5 * CM),   # palm — fingers branch from here
+            ((side * 11 * CM, 0, tz(130) * CM), 4.5 * CM, 4.5 * CM),
+            ((side * 20 * CM, 0, tz(132.5) * CM), 6.2 * CM, 6.2 * CM),
+            ((side * 32 * CM, 0, tz(132) * CM), 4.6 * CM, 4.6 * CM),   # upper arm mid
+            ((side * 46 * CM, 0, tz(131) * CM), 3.8 * CM, 3.8 * CM),   # elbow
+            ((side * 60 * CM, 0, tz(130.3) * CM), 3.3 * CM, 3.3 * CM),  # forearm mid
+            ((side * 71 * CM, 0, tz(130) * CM), 2.6 * CM, 2.2 * CM),   # wrist
+            ((side * 76 * CM, 0, tz(130) * CM), 2.3 * CM, 4.5 * CM),   # palm — fingers branch from here
         ]
         build_limb(bm, landmarks, 'X', seg)
         build_fingers(bm, side, seg=8)
@@ -263,6 +330,13 @@ def retopologize(obj):
     # Blender-side asset for baking/rendering, not a real-time one (the app pipeline uses
     # pre-rendered frames per the hybrid render-path decision), so the heavier face count from
     # finer voxels is an acceptable tradeoff for correctness here.
+    # NOT tightened further for the anthropometric-canon correction, despite the little toe
+    # coming out disconnected after that change (see build_toes()) — tried 0.003 first and it
+    # made things WORSE (9 islands, not fewer), which is the real tell: voxel remeshing resolves
+    # true gaps more faithfully at finer resolution (that's what fixed the Phase 3f finger-
+    # blobbing problem — separate things staying separate), but a toe-to-foot join is SUPPOSED
+    # to merge, so a marginal-but-real overlap there needs width, not resolution. Fixed at the
+    # source in build_toes() (wider overlap ring) instead; voxel_size stays 0.004.
     remesh = obj.modifiers.new(name="VoxelRemesh", type='REMESH')
     remesh.mode = 'VOXEL'
     remesh.voxel_size = 0.004
@@ -539,24 +613,27 @@ def _classify_material_index(co, idx):
     ax = abs(x)
     r_xy = math.hypot(x, y)
 
-    if z > 1.50:  # head / face
-        # Reference's "Hair & Head Accessories" panel explicitly calls out a "Headband Circuit"
-        # and a "Circuit Arc (Thin LED Line)" at brow/ear height, plus an "Audio Module (Spatial
-        # Array)" — a small node — near the ear. The head was otherwise a completely bare
-        # icosphere with zero detail; these are the two call-outs actually worth adding without
-        # attempting full facial topology (a different, much larger task — see log).
-        if 1.575 < z < 1.585 and r_xy > 0.05:  # headband circuit — thin LED line around the head
+    if z > tz_m(1.50):  # head / face
+        # Reference's "Hair & Head Accessories" panel calls out a "Headband Circuit" / "Circuit
+        # Arc (Thin LED Line)" at brow height — added below, and it reads well (confirmed in
+        # render). Also tried a small "Audio Module" node near the ear the same way (a region
+        # rule, matching everything else in this function) — that one's dropped: an axis-aligned
+        # material-region box can only ever read as a blocky rectangle, and on the metallic
+        # material it rendered as a flat black patch with no environment map to reflect (confirmed
+        # via close-up, not assumed) rather than a small sensor node. Right call for the seam
+        # bands elsewhere in this file, wrong tool for a small circular accent — that needs actual
+        # sphere/disc geometry, not a material trick. Not attempting full facial topology either
+        # (a different, much larger task — see log).
+        if tz_m(1.575) < z < tz_m(1.585) and r_xy > 0.05:  # headband circuit — thin LED line around the head
             return idx['emissive']
-        if 0.065 < ax < 0.075 and 1.565 < z < 1.595 and abs(y) < 0.02:  # ear audio module
-            return idx['metal']
         return idx['skin']
 
     # Shoulder pauldron: the reference's "Shoulder & Arm" close-up shows a large curved graphite
     # plate capping the ball joint, straddling the torso/arm boundary — not just a thin ring.
-    if 1.24 < z < 1.37 and 0.09 < ax < 0.23:
+    if tz_m(1.24) < z < tz_m(1.37) and 0.09 < ax < 0.23:
         return idx['graphite']
 
-    if z > 1.25 and ax > 0.16:  # out on an arm (past the torso's own width at this height)
+    if z > tz_m(1.25) and ax > 0.16:  # out on an arm (past the torso's own width at this height)
         arm_local = ax - 0.10  # roughly distance from the shoulder root, in meters
         if 0.34 < arm_local < 0.40:
             return idx['graphite']  # elbow
@@ -569,8 +646,15 @@ def _classify_material_index(co, idx):
             return idx['skin']  # hand + fingers
         return idx['ceramic']
 
-    if z < 0.80:  # leg territory
-        if 0.295 < z < 0.365:
+    # Leg-territory bands recenter on the actual (corrected) knee/hip landmarks, keeping the same
+    # absolute half-widths the canon build used — kneecap ±3.5cm, leg-ceiling +2cm above the hip,
+    # hip-wrap band shifted by the hip landmark's own delta. Ankle is unchanged (unchanged source).
+    leg_ceiling = PELVIS_CM / 100 + 0.02
+    knee_m = KNEE_CM / 100
+    hip_delta_m = (PELVIS_CM - CANON_PELVIS_CM) / 100
+
+    if z < leg_ceiling:  # leg territory
+        if (knee_m - 0.035) < z < (knee_m + 0.035):
             return idx['graphite']  # kneecap — reference shows a distinct rounded cap, not a
             # thin band; widened slightly from the earlier pass to read as a real plate
         if 0.06 < z < 0.11:
@@ -581,25 +665,25 @@ def _classify_material_index(co, idx):
 
     # Hip wrap: reference's "Hip & Waist" close-up shows a wide belt-like wrap (metal hardware
     # flanked by graphite), not just a thin metal ring.
-    if 0.755 < z < 0.865 and r_xy > 0.075:
-        if 0.785 < z < 0.835:
+    if (0.755 + hip_delta_m) < z < (0.865 + hip_delta_m) and r_xy > 0.075:
+        if (0.785 + hip_delta_m) < z < (0.835 + hip_delta_m):
             return idx['metal']  # the ball-joint hardware itself, centered in the wrap
         return idx['graphite']  # the wrap plate flanking it above/below
 
-    if y < -0.06 and ax < 0.05 and 0.85 < z < 1.38:  # spine conduit
+    if y < -0.06 and ax < 0.05 and tz_m(0.85) < z < tz_m(1.38):  # spine conduit
         return idx['emissive']
 
     # Shoulder-blade panels: reference's "Back / Spine Conduit" close-up shows the conduit
     # flanked by two curved graphite panels (scapula plates), not bare ceramic either side of it.
-    if y < -0.05 and 0.05 < ax < 0.13 and 1.02 < z < 1.32:
+    if y < -0.05 and 0.05 < ax < 0.13 and tz_m(1.02) < z < tz_m(1.32):
         return idx['graphite']
 
     # Chest-plate seam: reference's "Chest / Upper Torso" close-up shows a distinct seam line
     # across the upper front chest, not just flat plating.
-    if 1.155 < z < 1.185 and y > 0.02:
+    if tz_m(1.155) < z < tz_m(1.185) and y > 0.02:
         return idx['graphite']
 
-    if 1.39 < z < 1.42:  # neck collar seam
+    if tz_m(1.39) < z < tz_m(1.42):  # neck collar seam
         return idx['graphite']
 
     return idx['ceramic']  # default: torso plating
@@ -741,22 +825,24 @@ def build_armature():
         return b
 
     add_bone("root", (0, 0, 0), (0, 0, 0.05))
-    add_bone("pelvis", (0, 0, 78 * CM), (0, 0, 95 * CM), "root")
-    add_bone("spine", (0, 0, 95 * CM), (0, 0, 122 * CM), "pelvis")
-    add_bone("chest", (0, 0, 122 * CM), (0, 0, 140 * CM), "spine")
-    add_bone("neck", (0, 0, 140 * CM), (0, 0, 150 * CM), "chest")
-    add_bone("head", (0, 0, 150 * CM), (0, 0, 167 * CM), "neck")
+    add_bone("pelvis", (0, 0, tz(78) * CM), (0, 0, tz(95) * CM), "root")
+    add_bone("spine", (0, 0, tz(95) * CM), (0, 0, tz(122) * CM), "pelvis")
+    add_bone("chest", (0, 0, tz(122) * CM), (0, 0, tz(140) * CM), "spine")
+    add_bone("neck", (0, 0, tz(140) * CM), (0, 0, tz(150) * CM), "chest")
+    add_bone("head", (0, 0, tz(150) * CM), (0, 0, tz(167) * CM), "neck")
+
+    thigh_start = PELVIS_CM + 2.0  # preserve the canon build's +2cm offset from the pelvis landmark
 
     for side, label in ((-1, "L"), (1, "R")):
-        add_bone(f"shoulder_{label}", (0, 0, 130 * CM), (side * 20 * CM, 0, 132.5 * CM), "chest")
-        add_bone(f"upperarm_{label}", (side * 20 * CM, 0, 132.5 * CM), (side * 46 * CM, 0, 131 * CM), f"shoulder_{label}")
-        add_bone(f"forearm_{label}", (side * 46 * CM, 0, 131 * CM), (side * 71 * CM, 0, 130 * CM), f"upperarm_{label}")
-        add_bone(f"hand_{label}", (side * 71 * CM, 0, 130 * CM), (side * 84 * CM, 0, 130 * CM), f"forearm_{label}")
+        add_bone(f"shoulder_{label}", (0, 0, tz(130) * CM), (side * 20 * CM, 0, tz(132.5) * CM), "chest")
+        add_bone(f"upperarm_{label}", (side * 20 * CM, 0, tz(132.5) * CM), (side * 46 * CM, 0, tz(131) * CM), f"shoulder_{label}")
+        add_bone(f"forearm_{label}", (side * 46 * CM, 0, tz(131) * CM), (side * 71 * CM, 0, tz(130) * CM), f"upperarm_{label}")
+        add_bone(f"hand_{label}", (side * 71 * CM, 0, tz(130) * CM), (side * 84 * CM, 0, tz(130) * CM), f"forearm_{label}")
 
         hip_x = side * 9.5 * CM
-        add_bone(f"thigh_{label}", (hip_x, 0, 80 * CM), (hip_x * 1.02, 0.5 * CM, 33 * CM), "pelvis")
-        add_bone(f"shin_{label}", (hip_x * 1.02, 0.5 * CM, 33 * CM), (hip_x * 1.05, 0.5 * CM, 8 * CM), f"thigh_{label}")
-        add_bone(f"foot_{label}", (hip_x * 1.05, 0.5 * CM, 8 * CM), (hip_x * 1.05, 11 * CM, 0.5 * CM), f"shin_{label}")
+        add_bone(f"thigh_{label}", (hip_x, 0, thigh_start * CM), (hip_x * 1.02, 0.5 * CM, KNEE_CM * CM), "pelvis")
+        add_bone(f"shin_{label}", (hip_x * 1.02, 0.5 * CM, KNEE_CM * CM), (hip_x * 1.05, 0.5 * CM, ANKLE_CM * CM), f"thigh_{label}")
+        add_bone(f"foot_{label}", (hip_x * 1.05, 0.5 * CM, ANKLE_CM * CM), (hip_x * 1.05, 11 * CM, 0.5 * CM), f"shin_{label}")
 
     bpy.ops.object.mode_set(mode='OBJECT')
     return arm_obj
@@ -784,7 +870,13 @@ def setup_render():
     scene.world.use_nodes = True
     bg = scene.world.node_tree.nodes.get("Background")
     if bg:
-        bg.inputs[0].default_value = (0.008, 0.015, 0.008, 1.0)  # near --crt ground
+        # Metal Alloy is metallic=1.0 (pure metal, no diffuse contribution) — with only sun
+        # lights and no environment map, it has nothing to reflect except a direct specular
+        # hit, so from most angles it renders flat black instead of reading as metal (confirmed
+        # via a close-up on the ear-module accent: sharp-edged black rectangle, not shaded metal
+        # — a real PBR consequence of the lighting rig, not a mesh defect). Bumped from
+        # near-zero so metal surfaces have *something* non-black to reflect; still dark/CRT-toned.
+        bg.inputs[0].default_value = (0.05, 0.065, 0.05, 1.0)
 
     sun = bpy.data.lights.new("KeyLight", type='SUN')
     sun.energy = 3.0

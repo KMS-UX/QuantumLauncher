@@ -296,9 +296,171 @@ Re-ran the full topology check on the new denser mesh too, not just the render: 
 1 island, 0 non-manifold edges, 100% quads (134,582), all 20 armature vertex groups intact —
 the retopology guarantees from Phase 2 hold at the new resolution, confirmed rather than assumed.
 
-## Next (Phase 4 — not started)
-Move toward actual in-app integration: the pose/posture library (8 states from the hologram sheet
-vs. the current 4-state `QuarkReflexPosture`), the real-time AGSL overlay shader, and the
-`CLAUDE.md` guardrail-vs-palette decision that's still open. Texture fidelity has a natural
-stopping point here short of hand-authored panel art — Director's call whether to keep pushing
-this axis or pivot to in-app integration.
+## ▶ RESUME HERE — Phase 3g: one more push — toes, angular seams, head accents — DONE
+Three more additions in the same session, one of which was walked back after honest verification:
+
+1. **Real toe geometry**, mirroring `build_fingers()` — `build_toes()` adds five separate tapered
+   digits (big toe longest/most medial → little toe shortest/most lateral) branching from the
+   foot, replacing the old single continuous taper to one point. **Render-based verification kept
+   failing on camera framing/lighting, not the geometry** — four different close-up attempts
+   either mis-framed the shot or caught the toes in deep shadow. Rather than keep burning attempts
+   on camera angles, switched to a direct numeric check on the mesh data: sampled vertices in the
+   toe region and binned them by X position — **6 separate contiguous clusters** (≈5 toes + one
+   edge artifact), confirming real separation exists in the geometry regardless of how hard it was
+   to get a clean render angle. Worth remembering: a failed screenshot isn't proof of a failed
+   result — check the data directly when the picture won't cooperate.
+2. **Angular (Chebyshev-distance) panel seams**, replacing the Euclidean-distance Voronoi used
+   since Phase 3d. Rounded/organic cell boundaries read as cracked ceramic; squared-off boundaries
+   read closer to an actual designed hard-surface panel line. (Tried Minkowski with a high exponent
+   first for the same effect — its `Exponent` input isn't exposed on this node in this Blender
+   version, threw a KeyError; Chebyshev gives the same angular character with no extra parameter.)
+3. **Headband circuit + ear audio-module, both read off the reference's "Hair & Head Accessories"
+   panel** (the head was otherwise a completely bare, zero-detail icosphere). The headband circuit
+   (a thin emissive LED line at brow height) works well — confirmed clearly visible in renders.
+   **The ear module was walked back after verification showed it wasn't working**: on the metallic
+   material, with no environment map for it to reflect, it rendered as a flat black rectangle
+   instead of a small sensor node — confirmed via close-up, then diagnosed as a genuine PBR
+   consequence (tried brightening the world background first, which is a real, broadly-useful fix
+   for metal readability generally, but didn't fix this specific case). More fundamentally, an
+   axis-aligned material-region box can only ever produce a rectangle, never the small circular
+   node the reference shows — the technique was wrong for this specific job, not just under-tuned.
+   Removed rather than kept "fixing" a wrong approach. Not attempting full facial topology either
+   — a different, much larger task than this pipeline's scope.
+
+**Also fixed:** the world background brightness bump (item 3's byproduct) makes metallic surfaces
+read better everywhere in this pass's renders, not just the one accent that didn't work out.
+
+## ▶ RESUME HERE — anthropometric sanity check — a real finding, not yet acted on
+Director asked for a check against real 167cm adult-female anthropometric data before closing the
+session. Looked it up rather than relying on memory — cross-checked two independent sources:
+
+- A standard ergonomics table (female 50th-percentile standing dimensions): shoulder height 82.1%
+  of stature, hip height 50.6% of stature, knee height 36.7% of stature.
+  [RoyMech Human Body Dimensions](https://www.roymech.co.uk/Useful_Tables/Ergonomics/Human_sizes.html)
+- The Chumlea knee-height-to-stature clinical regression (widely used, validated formula):
+  `height(cm) = 64.19 − 0.04×age + 2.02×knee_height(cm)`. Solved for a 167cm adult (age ~28) gives
+  knee height ≈ 51.4cm (≈30.8% of stature).
+  [TopEndSports Knee Height Calculator](https://www.topendsports.com/testing/tests/height-knee.htm)
+
+**Scaled to 167cm, both sources put real knee height at roughly 51–61cm from the floor.** The
+current mesh's knee landmark is at 33–36cm — built directly off the classic **Loomis 7.5-head
+figure-drawing canon** ("6 heads from top = bottom of kneecap"), used explicitly and documented as
+such back in Phase 1. That canon is a **stylized artistic convention, not measured population
+data** — it deliberately elongates leg proportions for a more heroic/idealized figure, and the gap
+here is substantial (33cm built vs. ~51–61cm real), not a rounding difference. Hip height shows a
+smaller version of the same pattern: Loomis's own "half of stature" rule puts the built model's
+pelvis at ~78cm, which is close to the classic art-canon expectation but ~4–7cm lower than the
+ergonomics-table scaled value (~84.5cm).
+
+**Not corrected here — flagged for the Director rather than silently picked**, per this track's
+own established discipline: the reference sheet itself is a stylized sci-fi character design, not
+a medical scan, so it's a genuine open question whether QUARK's proportions should follow the
+idealized figure-drawing canon (matches how character sheets are conventionally built) or be
+pulled toward literal population-average anthropometry (matches "real 167cm human" more
+literally). Worth a decision before any further leg/torso landmark changes — re-deriving all the
+downstream landmark math (hip/knee/ankle/foot, plus the armature bones and every classify-function
+z-band tied to those heights) is real work, not a quick tweak, so better to decide direction once
+than adjust twice.
+
+## Session close — 2026-08-20
+
+**What shipped today:** Phases 1 through 3g — base mesh + rig blockout, voxel-remesh retopology to
+one welded all-quad manifold mesh, UV unwrap, region-based PBR materials with procedural wear,
+baked texture maps (base color/roughness/emission/normal/AO), panel-seam + rivet hard-surface
+detail read off the reference's close-up panels, real separated finger and toe geometry, and a
+working headband circuit accent. All of it verified by rendering and looking — several dead ends
+(QuadriFlow's silent no-op, the neck-shadow chase, the blobbed fingers, the black ear-module
+rectangle) were caught by that discipline rather than reported as working. Current assets:
+`blender/quark_base.blend`, `renders/blockout_turnaround/`, `renders/palette_compare/`,
+`textures/quark_{base_color,roughness,emission,normal,ao}.png`.
+
+**Next session: dedicated to detail work.** Scope, in priority order:
+1. **Resolve the anthropometric-canon decision above first** — it's upstream of any further body
+   landmark changes, so deciding it before touching geometry avoids doing leg work twice.
+2. Continue pushing panel/material fidelity if the Director wants more (this session's own
+   assessment: getting close to what texture-only techniques can add — real gains from here likely
+   need either geometry work beyond retopology, or a human hard-surface artist's pass).
+3. Everything still open from Phase 4's original scope remains open too: the posture library (8
+   states from the hologram sheet vs. the current 4-state `QuarkReflexPosture`), the real-time
+   AGSL overlay shader, and the still-unresolved `CLAUDE.md` phosphor-guardrail-vs-8-token-palette
+   conflict.
+
+## ▶ RESUME HERE — Phase 4a: anthropometric-canon correction — DONE, one open gap flagged
+
+Resolved the anthropometric-canon question flagged above. Built `02_anthropometric_compare.py` — a
+standalone silhouette-only comparison script (no fingers/toes/panels/bake, flat material, coarser
+voxel) that builds both the canon (Loomis-canon knee) and a corrected variant side by side, with
+bright marker rings at the actual knee/hip height on each render so the numeric difference is
+legible even though the blockout's leg taper has no visible crease at the joint itself. Sourcing
+for the corrected values (both already cited in the anthropometric-sanity-check entry above): hip
+height 84.5cm (ergonomics table, 50.6% of 167cm stature — the only source cited for hip); knee
+height 56.4cm (average of the two cited sources, 61.3cm ergonomics-table and 51.4cm Chumlea
+regression, rather than picking one arbitrarily); ankle height left unchanged at 8cm — neither
+source covers ankle, so nothing there was "corrected" against no evidence.
+Sent the marker-ring renders (`renders/anthro_compare/`) to the Director for an actual side-by-side
+before touching production geometry, per this track's own "flag forks, verify don't eyeball"
+discipline — **Director chose the anthropometric-corrected variant.**
+
+**Folding into `01_base_mesh_and_rig.py`:** added `tz()`/`tz_m()` — a continuous compression
+transform anchored at the new pelvis height, applied to every torso/head landmark so total stature
+stays 167cm now that the leg span is longer, and to the material classify function's torso-relative
+z-bands (chest seam, shoulder pauldron, neck collar, spine conduit, shoulder-blade panels, head
+cutoff, headband). Leg-specific bands (kneecap, hip-wrap) recenter on the actual new landmark
+values instead. Every touched function is listed here because all of them had hardcoded absolute
+cm values baked in: `build_torso_and_head()`, `build_legs()` (hip/knee recomputed directly;
+mid-thigh/calf keep the same *fractional* position along their segment the canon build used,
+re-applied to the new segment lengths), `build_arms()` and `build_fingers()` (palm/wrist height
+moves with torso compression), `build_armature()` (every bone), and `_classify_material_index()`.
+
+**A real regression, caught by this file's own topology check, not assumed away:** the first full
+pipeline run after the landmark changes came back `islands=3`, not the `1` every prior phase
+verified. The correction didn't touch toe geometry directly, but shifting the mesh's overall
+bounding box moved where an already-marginal feature landed on the voxel remesh's sampling grid.
+**Chased through several wrong theories before finding the real one** — worth recording so a future
+session doesn't repeat the detour:
+1. Deepened the toe's overlap-into-foot ring (7cm→5cm) — no effect, wrong joint.
+2. Widened the little toe's radius (0.55→0.65cm) and separately widened just the overlap ring —
+   the disconnected fragment grew slightly but stayed disconnected both times: the overlap-to-foot
+   weld was never the actual failure.
+3. Tightened `voxel_size` 0.004→0.003, assuming an under-resolution problem like the Phase 3f
+   finger fix — **made it worse** (9 islands, not fewer). The tell: finer voxels resolve *true*
+   gaps more faithfully (that's what fixed Phase 3f's finger-blobbing — separate things staying
+   separate); a toe-to-foot join is supposed to *merge*, so a marginal-but-real overlap needs
+   width, not resolution. Reverted to 0.004.
+4. Widened the toe tip (0.2→0.35cm) — still no effect on the fragment.
+5. **Actually dumped the disconnected fragment's raw vertex coordinates** instead of continuing to
+   guess from parameter names: <1mm of Z-extent across ~5-6mm of X/Y — a flat pancake, not a tube
+   cross-section. That pointed at the real cause: `build_toes()` was passing `axis='Z'` to the
+   shared `ring()`/`build_limb()` helpers (same as `build_legs()`), and `ring()`'s `'Z'` mode holds
+   Z fixed per ring — correct for a leg that travels along Z, wrong for a toe that travels along Y.
+   Toe "thickness" was coming entirely from the 2-4mm Z-gaps between landmarks, below the 4mm
+   voxel grid — a pre-existing fragility the canon build's proportions happened to land clear of.
+6. Tried `axis='X'` (the mode `build_fingers()` uses successfully) — fixed the disconnection but
+   broke something else: `'X'` mode fixes X per ring, and X is exactly the dimension separating
+   one toe from its neighbor, so adjacent toes fused into one continuous blob instead (caught by a
+   y-slice x-clustering scan: one continuous run where a working build should show gaps).
+7. **The actual fix:** added a proper `axis='Y'` mode to `ring()` (varies X/Z, fixed Y) — the one
+   that's a real cross-section for a Y-traveling, X-separated limb, which neither pre-existing mode
+   was. Re-verified: `islands=1`, `non_manifold_edges=0`, `non_manifold_verts=0`, 100% quads
+   (130,036 faces), all 20 armature vertex groups present.
+
+**Honest gap, not resolved this session:** whether the toes still read as individually separated
+(Phase 3f/3g's own bar) is genuinely uncertain after the `axis='Y'` fix. A y-slice x-clustering scan
+similar to Phase 3g's own method still shows one continuous run rather than distinct clusters in the
+region checked, and several close-up/top-down/bottom-up render attempts to check visually all hit
+framing problems (the same class of difficulty Phase 3g itself logged — a straight-down camera on a
+T-pose figure hits the outstretched arm/shoulder silhouette before it reaches the foot, 1.5m below).
+Given diminishing returns on continued attempts and that this is a Phase 3f/g cosmetic refinement
+rather than part of this session's actual scope, stopped here rather than keep burning the session
+on it. **Flagging, not claiming fixed:** worth a dedicated close-up-render pass next session if toe
+separation still matters at this fidelity level, now that the actual blocking defect (mesh
+connectivity) is confirmed solid.
+
+**Current assets regenerated at the corrected proportions:** `blender/quark_base.blend`,
+`renders/blockout_turnaround/`, `renders/palette_compare/` (materials/textures re-baked at the same
+2048px resolution as Phase 3c). `renders/anthro_compare/` and `renders/toe_closeup/` are this
+session's own working/diagnostic renders, not final production assets.
+
+**Not yet committed to git** — working tree has these regenerated assets plus the still-uncommitted
+Phase 3g assets from the prior session; the Director hasn't been asked yet whether to commit either
+batch.
