@@ -603,3 +603,32 @@ the reference's intent at this fidelity level; flagging rather than overclaiming
 shader territory per the analysis above, not this script's job. The `.blend` file on disk still
 saves in its T-pose (base/rest) state; the posed renders are PNG-only, consistent with the hybrid
 render-path architecture (the app consumes rendered frames, not the `.blend` itself).
+
+## Session close — 2026-08-20 (continuation)
+
+**What shipped this continuation:** the anthropometric-canon correction from earlier today, folded
+into production and fully QA-verified (panels, hands, feet, topology all confirmed correct post-
+correction, not just structurally sound); the toe-separation question resolved by rendering the
+actual toe tips instead of relying on an under-scoped numeric check; the phosphor-vs-8-token-
+palette guardrail conflict resolved (QUARK's physical materials are a Director-approved exception,
+only the emissive accent is hue-driven); and a first-pass 2-pose posture library covering all 8
+named states. Three commits (`431dfe2`, `a180de6`, `d0216b1`) on top of the two from the session's
+first half. Every claim in this entry and the ones above it was checked by rendering and looking,
+or by a direct data check when rendering itself was the hard part (toe islands, panel bands, bone
+axes) — several real mistakes were caught this way rather than shipped: the toe ring-axis bug, the
+shoulder-vs-upperarm pivot bug, the stale-pivot chained-rotation bug, and the narrower-than-assumed
+scope of the original palette-comparison renders.
+
+**Next session:**
+1. **AGSL overlay shader** — the piece both the palette resolution and the posture-library VFX
+   notes (Speaking's ripple rings, Stealth's dimming) assume exists. Kotlin/Android graphics work,
+   a different domain from this session's Blender pipeline — Director explicitly deferred starting
+   it today for that reason.
+2. Posture library could still use: rendering `relaxed_idle`/`thinking` from the full 5-angle
+   turnaround (only one presentation angle exists today) if the app needs more than one viewing
+   angle per posture; extending past this 2-pose set if on-device review of these two surfaces a
+   need for more real pose variety.
+3. Everything else still open from prior sessions: the full 8-token sheet-accurate palette as a
+   bonus variant (Director wants to keep this open, not abandoned); continued panel/material
+   fidelity if wanted (assessed as near the ceiling of what procedural texture work can add,
+   unchanged from the prior session's assessment).
