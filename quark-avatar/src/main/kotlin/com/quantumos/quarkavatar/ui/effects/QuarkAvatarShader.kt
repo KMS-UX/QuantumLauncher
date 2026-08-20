@@ -21,17 +21,29 @@ import androidx.compose.ui.unit.IntSize
  * half of the locked hybrid render path (pre-rendered Blender frames + live GPU tinting). Applied on
  * top of the bundled posture-library PNGs (res/drawable-nodpi), which bake QUARK's four physical
  * materials as fixed, real-world colors (Director-approved phosphor-guardrail exception) and the
- * emissive accent (spine conduit + headband) as pure baked GREEN -- this shader keys that green
- * region and retints it live from PhosphorHueRuntime, per the locked "only the accent is hue-driven"
- * resolution. GPU shader with a cheap fallback (house-style hard rule): if RuntimeShader construction
- * fails, or on a pre-API-33 surface, the modifier is a no-op and the plain (unshaded) bundled PNG
- * still renders -- never a crash or a blank screen.
+ * emissive accent (spine conduit + headband) -- this shader keys that accent region and retints it
+ * live from PhosphorHueRuntime, per the locked "only the accent is hue-driven" resolution. GPU shader
+ * with a cheap fallback (house-style hard rule): if RuntimeShader construction fails, or on a
+ * pre-API-33 surface, the modifier is a no-op and the plain (unshaded) bundled PNG still renders --
+ * never a crash or a blank screen.
  *
- * Uniforms are set once per recomposition, not per-frame -- no `time` uniform, matching "static at
- * rest / zero idle redraw." Speaking's ripple-ring VFX is deliberately NOT part of this shader (see
- * SpeakingRippleOverlay in QuarkAvatarScreen.kt) -- it's geometric ring-drawing, better suited to a
- * Compose Canvas overlay (the same technique QuarkMascot.kt already uses for HAPPY/SCAN), keeping
- * this shader scoped to true pixel-level work: edge detection and color-keyed retinting.
+ * Both the background-key and the accent-key constants below are measured, not assumed -- checked
+ * against the actual bundled PNGs on an emulator, not eyeballed from the Blender script's material
+ * parameters:
+ *  - The three posture PNGs are NOT alpha-matted despite PRODUCTION_LOG's original description --
+ *    their alpha channel is uniformly 255 (opaque) everywhere, including the studio backdrop, which
+ *    is instead a flat, uniform (58,67,58)/255 fill (measured identical at 8 sample points across all
+ *    3 files). A real alpha-matted re-render is Blender-pipeline work, out of this session's scope --
+ *    this shader synthesizes its own subject mask at runtime by keying that flat background color
+ *    instead, which also makes the rim-glow's edge detection meaningful (it was previously computing
+ *    a gradient over a uniformly-255 channel, and could never detect an edge at all).
+ *  - The emissive accent's real baked color is a pale, near-white green cast (e.g. rgb ~200,227,198),
+ *    not a saturated pure green -- an emissive material at high strength blooms/washes out under the
+ *    renderer's tone mapping. The original "G > 2x R and B" key assumed pure (0,1,0) and could never
+ *    fire on the real data (mathematically impossible once R exceeds ~127). Recalibrated to the
+ *    measured dominance: background/body pixels sit at G-max(R,B) in [0,9]/255, the accent region
+ *    (a 66x272px band matching the spine conduit's real screen position, confirmed spatially, not
+ *    just by color) sits at [25,45]/255 -- the smoothstep band below targets that gap.
  */
 private const val QUARK_AVATAR_SHADER_SRC = """
     uniform shader content;
@@ -40,38 +52,46 @@ private const val QUARK_AVATAR_SHADER_SRC = """
     uniform float rimStrength;
     uniform float stealthDim;
 
+    const float3 kBgColor = float3(0.227, 0.263, 0.227);
+
+    float subjectMask(float2 coord) {
+        float3 c = float3(content.eval(coord).rgb);
+        float d = length(c - kBgColor);
+        return smoothstep(0.03, 0.10, d);
+    }
+
     half4 main(float2 coord) {
         half4 src = content.eval(coord);
-        if (src.a <= 0.0) {
-            return src;
+        float mask = subjectMask(coord);
+        if (mask <= 0.0) {
+            return half4(0.0, 0.0, 0.0, 0.0);
         }
         float3 rgb = float3(src.rgb);
 
-        // Accent retint: the posture-library bake marks the emissive accent as pure green (0,1,0),
-        // shaded by the render lighting -- key on "green clearly dominant over red and blue" rather
-        // than exact equality, so shaded/darker accent pixels are still caught, not just the flattest
-        // highlight. Scale the live accentColor by the baked pixel's own green value to preserve that
-        // shading instead of flattening it to one flat color.
-        bool isAccentGreen = rgb.g > rgb.r * 2.0 && rgb.g > rgb.b * 2.0 && rgb.g > 0.05;
-        if (isAccentGreen) {
-            rgb = accentColor * rgb.g;
-        }
+        // Accent retint: key on the measured pale-green dominance band, not an assumed pure (0,1,0).
+        // Scale the live accentColor by the baked pixel's own green value to preserve whatever
+        // shading/falloff the render already has instead of flattening it to one flat color.
+        float greenness = rgb.g - max(rgb.r, rgb.b);
+        float accentT = smoothstep(0.07, 0.14, greenness);
+        rgb = mix(rgb, accentColor * rgb.g, accentT);
 
-        // Rim/edge glow: a 4-tap alpha gradient detects proximity to the silhouette edge and adds an
-        // internal rim-light there -- bounded by src.a > 0 (the early-out above), so the glow never
-        // bleeds past the PNG's own raster bounds.
-        float aE = content.eval(coord + float2(1.5, 0.0)).a;
-        float aW = content.eval(coord - float2(1.5, 0.0)).a;
-        float aN = content.eval(coord + float2(0.0, 1.5)).a;
-        float aS = content.eval(coord - float2(0.0, 1.5)).a;
-        float rim = clamp((abs(aE - aW) + abs(aN - aS)) * 2.0, 0.0, 1.0) * rimStrength;
-        rgb += rim * float3(1.0, 1.0, 1.0) * 0.35;
+        // Rim/edge glow: a 4-tap gradient over the synthesized mask (not the source alpha channel,
+        // which is useless here) detects proximity to the silhouette edge and adds an internal
+        // rim-light there. First pass used a 1.5px offset / 0.35 strength and was confirmed
+        // on-device to be too subtle to read at all (checked by rendering and looking, not assumed --
+        // see PRODUCTION_LOG) -- widened to a ~6px band with a brighter additive term.
+        float mE = subjectMask(coord + float2(6.0, 0.0));
+        float mW = subjectMask(coord - float2(6.0, 0.0));
+        float mN = subjectMask(coord + float2(0.0, 6.0));
+        float mS = subjectMask(coord - float2(0.0, 6.0));
+        float rim = clamp((abs(mE - mW) + abs(mN - mS)), 0.0, 1.0) * rimStrength;
+        rgb += rim * float3(1.0, 1.0, 1.0) * 0.9;
 
         // Stealth dim: flat brightness multiply, saturation unchanged -- matches
         // QuantumStateEngine.toggleStealthMode()'s own doc comment.
         rgb *= stealthDim;
 
-        return half4(half3(rgb), src.a);
+        return half4(half3(rgb) * mask, mask);
     }
 """
 

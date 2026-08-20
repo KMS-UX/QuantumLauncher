@@ -30,6 +30,11 @@ android {
 dependencies {
     implementation(project(":core"))
     implementation(project(":app-shell"))
+    // The dev-preview row launches :quark-avatar's Activity by setClassName (no compile-time class
+    // reference) to keep call-site coupling minimal, but Android library modules only end up in the
+    // final APK's manifest/classes if something actually depends on them -- setClassName alone can't
+    // conjure an Activity into the merged manifest. This is that real Gradle dependency edge.
+    implementation(project(":quark-avatar"))
 
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))
     implementation("androidx.activity:activity-compose:1.9.3")
