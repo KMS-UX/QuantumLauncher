@@ -730,3 +730,145 @@ now that the runtime mask closes the visible gap.
 **Next session:** cosmetic detail pass on the base mesh (face/body/hair) against the reference
 concept art — see the new session entry below, this is a different, Blender-side thread. The Fold 6
 confirmation of this shader work is otherwise the Director's own action, not blocking further work.
+
+---
+
+## ▶ RESUME HERE — Phase 4c: cosmetic detail pass (face/body/hair) — MPFB-based rebuild, verified
+
+The Director asked for the mesh itself brought up toward the reference concept art (real face
+details, body features, hair) — none of which pure procedural primitive scripting (this pipeline's
+approach through Phase 4b) can produce; a believable human face and hair need real anatomical
+topology, which primitives/voxel-remesh blockouts fundamentally can't approximate. Flagged this
+honestly before starting (per this track's own "flag, don't silently lock" discipline) — the
+Director's response was to install **MPFB** (MakeHuman for Blender,
+`bl_ext.blender_org.mpfb`, https://extensions.blender.org/add-ons/mpfb/) specifically to close the
+gap, discovered mid-session that Android Studio's local toolchain (used for Phase 4b) also came with
+a full Blender 5.2 install already on this machine. Verified this whole pass by rendering and
+looking, and separately by round-tripping the new assets through the actual Android app on the
+GPU emulator already proven out in Phase 4b — not by trusting the Blender-side renders in isolation.
+
+**Honest fidelity ceiling, stated plainly rather than overclaiming:** this closes the *topology* and
+*material* gap dramatically — a real face (eyes, nose, mouth, cheekbones, jaw), a real body, and
+actual hair geometry instead of none. It does **not** reach the reference sheet's literal
+photoreal/AI-render quality — skin pore detail, individually art-directed flyaway hair strands are a
+texture-painting/hair-grooming polish tier beyond a scripted pipeline, and MPFB ships no default
+eyeball geometry, skin textures, or hair assets at all (confirmed by searching its installed files,
+not assumed) — those had to be built here too, not imported.
+
+**What shipped, `01_base_mesh_and_rig.py` rewritten** (full rationale/measurements in the script's
+own comments, not just here):
+- **Human generation** — `HumanService.create_human()` tuned to the reference's stated "167cm,
+  Athletic/Feminine" build via MakeHuman's macro-detail dict (gender/age/muscle/weight/proportions/
+  height/cupsize/firmness, each 0–1). Measured result: 169.46cm (1.5% over spec) — the height slider
+  turned out to blend a whole shape-key set together with the other macro axes rather than moving
+  independently (confirmed empirically: nudging `height` alone with everything else fixed produced
+  *zero* measured change), so this was accepted rather than fought further. `scale=0.1` is MPFB's own
+  "real-world meters" convention for `create_human()` — tried `scale=1.0` first, got a 16.9m-tall
+  mesh, caught by directly measuring bounding-box Z before assuming anything rendered correctly.
+- **19,158-vertex real anatomical topology** replaces the old blockout's lofted-primitive/voxel-remesh
+  mesh entirely — real eye sockets, nose, mouth, jaw, cheekbones, ears, proper MakeHuman vertex
+  groups and phenotype shape keys. This mesh's rest pose is a relaxed A-pose (arms angled down), not
+  the old blockout's T-pose — confirmed by rendering the unposed mesh, not assumed from any shape-key
+  name.
+- **Eyes** — MPFB has eye *sockets* (a closed indentation) but ships zero eyeball geometry or assets
+  (confirmed: `data/3dobjs` has no eye files). Built as simple sclera/iris/pupil-material spheres.
+  Positioning took three real attempts, each wrong for a specific, now-recorded reason: (1) MPFB's
+  own `helper-l-eye`/`joint-l-eye` vertex-group centroid placed them on the forehead, not the visible
+  socket opening; (2) the true socket-hole boundary (found via `bmesh` non-manifold-edge search) gave
+  X/Z right but a Y depth that recessed the eyes fully inside the head, invisible; (3) the actual fix
+  was raycasting from the real face-closeup render camera through the visible socket pixels in an
+  actual rendered image and recording the 3D hit point — ground truth, not a named landmark's
+  assumed meaning. Every wrong attempt was caught by rendering and looking at the result, not by
+  reasoning about coordinates in the abstract.
+- **Hair** — MPFB owns hair via Blender's native Hair Curves system, but MPFB's own hair workflow is
+  an interactive brush-styling panel, not something scriptable headlessly toward a specific target
+  shape. Built instead as simple mesh primitives (scalp cap + gathered bun + two framing locks) —
+  the same stylized-geometry technique this pipeline already uses for panel/rivet detail and the
+  emissive headband, explicitly scoped as shape/volume, not strand grooming. First attempt used a
+  bmesh bisect-plane to carve a dome cap out of a full sphere and got the inner/outer keep-side
+  backwards (kept the huge lower two-thirds instead of the small cap) — a render showed a mushroom-
+  sized blob swallowing the whole face before this was caught; fixed by sizing/placing small pieces
+  to sit above the measured hairline directly, no bisect needed at all.
+- **Material region classification recalibrated**, not ported — the old `_classify_material_index()`'s
+  coordinate thresholds were tightly coupled to the old blockout's exact (and very different)
+  proportions. Re-measured this mesh's own landmark heights via its `joint-*` rig vertex groups
+  (pelvis/neck/shoulder/knee/ankle/etc. centroids) and rebuilt the region rules against those.
+  **Two real, confirmed-by-rendering bugs caught and fixed in this pass, not just theorized:**
+  1. This mesh's front (face) points toward **-Y**, the *opposite* of the old blockout's convention
+     (that mesh's front pointed toward +Y, which is *why* its own "front"-labeled camera view showed
+     the back/spine-conduit side — a documented quirk in this log, not a convention to blindly carry
+     forward onto a differently-oriented mesh). Copying the old sign convention verbatim first put
+     the spine-conduit/scapula/chest-seam regions on the wrong (front-facing) side — an early render
+     showed a bright emissive-looking cross pattern on the camera-facing torso instead of the back;
+     traced to the sign bug and fixed (all three rules' Y-sign flipped for this mesh).
+  2. Per the reference's own "Hand (Palm)" close-up, hands are **armored** (segmented plates), not
+     bare skin — corrected from the old blockout's treatment (which mapped hands to the skin
+     material) now that "skin" material actually means something real (an exposed human face) rather
+     than a placeholder catch-all.
+  `make_material()` (the procedural PBR node-graph builder), `bake_textures()`, `setup_render()`,
+  `render_turnaround()`, `direction_to_euler()`, and `set_emissive_color()` all carried over verbatim
+  — genuinely mesh-agnostic, exactly as anticipated going into this pass.
+- **Rig** — MPFB's own "default" standard rig + auto-weighting (`HumanService.add_builtin_rig`),
+  replacing the old hand-built armature entirely. Confirmed the actually-created bone names by
+  inspecting the real armature, not the rig's JSON template alone: `upperarm01.L/R`/`lowerarm01.L/R`
+  for arm posing (a full FACS-style facial bone set also exists on this rig — `levator*`/
+  `orbicularis*`/`temporalis*`/etc. — not used this pass, a real opportunity for a future expression
+  pass, noted under follow-ups below).
+
+**`03_posture_library.py` ported, not just bone-renamed:**
+- Bone names updated to the new rig (`upperarm01.L/R`/`lowerarm01.L/R`).
+- `set_pose_relaxed_idle()` is now a **no-op** — this mesh's own rest pose is already the relaxed
+  A-pose the old function used to rotate a T-pose *into*; applying the old 90° rotation on top of an
+  already-relaxed rest pose would over-rotate. Kept as an explicit empty function (not deleted) so
+  the "relaxed idle" concept stays named and documented at its call site.
+- `set_pose_thinking()` angles retuned for this rig's different rest pose (70°/-100°, vs. the old
+  65°/-110° tuned for a T-pose start) and confirmed by rendering. **Known imperfection, not hidden:**
+  the resulting pose is asymmetric — one arm reaches toward the chest/chin as intended, the other
+  swings out to the hip rather than mirroring — visible in both the Blender render and the in-app
+  screenshot. Reads as a loose "gesturing" pose, not literally broken, but not the clean mirrored
+  "hand near chin" the reference implies either. Flagged as a follow-up tuning item, not fixed here.
+
+**Full production pass run for real** (not just the sandbox iteration above): textures re-baked
+(`art/quark-avatar/textures/quark_{base_color,roughness,emission,normal,ao}.png`), 5-view turnaround
++ palette-compare renders regenerated, posture library regenerated
+(`relaxed_idle_green`/`relaxed_idle_alert_red`/`thinking_green`), `quark_base.blend` resaved.
+
+**Android integration — verified end-to-end on the same GPU emulator Phase 4b proved out, not just
+Blender-side:** copied the three regenerated posture PNGs into
+`quark-avatar/src/main/res/drawable-nodpi/` (same filenames — no Kotlin/shader code changes needed).
+Measured, not assumed, whether `QuarkAvatarShader.kt`'s background-key and accent-key constants still
+held against the new renders (flagged as a real open question in the Phase 4b entry above): the
+background color measured byte-identical (`58,67,58` — `setup_render()`'s world-background value is
+unchanged, carried over verbatim), and the accent's green-dominance range measured within a few
+points of the prior calibration, so **no shader changes were needed**. Rebuilt the debug APK,
+installed on the emulator, navigated CONFIG → the dev-preview row, and confirmed both NEUTRAL and
+THINKING postures render correctly through the full pipeline — real face/hair, clean transparent
+background (no fringing, including around the more complex hair silhouette), live CYAN accent retint
+matching the persisted hue from the Phase 4b session. The Thinking-pose asymmetry noted above is
+visible in-app too, not just in the isolated Blender render — confirms the whole chain is consistent,
+not that the Blender output looks different once it reaches the shader.
+
+**What did NOT change:** `QuarkAvatarShader.kt`, `QuarkAvatarScreen.kt`, `QuarkAvatarActivity.kt` —
+none of the Kotlin/Android code from Phase 4b needed touching; this pass was purely upstream art
+regeneration plus a resource-file swap. `audio/.../QuarkMascot.kt` — untouched, per the standing
+"does not replace the existing inline mascot" scope. No HOME instrument-console integration attempted
+(still the CONFIG dev-preview row, still explicitly a temporary stopgap, unchanged from Phase 4b).
+
+**Explicit follow-ups, flagged not fixed:**
+- Thinking pose's arm asymmetry (above).
+- A real alpha-matted re-render (the background-key workaround in the shader still does the real
+  work; a native-transparency render would be strictly better but isn't blocking anything visible).
+- Hair is a stylized shape/volume match, not groomed strands — the reference's individually-rendered
+  hair detail is a different, larger effort (Blender's Hair Curves properly driven, likely still via
+  MPFB's interactive tools rather than headless scripting).
+- This rig's full FACS-style facial bone set (`levator*`/`orbicularis*`/etc.) is unused — a real,
+  concrete opportunity for a future expression pass matching the reference's Neutral/Focused/Warm/
+  Alert face variants, which currently only differ by shader-layer accent color, not actual
+  expression.
+- The `mpfb_test/` sandbox directory (this session's iteration scratch work — test humans, eye/hair
+  placement experiments, the exact commands that found each bug above) is left on disk but not
+  committed, kept only as this session's own working notes.
+
+**Next session:** Director's call on priority among the follow-ups above, or the Phase 4b shader's
+own still-open Fold 6 hardware confirmation (not blocking, but still the real final word per this
+track's standing discipline).

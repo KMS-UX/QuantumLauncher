@@ -20,6 +20,11 @@ later bonus variant, not built by this script.
 
 Run headless (loads the existing baked quark_base.blend rather than rebuilding from scratch):
   blender --background quark_base.blend --python 03_posture_library.py
+
+Ported to the MPFB-based mesh/rig (Phase 4c, `01_base_mesh_and_rig.py`'s rewrite) -- bone names
+updated to MPFB's "default" standard rig, and `set_pose_relaxed_idle()` is now a no-op since that
+mesh's own rest pose is already the relaxed A-pose this function used to rotate a T-pose into. See
+that script's own header and PRODUCTION_LOG.md's Phase 4c entry for the full rationale.
 """
 import bpy
 import math
@@ -53,46 +58,32 @@ def rotate_bone_world(arm_obj, bone_name, axis, angle_deg):
 
 
 def set_pose_relaxed_idle():
-    """Arms down at the sides, matching the reference's Neutral/Focused/Happy/Warm/Alert/
-    Speaking/Stealth thumbnails — replaces the T-pose used for the turnaround/blockout renders.
-
-    Rotates `upperarm_*`, not `shoulder_*` — first attempt rotated the shoulder (clavicle) bone,
-    whose rest head sits at the body centerline (x=0), which swings the whole arm down through
-    the torso's center instead of at the actual shoulder-joint offset. `upperarm_*`'s rest head is
-    already at the correct shoulder-joint position (`build_armature()` in 01_base_mesh_and_rig.py
-    parents it there), so rotating that bone instead pivots the arm from the right place — verified
-    by rendering both and comparing (the centerline version had the arms fully hidden behind the
-    torso silhouette from straight on; this version reads as a normal arms-at-sides stance)."""
-    arm_obj = bpy.data.objects.get("QUARK_Rig")
-    bpy.context.view_layer.objects.active = arm_obj
-    bpy.ops.object.mode_set(mode='POSE')
-    for side, label in ((-1, "L"), (1, "R")):
-        rotate_bone_world(arm_obj, f"upperarm_{label}", 'Y', 90 * side)
-        rotate_bone_world(arm_obj, f"forearm_{label}", 'Y', 12 * side)  # small elbow bend
-    bpy.ops.object.mode_set(mode='OBJECT')
+    """A no-op on this rig: the MPFB mesh's REST pose is already a relaxed A-pose (arms angled
+    down at the sides), unlike the old blockout's T-pose rest -- confirmed by rendering the
+    unposed mesh and looking, not assumed. The old version of this function rotated
+    `upperarm_*`/`forearm_*` 90 degrees to bring a T-pose down to the sides; applying that same
+    rotation here would over-rotate past a pose that already reads correctly. Kept as an explicit
+    (empty) function rather than deleted so call sites/log entries documenting "relaxed idle" stay
+    meaningful, and so a future rig swap has an obvious place to add rotation back if needed."""
+    pass
 
 
 def set_pose_thinking():
     """Hands raised toward the chin, elbows out and forward — the one posture with a real
     body-language difference from the relaxed-idle base, matching the reference's Thinking
-    thumbnail. The mesh has no per-finger bones (fingers are static geometry on the hand bone),
-    so this brings the hands to the chin/face area rather than attempting literal interlocked
-    fingers, which isn't achievable with this rig."""
+    thumbnail. Bone names ported to MPFB's "default" standard rig (`upperarm01.L/R`,
+    `lowerarm01.L/R` -- confirmed by inspecting the actually-created armature, not the rig JSON
+    template alone). Angles retuned for this rig's different rest pose (A-pose, not T-pose) and
+    confirmed by rendering: 70/-100 degrees reads as a reasonable "hand near chin" gesture on this
+    mesh, vs. the old blockout's 65/-110 tuned for its own T-pose rest. The mesh has no per-finger
+    bones (fingers are static geometry on the hand), so this brings the hands to the chin/face area
+    rather than attempting literal interlocked fingers."""
     arm_obj = bpy.data.objects.get("QUARK_Rig")
     bpy.context.view_layer.objects.active = arm_obj
     bpy.ops.object.mode_set(mode='POSE')
-    for side, label in ((-1, "L"), (1, "R")):
-        # Bring the upper arm down most of the way (same rotation as relaxed-idle, smaller angle
-        # so the elbow sits out from the body rather than flush against it), then bend sharply at
-        # the elbow — rotating the forearm around world X (front-back tilt) swings it from
-        # hanging-down to pointing forward-and-up, the way a real elbow bends toward the chest/
-        # chin. World Y (the axis used for the shoulder-down rotation) mixes X/Z, which is right
-        # for "swing side-to-side down"; world X mixes Y/Z, which is right for "swing forward",
-        # and is only meaningful once the forearm itself is pointing mostly along Z (i.e. after
-        # the down-swing) — applying it before that swing wouldn't do much, same reasoning as
-        # why a T-pose arm barely responds to a world-Y rotation on the shoulder alone at first.
-        rotate_bone_world(arm_obj, f"upperarm_{label}", 'Y', 65 * side)
-        rotate_bone_world(arm_obj, f"forearm_{label}", 'X', -110 * side)
+    for side, label in ((1, "L"), (-1, "R")):
+        rotate_bone_world(arm_obj, f"upperarm01.{label}", 'Y', 70 * side)
+        rotate_bone_world(arm_obj, f"lowerarm01.{label}", 'X', -100 * side)
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
