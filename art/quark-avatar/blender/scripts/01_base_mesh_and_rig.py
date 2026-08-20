@@ -607,7 +607,18 @@ def setup_render():
             continue
     scene.render.resolution_x = 900
     scene.render.resolution_y = 1400
-    scene.render.film_transparent = False
+    # Real alpha matte -- was False, which is the entire root cause of the "PNGs are not
+    # alpha-matted" bug flagged in PRODUCTION_LOG's Phase 4b entry (the shader had to synthesize
+    # its own background-color chroma-key mask as a workaround). Explicit RGBA output alongside it
+    # so the alpha channel is actually written to the PNG, not just computed and discarded.
+    scene.render.film_transparent = True
+    scene.render.image_settings.color_mode = 'RGBA'
+    # Explicit view transform -- Blender 5.2 defaults to AgX, which deliberately desaturates
+    # bright emissives toward white. This is the real, specific cause of the Phase 4b entry's
+    # measured "pure (0,1,0) emissive bakes as rgb(155,218,137)" finding (not generic "bloom"),
+    # and why the original accent color-key was mathematically unfireable. 'Standard' renders
+    # emissive colors at their authored saturation.
+    scene.view_settings.view_transform = 'Standard'
     scene.world = bpy.data.worlds.get("World") or bpy.data.worlds.new("World")
     scene.world.use_nodes = True
     bg = scene.world.node_tree.nodes.get("Background")

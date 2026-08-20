@@ -81,9 +81,15 @@ def set_pose_thinking():
     arm_obj = bpy.data.objects.get("QUARK_Rig")
     bpy.context.view_layer.objects.active = arm_obj
     bpy.ops.object.mode_set(mode='POSE')
+    # Mirroring a world-space rotation across the YZ plane flips the sign of Y/Z-axis rotations
+    # but PRESERVES X-axis rotation sign (M*Rx(theta)*M^-1 = Rx(theta), for M = diag(-1,1,1)) --
+    # so the forearm's X-axis rotation must NOT be scaled by `side` the way the upperarm's Y-axis
+    # rotation is. The previous `-100 * side` was the actual cause of the asymmetric "one arm to
+    # the chin, the other out to the hip" pose flagged (not fixed) in PRODUCTION_LOG's Phase 4c
+    # entry -- confirmed by this sign analysis, not just re-tuned by eye.
     for side, label in ((1, "L"), (-1, "R")):
         rotate_bone_world(arm_obj, f"upperarm01.{label}", 'Y', 70 * side)
-        rotate_bone_world(arm_obj, f"lowerarm01.{label}", 'X', -100 * side)
+        rotate_bone_world(arm_obj, f"lowerarm01.{label}", 'X', -100)
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
@@ -96,7 +102,26 @@ def clear_pose():
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def srgb_to_linear(color):
+    """`color` args to this function are UI/display hex tokens (CLAUDE.md's GREEN/RED, eventually
+    the full 8-token palette) -- sRGB-space values. Blender's node-socket `default_value` is
+    interpreted as LINEAR, not sRGB, so feeding a display hex straight in and then multiplying by
+    a large emission strength is a gamma mismatch. It's invisible for channel-pure colors (0 and 1
+    map to themselves under either curve) -- which is why GREEN (0,1,0) and a BLUE (0,0,1) probe
+    both rendered correctly saturated -- but RED = (1.0, 0.11, 0.02) has a non-trivial 0.11 G
+    channel that isn't pure zero. At strength 7.0 that scales to 0.77 linear, gamma-ENCODED (not
+    decoded) back up to ~0.94 for display -- comparable to R's own clipped 1.0 -- so the accent
+    rendered as yellow, not red. Confirmed by direct pixel measurement, not assumed: same
+    coordinate read (1.0, 0.94, 0.44) for "red" vs. the expected saturated red, reproduced even
+    from a fresh Blender process (rules out a stale-GI-cache theory tried first). Decoding here
+    keeps the small secondary channel small after the strength multiply instead of blowing it up."""
+    def ch(v):
+        return v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4
+    return tuple(ch(v) for v in color)
+
+
 def set_emissive_color(color, strength=7.0):
+    color = srgb_to_linear(color)
     mat = bpy.data.materials.get("QUARK_Emissive")
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     bsdf.inputs["Base Color"].default_value = (*color, 1.0)

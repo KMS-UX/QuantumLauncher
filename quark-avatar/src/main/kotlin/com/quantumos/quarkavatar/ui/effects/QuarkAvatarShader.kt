@@ -27,23 +27,21 @@ import androidx.compose.ui.unit.IntSize
  * pre-API-33 surface, the modifier is a no-op and the plain (unshaded) bundled PNG still renders --
  * never a crash or a blank screen.
  *
- * Both the background-key and the accent-key constants below are measured, not assumed -- checked
- * against the actual bundled PNGs on an emulator, not eyeballed from the Blender script's material
- * parameters:
- *  - The three posture PNGs are NOT alpha-matted despite PRODUCTION_LOG's original description --
- *    their alpha channel is uniformly 255 (opaque) everywhere, including the studio backdrop, which
- *    is instead a flat, uniform (58,67,58)/255 fill (measured identical at 8 sample points across all
- *    3 files). A real alpha-matted re-render is Blender-pipeline work, out of this session's scope --
- *    this shader synthesizes its own subject mask at runtime by keying that flat background color
- *    instead, which also makes the rim-glow's edge detection meaningful (it was previously computing
- *    a gradient over a uniformly-255 channel, and could never detect an edge at all).
- *  - The emissive accent's real baked color is a pale, near-white green cast (e.g. rgb ~200,227,198),
- *    not a saturated pure green -- an emissive material at high strength blooms/washes out under the
- *    renderer's tone mapping. The original "G > 2x R and B" key assumed pure (0,1,0) and could never
- *    fire on the real data (mathematically impossible once R exceeds ~127). Recalibrated to the
- *    measured dominance: background/body pixels sit at G-max(R,B) in [0,9]/255, the accent region
- *    (a 66x272px band matching the spine conduit's real screen position, confirmed spatially, not
- *    just by color) sits at [25,45]/255 -- the smoothstep band below targets that gap.
+ * Rendering-refinement pass (PRODUCTION_LOG.md, "Rendering refinement pass — Tier 1"): the two
+ * workarounds this shader originally needed are now retired at the source instead of patched here.
+ *  - The posture PNGs are now genuinely alpha-matted (`setup_render()`'s `film_transparent` was
+ *    `False`; now `True`, with explicit RGBA output) -- the chroma-key `subjectMask()` that used to
+ *    key a flat (58,67,58)/255 studio-backdrop color is gone; `src.a` is used directly, and the
+ *    rim-glow's edge detection now runs on that real alpha discontinuity instead of a synthesized
+ *    proxy for one.
+ *  - The emissive accent used to bake as a pale, washed-out near-white green (measured
+ *    rgb~155,218,137, dominance 63/255) because Blender 5.2 defaults to the AgX view transform,
+ *    which deliberately desaturates bright emissives -- not "bloom" as originally assumed. The
+ *    Blender script now sets `view_transform = 'Standard'` explicitly, and pure `(0,1,0)` bakes as
+ *    a genuinely saturated green again (re-measured: accent-region G-max(R,B) now clusters at
+ *    ~0.54-0.88 in the 0-1 range across ~40 sampled points, with the next-highest anywhere else in
+ *    the render at 0.03 -- a wide, clean gap, not a fragile few-percent margin like the original
+ *    key). The smoothstep band below targets that gap with headroom on both sides.
  */
 private const val QUARK_AVATAR_SHADER_SRC = """
     uniform shader content;
@@ -52,12 +50,8 @@ private const val QUARK_AVATAR_SHADER_SRC = """
     uniform float rimStrength;
     uniform float stealthDim;
 
-    const float3 kBgColor = float3(0.227, 0.263, 0.227);
-
     float subjectMask(float2 coord) {
-        float3 c = float3(content.eval(coord).rgb);
-        float d = length(c - kBgColor);
-        return smoothstep(0.03, 0.10, d);
+        return float(content.eval(coord).a);
     }
 
     half4 main(float2 coord) {
@@ -68,11 +62,12 @@ private const val QUARK_AVATAR_SHADER_SRC = """
         }
         float3 rgb = float3(src.rgb);
 
-        // Accent retint: key on the measured pale-green dominance band, not an assumed pure (0,1,0).
+        // Accent retint: key on the measured saturated-green dominance band (accent ~0.54-0.88,
+        // next-highest anywhere else in the render ~0.03 -- wide margin, see header comment).
         // Scale the live accentColor by the baked pixel's own green value to preserve whatever
         // shading/falloff the render already has instead of flattening it to one flat color.
         float greenness = rgb.g - max(rgb.r, rgb.b);
-        float accentT = smoothstep(0.07, 0.14, greenness);
+        float accentT = smoothstep(0.15, 0.35, greenness);
         rgb = mix(rgb, accentColor * rgb.g, accentT);
 
         // Rim/edge glow: a 4-tap gradient over the synthesized mask (not the source alpha channel,

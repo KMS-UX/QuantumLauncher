@@ -872,3 +872,121 @@ regeneration plus a resource-file swap. `audio/.../QuarkMascot.kt` — untouched
 **Next session:** Director's call on priority among the follow-ups above, or the Phase 4b shader's
 own still-open Fold 6 hardware confirmation (not blocking, but still the real final word per this
 track's standing discipline).
+
+## ▶ RESUME HERE — Rendering refinement pass — Tier 1 in progress
+
+Director asked for a general "refine QUARK rendering" pass. Diagnosed three of the standing
+follow-ups above as sharing root causes traceable to specific lines, rather than separate loose
+ends, before touching anything:
+
+- **Non-alpha-matted PNGs** ← `setup_render()`'s `film_transparent = False`
+  (`01_base_mesh_and_rig.py`). One-line fix; retires the shader's chroma-key `subjectMask()`
+  workaround entirely once real alpha exists.
+- **Washed-out emissive accent** (measured `rgb(155,218,137)` from a baked pure-`(0,1,0)` material,
+  per the Phase 4b entry) ← Blender 5.2 defaults to the **AgX** view transform, which deliberately
+  desaturates bright emissives toward white; `setup_render()` never sets `view_transform`
+  explicitly. This is *why* the original `G > 2×R` key was mathematically unfireable — not generic
+  "bloom," a specific settable property. Setting `view_transform = 'Standard'` should restore
+  genuine saturated-green output and make the accent key reliable again without inventing a second
+  bake pass.
+- **Thinking pose's arm asymmetry** ← `rotate_bone_world()` calls in `set_pose_thinking()`
+  (`03_posture_library.py`) apply `* side` to both a Y-axis and an X-axis world rotation. Mirroring
+  across the YZ plane flips Y/Z-axis rotation sign but *preserves* X-axis rotation sign
+  (`M·Rx(θ)·M⁻¹ = Rx(θ)`) — so `'X', -100 * side` is wrong; the right forearm rotates the opposite
+  of the intended direction. This is a derivable sign bug, not a tuning miss.
+
+**Ordered plan (this session), verify-by-rendering at each step per this track's standing
+discipline:**
+1. `setup_render()`: `film_transparent = True`, explicit `RGBA` file output, explicit
+   `view_settings.view_transform = 'Standard'`.
+2. Re-run `01_base_mesh_and_rig.py` full pipeline; measure the re-baked accent region's actual
+   RGB/alpha directly (not assumed) to confirm both fixes landed.
+3. Fix the `03_posture_library.py` sign bug; re-render the 3 posture PNGs; confirm Thinking reads
+   as a mirrored "hand near chin" pose in both arms this time.
+4. `QuarkAvatarShader.kt`: replace the chroma-key `subjectMask()` with `src.a` (now real); recheck
+   whether the accent-dominance key constants still need recalibrating against the new
+   (unwashed-out) accent color, and simplify/tighten them if so.
+5. Copy the 3 regenerated PNGs into `quark-avatar/src/main/res/drawable-nodpi/`; rebuild; verify on
+   the GPU emulator proven out in Phase 4b (real alpha edges, correct accent hue cycling, mirrored
+   Thinking pose) before calling this done.
+
+**Deferred to a later pass (Tier 2/3 from the planning discussion, not started this session):**
+lighting rig (flat 4×`SUN` lamps → 3-point + backlight), lens/distance (24–35mm → 50–85mm
+portrait treatment), raytraced shadows/AO/higher samples, output resolution increase, making the
+shader's rim-glow offset resolution-derived instead of fixed-pixel, tinting the rim from the live
+phosphor hue instead of hardcoded white. None of these are defects — they're a look upgrade —
+flagged separately so they don't get bundled into "bug fixing" scope.
+
+## Tier 1 — DONE, all 3 diagnosed root causes fixed and verified end-to-end on the GPU emulator
+
+Steps 1–5 from the plan above executed in order, each checked by rendering/measuring before moving
+on (this track's standing discipline), plus **one real bug found only by verifying step 4** that
+was not in the original diagnosis — recorded honestly below rather than folded silently into the
+plan as if it had been anticipated.
+
+**Steps 1–2 (`setup_render()`):** `film_transparent = True` + explicit `RGBA`, plus
+`view_settings.view_transform = 'Standard'`. Re-ran the full `01_base_mesh_and_rig.py` pipeline and
+measured the result directly (Blender's own Python, `bpy.data.images` pixel access, not a
+screenshot tool) rather than assuming the settings took effect: background corners now read
+`(0,0,0,0)` (true alpha) where they were opaque `(58,67,58,255)` before; the palette-compare
+accent's peak green-dominance pixel now measures `rgb(0.09, 1.0, 0.09)` — genuinely saturated —
+versus the Phase 4b entry's own measured `rgb(155,218,137)/255` washed-out green. A full histogram
+scan across the render confirmed a clean separation (body/skin cluster at dominance `[-0.10, 0.03]`,
+accent at `[0.54, 0.88]`) with wide margin on both sides, not a fragile few-percent gap.
+
+**Step 3 (posture sign fix):** re-rendered the posture library; the Thinking pose now shows both
+arms crossing symmetrically toward the chest (confirmed by rendering — see
+`renders/postures/thinking_green.png`), replacing the one-arm-to-hip asymmetry the Phase 4c entry
+flagged. Mirror-math check: reflecting a world-space rotation across the YZ plane preserves
+X-axis rotation sign and flips Y/Z — the old `-100 * side` on the forearm's X-axis rotation was
+the bug; fixed to a plain `-100` shared by both arms.
+
+**Step 4 (shader):** `subjectMask()` replaced with `src.a` (real alpha now exists); accent-key
+threshold retuned to the newly-measured dominance gap
+(`smoothstep(0.15, 0.35, greenness)`, replacing the old `smoothstep(0.07, 0.14, ...)` that was
+tuned for the pre-fix washed-out values).
+
+**A second real, previously-undiscovered bug found while verifying step 4's accent-key change on
+the RED (Alert) bake specifically — not something the Tier 1 plan anticipated:** measured the
+"red" posture PNG's actual accent pixel at the exact coordinate that reads pure green
+`rgb(0.04,1.0,0.04)` in the green posture PNG, expecting saturated red. Got `rgb(1.0, 0.94, 0.44)`
+— yellow. First hypothesis (stale EEVEE Next GI/light-probe cache carried over between the two
+`render_presentation_shot()` calls in the same script run) was tested directly, not assumed: ran a
+**fresh, isolated Blender process** that loaded the blend and rendered only the red variant, with
+no prior green render in that process. Same yellow result — ruled out. Tested a pure-BLUE probe
+color the same way and it rendered correctly saturated, isolating the bug to the RED constant
+specifically, not the pipeline. Root cause: `03_posture_library.py`'s `RED = (1.0, 0.11, 0.02)` is
+a CLAUDE.md **display/sRGB** hex token, but Blender's node-socket `default_value` is interpreted
+as **linear**. That distinction is invisible for channel-pure colors like `(0,1,0)` or `(0,0,1)`
+(0 and 1 map to themselves under either curve — why GREEN and the BLUE probe both looked correct
+and nothing here was flagged before now), but RED's non-zero `0.11` G channel, fed as linear and
+then multiplied by `emission_strength=7.0`, lands at `0.77` linear — gamma-*encoded* back up to
+`~0.94` for display, comparable to R's own clipped `1.0`, reading as yellow instead of red.
+
+**Fix:** added `srgb_to_linear()` (standard sRGB EOTF, per-channel) to `03_posture_library.py`,
+applied inside `set_emissive_color()` before the strength multiply — every future accent color fed
+through this function (the eventual 8-token palette bonus variant included) gets this correction
+automatically, not just RED. Re-rendered: the same accent pixel now measures `rgb(1.0, 0.34, 0.13)`
+— a clean saturated red-orange, dominance `0.66` vs. the broken version's `0.02`. Re-verified GREEN
+is unaffected (still exactly `(0.04,1.0,0.04)`, as expected since 0/1 are gamma-curve-invariant).
+
+**End-to-end verification, not just Blender-side:** copied all 3 regenerated PNGs into
+`quark-avatar/src/main/res/drawable-nodpi/`, rebuilt `:app:assembleDebug`
+(`BUILD SUCCESSFUL`), booted the same `Pixel_10a` GPU emulator Phase 4b proved out, installed,
+and drove the actual app UI (tap navigation, not an adb shell activity launch — `QuarkAvatarActivity`
+is correctly not exported, confirmed by the resulting `SecurityException` when tried) through
+HOME → CONFIG → DEV: QUARK AVATAR PREVIEW → cycled POSTURE through NEUTRAL/ALERT/THINKING.
+Screenshots pulled and inspected directly (not described secondhand): NEUTRAL shows genuine
+transparent background (true app black, no fringing, no gray-green box) with a correctly
+CYAN-retinted accent; THINKING shows the now-symmetric crossed-arm pose in-app, matching the
+isolated Blender render; ALERT shows a clean red headband post-fix, replacing the yellow this
+same click-path showed before the sRGB fix (confirmed both states on-device, not just in renders).
+
+**What did NOT need touching:** `QuarkAvatarActivity.kt`, `QuarkAvatarScreen.kt`,
+`config/build.gradle.kts` — Phase 4b's dependency-edge fix and CONFIG dev-preview wiring were
+already correct and untouched by this pass.
+
+**Next session:** Tier 2 (lighting rig, lens/portrait framing, raytraced shadows/AO, resolution)
+and Tier 3 (shader rim-glow polish) from the original plan, Director's call on priority — or the
+still-open Fold 6 hardware confirmation, now more relevant to schedule since Tier 1 changed what
+the bundled PNGs actually look like.
