@@ -444,23 +444,53 @@ session doesn't repeat the detour:
    was. Re-verified: `islands=1`, `non_manifold_edges=0`, `non_manifold_verts=0`, 100% quads
    (130,036 faces), all 20 armature vertex groups present.
 
-**Honest gap, not resolved this session:** whether the toes still read as individually separated
-(Phase 3f/3g's own bar) is genuinely uncertain after the `axis='Y'` fix. A y-slice x-clustering scan
-similar to Phase 3g's own method still shows one continuous run rather than distinct clusters in the
-region checked, and several close-up/top-down/bottom-up render attempts to check visually all hit
-framing problems (the same class of difficulty Phase 3g itself logged — a straight-down camera on a
-T-pose figure hits the outstretched arm/shoulder silhouette before it reaches the foot, 1.5m below).
-Given diminishing returns on continued attempts and that this is a Phase 3f/g cosmetic refinement
-rather than part of this session's actual scope, stopped here rather than keep burning the session
-on it. **Flagging, not claiming fixed:** worth a dedicated close-up-render pass next session if toe
-separation still matters at this fidelity level, now that the actual blocking defect (mesh
-connectivity) is confirmed solid.
+**Toe-separation gap, resolved (with scope relaxed by Director):** the y-slice x-clustering scan
+that flagged this as uncertain was checking too close to the toe-base — real toes are webbed near
+the base and only separate near the tips, so "one continuous run" there was never actually a
+red flag. Director's guidance: shoes will cover the feet in the final render, so silhouette-level
+correctness is the actual bar, not per-toe isolation. Got a clean, unobstructed shot by aiming the
+camera at the toe tips head-on (`renders/qa_closeup/foot_front.png`) instead of fighting top-down/
+bottom-up framing (same class of difficulty Phase 3g logged) — it clearly shows a scalloped, multi-
+lobed edge, not a flat paddle. A profile shot (`foot_side3.png`) confirms a normal heel-to-toe
+silhouette with the big toe reading as a distinct bump. Good enough for shoe coverage, confirmed by
+looking, not assumed.
+
+## ▶ RESUME HERE — Phase 4a QA pass: verifying the correction didn't regress anything else — DONE
+
+The anthropometric correction touched `build_torso_and_head()`, `build_legs()`, `build_arms()`,
+`build_fingers()`, `build_armature()`, and every z-band in `_classify_material_index()` — worth
+actually checking each rather than assuming the transform math was right just because it compiled
+and rendered a plausible-looking front view. Rendered targeted close-ups
+(`renders/qa_closeup/`) at each touched region:
+- **Kneecap band** — recentered correctly on the new knee height, reads clearly (`hip_knee.png`).
+- **Shoulder pauldron + neck collar** — both land correctly at the compressed torso height
+  (`shoulder.png`).
+- **Chest seam** — correctly placed, panel/rivet detail intact (`chest2.png`; first attempt,
+  `chest.png`, accidentally shot the back — this project's camera convention has "front" showing
+  the spine-conduit side, confirmed against the last committed pre-session render, not a bug this
+  session introduced).
+- **Hip wrap** (metal ring + graphite flanks) — correctly placed (`hip_wrap.png`).
+- **Headband circuit** — correctly placed at brow height on the (also-compressed) head position
+  (`head.png`).
+- **Fingers** — attachment height moves with the torso-compression transform (`tz(130)`), unlike
+  toes which are floor-anchored and don't move at all; confirmed still cleanly separated and
+  correctly attached at the wrist, no regression (`hand.png`, `hand_top.png` — all 5 digits
+  distinctly separated, cleaner than the toes).
+- **Inner-thigh gap** — checked against the Phase 1 log's old "same-class shadow/seam" flag;
+  what's visible from a low camera angle is just the normal ~2cm anatomical gap between two
+  separate legs (hip landmarks are 19cm apart center-to-center, ~8.5cm radius each), not a mesh
+  defect. Different thing from the old flag, not the same issue persisting.
+
+All seven checked regions confirmed correct. Combined with the earlier topology check (1 island,
+manifold, 100% quads) and the toe-separation finding above, the anthropometric correction is fully
+verified, not just structurally sound.
 
 **Current assets regenerated at the corrected proportions:** `blender/quark_base.blend`,
 `renders/blockout_turnaround/`, `renders/palette_compare/` (materials/textures re-baked at the same
-2048px resolution as Phase 3c). `renders/anthro_compare/` and `renders/toe_closeup/` are this
-session's own working/diagnostic renders, not final production assets.
+2048px resolution as Phase 3c). `renders/anthro_compare/`, `renders/toe_closeup/`, and
+`renders/qa_closeup/` are this session's own working/diagnostic renders, not final production
+assets — kept because they're the actual evidence behind the claims above, not because they're
+deliverables.
 
-**Not yet committed to git** — working tree has these regenerated assets plus the still-uncommitted
-Phase 3g assets from the prior session; the Director hasn't been asked yet whether to commit either
-batch.
+**Committed to git** (`00806c4`) — bundles this session's Phase 4a work with the prior session's
+still-uncommitted Phase 3g assets, per Director's explicit go-ahead. Not yet pushed to origin.
