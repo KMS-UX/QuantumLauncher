@@ -13,12 +13,24 @@ Blender/asset pipeline. Directions on where this eventually plugs into the app a
 - **Scope: new dedicated "QUARK Core App" surface.** Does NOT replace the existing
   Canvas-drawn `QuarkMascot` (`audio/…/QuarkMascot.kt`) used inline in AUDIO etc. — that stays as
   the lightweight small-context glyph.
-- **Palette: build both, decide later.** Director call (2026-08-20): Phase 3 (texture/lighting)
-  builds the full 8 sheet-accurate appearance tokens first, plus renders a second phosphor-only
-  variant (collapsed to GREEN/AMBER/CYAN + `--warn` red only) for comparison — final choice
-  deferred to the last stage, once both are visible side by side. The `CLAUDE.md` "phosphor
-  only / one token source" guardrail conflict noted previously still applies to whichever variant
-  ships in production; not a blocker for building both to compare.
+- **Palette: RESOLVED (Director, 2026-08-20, Phase 4 kickoff session).** QUARK is a guardrail
+  exception, not a violation: the four physical materials (Ceramic, Synth-Skin, Graphite, Metal
+  Alloy — locked, concept-sheet-accurate hex values) stay their real-world material colors
+  permanently, in every hue mode. They were never phosphor colors in either comparison render —
+  the `palette_compare` renders only ever swapped the emissive accent (spine conduit, headband),
+  not the body — so this wasn't actually the "8-token vs phosphor-collapsed body" choice the
+  Phase 3c framing implied; flagged and corrected before locking anything in, per this track's own
+  "flag forks, verify don't eyeball" discipline. What's actually decided: the emissive accent is
+  the only thing hue-aware, and it's tinted **live at runtime by the Phase 4 AGSL overlay shader**
+  from `PhosphorHueRuntime` — consistent with the render-path decision above (pre-rendered frames
+  are neutral-value, not pre-tinted per hue). The `sheet_neutral` bake (`#E6F1FF`, the sheet's own
+  "Neutral"/rest-state token) is therefore the correct default for the static pre-rendered frames
+  — already what `main()` ships — and needs no code change; `phosphor_green` was a preview of what
+  the live shader's GREEN-hue tint will look like, not an alternate bake to ship. **The `CLAUDE.md`
+  "phosphor only / no off-palette colors" guardrail is satisfied**: the one hue-bearing element
+  (the accent) is phosphor-driven and single-sourced from `PhosphorHueRuntime`; the body materials
+  are an explicitly Director-approved exception for this one photoreal/holographic surface, not an
+  off-palette violation of the rule elsewhere in the app.
 
 ## ▶ RESUME HERE — Phase 1: base mesh + rig blockout — DONE, first pass
 `blender/scripts/01_base_mesh_and_rig.py` — headless, run via:
@@ -492,5 +504,37 @@ verified, not just structurally sound.
 assets — kept because they're the actual evidence behind the claims above, not because they're
 deliverables.
 
-**Committed to git** (`00806c4`) — bundles this session's Phase 4a work with the prior session's
-still-uncommitted Phase 3g assets, per Director's explicit go-ahead. Not yet pushed to origin.
+**Committed to git** (`00806c4`, `431dfe2`) — bundles this session's Phase 4a work with the prior
+session's still-uncommitted Phase 3g assets, per Director's explicit go-ahead. Not yet pushed to
+origin.
+
+## ▶ RESUME HERE — Phase 4 kickoff: phosphor-vs-palette guardrail conflict — RESOLVED
+
+Director chose to start Phase 4 with the palette decision rather than the posture library or the
+AGSL shader, since it was a standing design question blocking nothing yet but worth settling before
+building more on top of an undecided visual language.
+
+**What actually got decided, and why the framing changed:** presented the existing
+`palette_compare` renders as the Phase 3c decision text described them ("8 sheet-accurate tokens
+vs. phosphor-collapsed") — but on closer look, that framing didn't match what the renders actually
+show. `assign_materials()`'s `glow_color` parameter only ever swaps the emissive accent (spine
+conduit + headband); the four physical materials are hardcoded, identical in both renders, and
+were never phosphor colors in either variant. So the real choice wasn't "recolor the body or not" —
+it was already implicitly decided (the body was always concept-accurate) and just hadn't been
+named as a decision. Flagged this gap in the original framing to the Director rather than letting
+a decision get made on an inaccurate premise.
+
+**Resolution:** QUARK's four physical materials (Ceramic/Synth-Skin/Graphite/Metal Alloy) are a
+**Director-approved exception** to `CLAUDE.md`'s phosphor-only guardrail — real-world material
+colors, permanently, matching the concept sheet, because this is a photoreal/holographic character
+surface, not a UI screen. The only hue-bearing element is the emissive accent, and it stays
+single-sourced from `PhosphorHueRuntime` via the Phase 4 AGSL overlay shader (not yet built) —
+which was already the render-path plan (pre-rendered frames stay neutral-value, live tinting
+happens at runtime), so this decision confirms rather than changes that architecture. No code
+change needed: `main()` already bakes the `sheet_neutral` (`#E6F1FF`) variant as the shipped
+default, which is correct under this resolution. `renders/palette_compare/phosphor_green_*` remains
+useful as a preview of the live shader's GREEN-hue output, not as an alternate bake.
+
+**Still open, now unblocked:** the 8-state posture library and the real-time AGSL overlay shader
+itself (the thing that will actually implement the live accent-tinting this decision assumes)
+remain unbuilt. Next session's choice between them, or another priority.
