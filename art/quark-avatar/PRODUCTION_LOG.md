@@ -632,3 +632,66 @@ scope of the original palette-comparison renders.
    bonus variant (Director wants to keep this open, not abandoned); continued panel/material
    fidelity if wanted (assessed as near the ceiling of what procedural texture work can add,
    unchanged from the prior session's assessment).
+
+## ▶ RESUME HERE — Phase 4b: AGSL overlay shader, first pass — CODE COMPLETE, UNVERIFIED ON HARDWARE
+
+Kotlin/Android graphics work, per the prior session's own deferral. Built the piece both the
+palette resolution and the posture-library VFX notes assumed but didn't yet exist: a new docked
+module, `:quark-avatar` (`com.quantumos.quarkavatar`), hosting the real-time AGSL shader plus a
+dev-preview screen to actually see it on-device — this track's "verified by rendering and looking,"
+same as every prior Blender-side claim in this log, applies here too and has **not yet happened**
+(no Android SDK / no local build capability this session — see "What's unproven" below).
+
+**What shipped:**
+- **The shader** (`quark-avatar/.../ui/effects/QuarkAvatarShader.kt`, `Modifier.quarkAvatarEffect()`)
+  — one AGSL `RuntimeShader` pass over the bundled posture PNGs, three effects: (a) an internal
+  rim/edge glow from a 4-tap alpha gradient, bounded to the PNG's own raster bounds (no outward
+  bloom — deferred, see below); (b) accent retint — keys the posture-library bake's pure-green
+  (0,1,0) emissive-accent pixels (confirmed in `assign_materials()`/`03_posture_library.py`'s render
+  convention) and replaces them with the live `PhosphorHueRuntime` hue, scaled by the baked pixel's
+  own green value to preserve its shading rather than flattening it; (c) a flat Stealth-dim
+  multiply, saturation unchanged, matching `toggleStealthMode()`'s own doc comment. Follows
+  `crtShader()`'s existing safety-net discipline (fails closed to the plain unshaded image, never a
+  crash) and sets `compositingStrategy = CompositingStrategy.Offscreen` explicitly on the
+  `graphicsLayer` — flagged as a real unknown, not an assumption (see below).
+- **Speaking's ripple rings** — deliberately kept OUT of the shader; a separate Compose `Canvas`
+  overlay (`SpeakingRippleOverlay`) reusing `QuarkMascot.kt`'s exact HAPPY/SCAN ring technique
+  (`rememberInfiniteTransition`, radius 1.0→2.4 / alpha 1→0, `EaseOutQuad`/`Restart`) rather than
+  reinventing geometric ring-drawing in AGSL — the shader stays scoped to true pixel-level work.
+- **A dev-preview screen** (`QuarkAvatarActivity`/`QuarkAvatarScreen`) — cycles the 3 bundled
+  posture bakes (Neutral/Alert/Thinking; Alert's fixed red is structurally never retinted, not by
+  convention), cycles the **real** `PhosphorHueRuntime` (not a stub — this also changes the hue
+  everywhere else live in the app), and toggles Speaking/Stealth previews. Posture/Speaking/Stealth
+  are local, unpersisted UI state only.
+- **Reached via a temporary, explicitly-labeled row in CONFIG** ("`[ DEV: QUARK AVATAR PREVIEW > ]`"),
+  launched by `setClassName` (no new Gradle dependency edge from `:config`). **This is a flagged
+  stopgap, not a navigation decision** — where "QUARK Core App" actually lives (a 9th HOME tile? a
+  long-press affordance? folded into the Assistant View?) is still open and belongs to the Director.
+
+**Explicit non-goals, held to on purpose:** no wiring to the real `QuarkReflexPosture`/Stealth state
+from `QuantumRuntime.masterState` — blocked by the same circular-dependency constraint that forced
+`:quark-brain`'s own extraction (`:app` depends on every docked module, never the reverse; a docked
+module can't reach back into `:app`'s state without the same kind of cross-module surgery). No
+Blender/render-pipeline changes. No HOME instrument-console integration. `QuarkMascot.kt` untouched.
+
+**What's unproven — this session had no local build capability** (no `gradlew`/Android SDK on this
+machine, matching every prior session's documented build reality) — so unlike the Blender-side
+entries above, none of this was verified by rendering and looking yet. Flagging every open question
+explicitly rather than claiming any of it "works":
+1. Does the AGSL source actually compile at runtime (Skia-validated, not proven by a clean Kotlin
+   build) — `CI`/a real Android build is the first real compiler this code will see.
+2. **The transparent-PNG compositing question is a genuine unknown** — no shader in this repo has
+   ever been applied over a plain `Image` with alpha, only over an opaque CameraX preview behind an
+   explicit `saveLayer`. `CompositingStrategy.Offscreen` is the deliberate, explicit choice, not a
+   verified-safe one — confirm no black/opaque fringing at the silhouette on real hardware.
+3. Does the rim glow read as an internal rim-light, not invisible or a flat brighten.
+4. Does the green-key threshold ("G dominant over R and B by 2×") cleanly isolate the accent without
+   catching the physical materials' own highlights — a first guess against the bake, not measured.
+5. Does cycling HUE actually recolor the spine/headband live, matching what
+   `renders/palette_compare/phosphor_green_*.png` previewed.
+6. Do Stealth-dim and the Speaking-ripple overlay read right together with the shader.
+
+**Next session:** push and get this in front of a real Android build (CI or the Director's own
+toolchain) before trusting any of the above; then the Fold 6 pass through all 6 open questions.
+Once the shader itself is confirmed, the CONFIG dev-preview row is a natural thing to retire in
+favor of whatever real navigation the Director picks for "QUARK Core App."

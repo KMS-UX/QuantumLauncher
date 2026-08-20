@@ -42,6 +42,7 @@ fun ConfigScreen(
     onCyclePhosphor: () -> Unit,
     onCycleBootPace: () -> Unit,
     onCycleRegion: () -> Unit,
+    onOpenAvatarPreview: () -> Unit,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier
 ) {
@@ -106,6 +107,26 @@ fun ConfigScreen(
             fontFamily = Fonts.ChakraPetch,
             fontSize = 9.sp
         )
+
+        Spacer(Modifier.height(18.dp))
+        // Temporary, provisional entry point for the Phase 4b AGSL overlay shader dev-preview --
+        // NOT the real navigation decision for where "QUARK Core App" lives (that's a Director call,
+        // see art/quark-avatar/PRODUCTION_LOG.md). Deliberately not styled as SettingCycleRow: this
+        // is a one-shot launch action, not a persisted cycling setting.
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onOpenAvatarPreview() }
+                .padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "[ DEV: QUARK AVATAR PREVIEW > ]",
+                color = themeColorDim,
+                fontFamily = Fonts.ChakraPetch,
+                fontSize = 11.sp
+            )
+        }
     }
 }
 

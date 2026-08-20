@@ -1,5 +1,6 @@
 package com.quantumos.config
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -53,6 +54,14 @@ class ConfigActivity : ComponentActivity() {
                     onCyclePhosphor = viewModel::cyclePhosphorHue,
                     onCycleBootPace = viewModel::cycleBootPace,
                     onCycleRegion = viewModel::cycleDeploymentRegion,
+                    onOpenAvatarPreview = {
+                        // Provisional dev-preview entry point (Phase 4b) -- setClassName avoids a
+                        // Gradle dependency edge from :config onto :quark-avatar; both modules live
+                        // in the same process/APK so this resolves at runtime. See
+                        // art/quark-avatar/PRODUCTION_LOG.md for why this is temporary, not the real
+                        // navigation decision for where "QUARK Core App" lives.
+                        startActivity(Intent().setClassName(packageName, "com.quantumos.quarkavatar.QuarkAvatarActivity"))
+                    },
                     contentPadding = padding
                 )
             }

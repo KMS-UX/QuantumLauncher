@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- QUARK AVATAR: dev-preview surface for the Phase 4b AGSL overlay shader (rim glow + live
+         hue-tinted emissive accent + Stealth dim) over the pre-rendered posture-library frames.
+         Docked into the launcher's single APK; no own applicationId or launcher intent-filter.
+         Reached only via an internal Intent from CONFIG's temporary "QUARK AVATAR -- DEV PREVIEW"
+         row (see art/quark-avatar/PRODUCTION_LOG.md -- this is a provisional entry point, not the
+         real navigation decision for where "QUARK Core App" lives). No permissions: static bundled
+         art only, no camera/mic/location/network. -->
+
+    <application>
+        <activity
+            android:name="com.quantumos.quarkavatar.QuarkAvatarActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true" />
+    </application>
+
+</manifest>
