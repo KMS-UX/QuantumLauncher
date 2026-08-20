@@ -633,14 +633,27 @@ scope of the original palette-comparison renders.
    fidelity if wanted (assessed as near the ceiling of what procedural texture work can add,
    unchanged from the prior session's assessment).
 
-## ▶ RESUME HERE — Phase 4b: AGSL overlay shader, first pass — CODE COMPLETE, UNVERIFIED ON HARDWARE
+## ▶ RESUME HERE — Phase 4b: AGSL overlay shader, first pass — CI-GREEN, NOT YET HARDWARE-VERIFIED
 
 Kotlin/Android graphics work, per the prior session's own deferral. Built the piece both the
 palette resolution and the posture-library VFX notes assumed but didn't yet exist: a new docked
 module, `:quark-avatar` (`com.quantumos.quarkavatar`), hosting the real-time AGSL shader plus a
-dev-preview screen to actually see it on-device — this track's "verified by rendering and looking,"
-same as every prior Blender-side claim in this log, applies here too and has **not yet happened**
-(no Android SDK / no local build capability this session — see "What's unproven" below).
+dev-preview screen to actually see it on-device. Pushed to `main` and **CI is green** (run #123,
+`https://github.com/KMS-UX/QuantumLauncher/actions/runs/32380256439`) — `gradle test`,
+`assembleDebug`, and `assembleRelease` all passed. **Two round-trips to green**, same discipline as
+every prior module-docking session in this repo: (1) a missing `androidx.compose.runtime.getValue`
+import for a `by transition.animateFloat(...)` delegate in `QuarkAvatarScreen.kt`'s
+`SpeakingRippleOverlay`; (2) a literal `"--"` inside the new module's `AndroidManifest.xml` header
+comment — the exact same recurring bug this repo's `BUILD_LOG.md` has hit at least twice before
+(App Shell Integration Phase 3, SIGNAL+CONFIG); reworded rather than restructured.
+
+**What a green build actually proves, and what it doesn't:** the Kotlin compiles, resources merge,
+and both APK variants assemble. It does **not** prove the AGSL shader source itself is valid — AGSL
+is validated by Skia at runtime on the GPU, not by kotlinc/Gradle, so `RuntimeShader(...)` could
+still throw at runtime and silently fall back to the unshaded image (the safety net working exactly
+as designed, but silently — worth watching for on the Fold 6, not assumed fine just because CI is
+green). This track's "verified by rendering and looking" standard — same as every prior Blender-side
+claim in this log — still has **not yet happened** for any of the 6 open questions below.
 
 **What shipped:**
 - **The shader** (`quark-avatar/.../ui/effects/QuarkAvatarShader.kt`, `Modifier.quarkAvatarEffect()`)
@@ -674,12 +687,15 @@ from `QuantumRuntime.masterState` — blocked by the same circular-dependency co
 module can't reach back into `:app`'s state without the same kind of cross-module surgery). No
 Blender/render-pipeline changes. No HOME instrument-console integration. `QuarkMascot.kt` untouched.
 
-**What's unproven — this session had no local build capability** (no `gradlew`/Android SDK on this
-machine, matching every prior session's documented build reality) — so unlike the Blender-side
-entries above, none of this was verified by rendering and looking yet. Flagging every open question
-explicitly rather than claiming any of it "works":
-1. Does the AGSL source actually compile at runtime (Skia-validated, not proven by a clean Kotlin
-   build) — `CI`/a real Android build is the first real compiler this code will see.
+**What's still unproven — CI-green only confirms the Kotlin/Gradle/resource layer, not the shader's
+actual GPU behavior or how any of this looks.** None of this was verified by rendering and looking
+yet (this track's own standard). Flagging every open question explicitly rather than claiming any
+of it "works":
+1. ~~Does the AGSL source actually compile~~ — CI's `assembleDebug`/`assembleRelease` passing is
+   *evidence* toward this (no `RuntimeShader` construction crash would slip past unit tests either,
+   though nothing here specifically exercises it), but AGSL itself is Skia-validated at GPU runtime,
+   not by kotlinc — the shader could still silently fail its `runCatching` and fall back to the
+   plain unshaded image on-device without CI ever seeing that. Not fully closed until watched.
 2. **The transparent-PNG compositing question is a genuine unknown** — no shader in this repo has
    ever been applied over a plain `Image` with alpha, only over an opaque CameraX preview behind an
    explicit `saveLayer`. `CompositingStrategy.Offscreen` is the deliberate, explicit choice, not a
@@ -691,7 +707,8 @@ explicitly rather than claiming any of it "works":
    `renders/palette_compare/phosphor_green_*.png` previewed.
 6. Do Stealth-dim and the Speaking-ripple overlay read right together with the shader.
 
-**Next session:** push and get this in front of a real Android build (CI or the Director's own
-toolchain) before trusting any of the above; then the Fold 6 pass through all 6 open questions.
-Once the shader itself is confirmed, the CONFIG dev-preview row is a natural thing to retire in
-favor of whatever real navigation the Director picks for "QUARK Core App."
+**Next session:** the Fold 6 pass through all 6 open questions above — sideload the CI build (or
+build from `main` at `92bb7ff`), open CONFIG's `[ DEV: QUARK AVATAR PREVIEW > ]` row, and cycle
+every posture/hue/Speaking/Stealth combination while actually looking. Once the shader itself is
+confirmed, the CONFIG dev-preview row is a natural thing to retire in favor of whatever real
+navigation the Director picks for "QUARK Core App."
