@@ -538,3 +538,68 @@ useful as a preview of the live shader's GREEN-hue output, not as an alternate b
 **Still open, now unblocked:** the 8-state posture library and the real-time AGSL overlay shader
 itself (the thing that will actually implement the live accent-tinting this decision assumes)
 remain unbuilt. Next session's choice between them, or another priority.
+
+## ▶ RESUME HERE — Phase 4: posture library, first pass — DONE
+
+Director picked the posture library next. Before building anything, cropped and inspected each of
+the reference sheet's 8 "POSTURE & EMOTION STATES" thumbnails individually (full-sheet scale was
+too small to read reliably) — a real finding, not an assumption: **7 of the 8 states share the
+exact same relaxed standing pose** (arms at sides), differing only by accent color and a couple of
+state-specific VFX (Speaking's ripple rings, Stealth's dimmed opacity) that belong to the live
+AGSL shader layer, not the baked mesh. Only **Thinking** has a genuinely different body pose
+(hands raised toward the chin, elbows out). So the actual deliverable is a **2-pose library**, not
+8 separate poses — which is exactly the asset-count reduction the render-path decision's own
+reasoning anticipated ("avoids an N-postures x 3-hues baked-asset explosion"), just discovered
+concretely rather than assumed.
+
+Accent-color rule for these renders (Director decision, this session): every posture uses the live
+`PhosphorHueRuntime` hue except Alert, which is always the fixed `--warn` red — rendered with GREEN
+standing in for "whatever hue is active" (the real selection happens live in-app) and RED for
+Alert. The full 8-token sheet-accurate palette remains a later bonus variant, not built here.
+
+**New script:** `03_posture_library.py`, loads the existing baked `quark_base.blend` rather than
+rebuilding from scratch, poses the `QUARK_Rig` armature, and renders. Ships 3 frames:
+`renders/postures/relaxed_idle_green.png` (covers Neutral/Focused/Happy/Warm/Speaking/Stealth),
+`relaxed_idle_alert_red.png` (Alert), `thinking_green.png` (Thinking).
+
+**Posing the armature took three real debugging passes, worth recording:**
+1. **Bone-local Euler rotation gave nonsense results** — rotating `shoulder_*`'s local Z axis by
+   ~78° swung the arm UP overhead, not down to the side. Root cause, found by dumping
+   `bone.matrix_local`'s column vectors rather than continuing to guess signs: this bone's local
+   X/Z axes are tilted, not aligned to any world axis, so a "local Z rotation" doesn't mean what
+   it sounds like. Switched to a world-space technique instead — build a rotation matrix around a
+   named *world* axis (Y, for a T-pose arm swinging from horizontal to vertical) and apply it as
+   a pivot transform around the bone's head — which sidesteps the local-axis question entirely.
+2. **Rotating the wrong bone.** First pass rotated `shoulder_*` (the clavicle), whose rest head
+   sits at the body centerline (x=0) — that pivots the *whole* arm chain down through the torso's
+   center, leaving it hidden behind the torso silhouette from a straight-on view. `upperarm_*`'s
+   rest head is already at the correct shoulder-joint offset (`build_armature()` parents it
+   there), so rotating that bone instead was the fix — confirmed by comparing renders of both
+   (centerline version: arm invisible from the front; joint version: normal arms-at-sides stance).
+3. **Chained rotations need the CURRENT pivot, not the rest pivot.** The Thinking pose's forearm
+   bend flew off to the wrong place on the first attempt — traced to `rotate_bone_world()`
+   computing its pivot from the bone's *rest* head position, which is stale once the parent
+   (`upperarm`) has already been rotated. Fixed by pivoting around `pose_bone.matrix.translation`
+   (the bone's current, already-posed head) instead. Also caught an asymmetry bug after that fix —
+   only one arm bent correctly — because the forearm's world-X bend angle wasn't mirrored per side
+   the way the upperarm's world-Y angle was; fixed by applying the same `* side` sign convention
+   to both.
+
+**Verified by rendering and looking, all three, not assumed from the code** (per this track's
+standing discipline): relaxed-idle reads as a natural arms-at-sides stance from both a 3/4 front
+angle and a profile check (added specifically to catch clipping — none found, the unrotated
+clavicle stub doesn't create a visible artifact from any angle checked). Thinking reads as a
+distinct, purposeful "hands raised toward the chest/chin" gesture, symmetric across both arms.
+Alert's red accent renders correctly on the same relaxed-idle pose, confirming the color-swap
+mechanism still works after posing (unaffected by which pose is active, as expected — the emissive
+material is independent of the armature).
+
+**Honest scope note:** "hands raised toward the chin" is the achievable target, not literal
+interlocked fingers — the rig has no per-finger bones (fingers are static geometry parented to the
+hand bone), so individual finger articulation isn't possible without a rig change. Close enough to
+the reference's intent at this fidelity level; flagging rather than overclaiming precision.
+
+**Not yet done:** VFX layer (Speaking's ripple rings, Stealth's dimming) — these are Phase 4 AGSL
+shader territory per the analysis above, not this script's job. The `.blend` file on disk still
+saves in its T-pose (base/rest) state; the posed renders are PNG-only, consistent with the hybrid
+render-path architecture (the app consumes rendered frames, not the `.blend` itself).
