@@ -42,6 +42,26 @@ import androidx.compose.ui.unit.IntSize
  *    ~0.54-0.88 in the 0-1 range across ~40 sampled points, with the next-highest anywhere else in
  *    the render at 0.03 -- a wide, clean gap, not a fragile few-percent margin like the original
  *    key). The smoothstep band below targets that gap with headroom on both sides.
+ *
+ * Tier 3 (PRODUCTION_LOG.md, "Rendering refinement pass — Tier 3"): the two items explicitly
+ * deferred out of Tier 1/2 as cosmetic-not-defect polish, now done since the rim has a real
+ * physical backlight (Tier 2) to sit on top of instead of being the only source of edge definition.
+ *  - Rim offset was a fixed 6px regardless of the surface's actual render size, so the rim reads
+ *    thicker on a small surface and thinner on a large one instead of a consistent width. Now
+ *    derived from the `resolution` uniform (which was declared but never read before this) as a
+ *    fraction of render height, floored so it never vanishes on a tiny surface.
+ *  - Rim detection was a symmetric 4-tap central-difference gradient straddling the silhouette
+ *    edge -- roughly half its response comes from OUTSIDE the mask, which never actually reaches
+ *    the screen (the shader's own `if (mask <= 0.0) return transparent` at the top discards every
+ *    outside pixel before the rim term would apply to it), so half the gradient's dynamic range
+ *    was wasted computing a contribution that's thrown away. Replaced with an 8-direction
+ *    minimum-neighbor-mask sample: for a pixel that's already confirmed inside the mask, this asks
+ *    "how close is the nearest background pixel" directly, giving the same inward-only rim using
+ *    the sampling budget more efficiently.
+ *  - Rim color was hardcoded white regardless of the live phosphor hue. Now mixed from the same
+ *    `accentColor` uniform the accent retint already uses (mostly hue-tinted with a white bias
+ *    for a glow look, not a flat wash) -- ties the rim to whatever hue/Alert-red is actually active
+ *    instead of being a hue-independent white line.
  */
 private const val QUARK_AVATAR_SHADER_SRC = """
     uniform shader content;
@@ -62,25 +82,41 @@ private const val QUARK_AVATAR_SHADER_SRC = """
         }
         float3 rgb = float3(src.rgb);
 
-        // Accent retint: key on the measured saturated-green dominance band (accent ~0.54-0.88,
-        // next-highest anywhere else in the render ~0.03 -- wide margin, see header comment).
-        // Scale the live accentColor by the baked pixel's own green value to preserve whatever
-        // shading/falloff the render already has instead of flattening it to one flat color.
+        // Accent retint: key on the measured saturated-green dominance band. Re-measured after the
+        // Director-specified phenotype rebuild (new body, MakeHuman assets, studio-HDRI lighting).
+        // The separation is now very wide: body/armour pixels top out at 0.01 while the accent
+        // spans 0.46-0.90. The previous 0.35-0.55 ramp was calibrated when the ceramic pushed some
+        // body pixels to 0.22, and it would now leave the dimmest accent pixels only partially
+        // tinted. Band moved to 0.12-0.28 -- an order of magnitude above the body maximum, and
+        // fully saturated well before the faintest accent pixel. Scale the live accentColor by the
+        // baked pixel's own green value to preserve the render's shading rather than flattening it.
         float greenness = rgb.g - max(rgb.r, rgb.b);
-        float accentT = smoothstep(0.15, 0.35, greenness);
+        float accentT = smoothstep(0.12, 0.28, greenness);
         rgb = mix(rgb, accentColor * rgb.g, accentT);
 
-        // Rim/edge glow: a 4-tap gradient over the synthesized mask (not the source alpha channel,
-        // which is useless here) detects proximity to the silhouette edge and adds an internal
-        // rim-light there. First pass used a 1.5px offset / 0.35 strength and was confirmed
-        // on-device to be too subtle to read at all (checked by rendering and looking, not assumed --
-        // see PRODUCTION_LOG) -- widened to a ~6px band with a brighter additive term.
-        float mE = subjectMask(coord + float2(6.0, 0.0));
-        float mW = subjectMask(coord - float2(6.0, 0.0));
-        float mN = subjectMask(coord + float2(0.0, 6.0));
-        float mS = subjectMask(coord - float2(0.0, 6.0));
-        float rim = clamp((abs(mE - mW) + abs(mN - mS)), 0.0, 1.0) * rimStrength;
-        rgb += rim * float3(1.0, 1.0, 1.0) * 0.9;
+        // Rim/edge glow: for a pixel already confirmed inside the mask (the function returns above
+        // otherwise), sample 8 directions around it at a resolution-derived radius and take the
+        // MINIMUM mask value found -- that directly answers "how close is the nearest background
+        // pixel" using every tap's full dynamic range, instead of the old symmetric central-
+        // difference gradient where roughly half the response came from outside-the-mask taps that
+        // could never reach the screen anyway (that pixel would have already been discarded above).
+        // Radius as a fraction of render height (not a fixed pixel count) so the rim reads the same
+        // relative thickness on any surface size; floored so it doesn't vanish at small sizes.
+        float r = max(2.0, resolution.y * 0.0045);
+        float m = 1.0;
+        m = min(m, subjectMask(coord + float2( r,  0.0)));
+        m = min(m, subjectMask(coord + float2(-r,  0.0)));
+        m = min(m, subjectMask(coord + float2(0.0,  r)));
+        m = min(m, subjectMask(coord + float2(0.0, -r)));
+        float rd = r * 0.7071; // diagonal taps at the same radius, axis-scaled
+        m = min(m, subjectMask(coord + float2( rd,  rd)));
+        m = min(m, subjectMask(coord + float2(-rd,  rd)));
+        m = min(m, subjectMask(coord + float2( rd, -rd)));
+        m = min(m, subjectMask(coord + float2(-rd, -rd)));
+        float rim = (1.0 - m) * rimStrength;
+        // Rim tint: mostly the live accent hue (ties the glow to whatever phosphor color / Alert
+        // red is actually active) with a white bias so it still reads as a glow, not a flat wash.
+        rgb += rim * mix(float3(1.0, 1.0, 1.0), accentColor, 0.7) * 0.9;
 
         // Stealth dim: flat brightness multiply, saturation unchanged -- matches
         // QuantumStateEngine.toggleStealthMode()'s own doc comment.

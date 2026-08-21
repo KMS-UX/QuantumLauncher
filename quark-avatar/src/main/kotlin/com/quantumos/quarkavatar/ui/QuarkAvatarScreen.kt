@@ -34,6 +34,7 @@ import com.quantumos.core.PhosphorHue
 import com.quantumos.quarkavatar.DemoPosture
 import com.quantumos.quarkavatar.R
 import com.quantumos.quarkavatar.ui.effects.quarkAvatarEffect
+import com.quantumos.quarkavatar.ui.scene.Quark3dView
 
 /*
  * QUARK AVATAR dev-preview screen (Phase 4b) -- displays the bundled posture-library frame with the
@@ -50,10 +51,12 @@ fun QuarkAvatarScreen(
     themeColorDim: Color,
     speakingPreview: Boolean,
     stealthPreview: Boolean,
+    render3d: Boolean,
     onCyclePosture: () -> Unit,
     onCycleHue: () -> Unit,
     onToggleSpeaking: () -> Unit,
     onToggleStealth: () -> Unit,
+    onToggleRender3d: () -> Unit,
     contentPadding: PaddingValues
 ) {
     val (drawableRes, accentIsLive) = when (posture) {
@@ -67,6 +70,19 @@ fun QuarkAvatarScreen(
 
     Box(Modifier.fillMaxSize().padding(contentPadding), contentAlignment = Alignment.Center) {
         Box(Modifier.fillMaxWidth(0.8f), contentAlignment = Alignment.Center) {
+            // RENDER MODE is the Phase 5 evaluation switch: the same accent hue and Stealth dim
+            // driven through two completely different render paths, side by side on one device.
+            // 3D = SceneView/Filament over the exported GLB, accent as a real emissive material
+            // parameter. 2D = the Phase 4b baked posture frame with the AGSL green-dominance
+            // colour key. Posture/Speaking are 2D-only for now -- the GLB carries no authored
+            // actions yet (see Quark3dView's note correcting the log on that point).
+            if (render3d) {
+                Quark3dView(
+                    accentColor = accentColor,
+                    stealthDim = if (stealthPreview) 0.35f else 1f,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
             Image(
                 painter = painterResource(drawableRes),
                 contentDescription = "QUARK avatar -- $posture",
@@ -78,6 +94,7 @@ fun QuarkAvatarScreen(
                         stealthDim = if (stealthPreview) 0.35f else 1f
                     )
             )
+            }
             if (speakingPreview) {
                 SpeakingRippleOverlay(color = accentColor)
             }
@@ -86,6 +103,7 @@ fun QuarkAvatarScreen(
         Column(
             Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp).fillMaxWidth().padding(horizontal = 16.dp)
         ) {
+            DemoControlRow("RENDER", if (render3d) "3D (SceneView)" else "2D (baked+AGSL)", themeColor, themeColorDim, onToggleRender3d)
             DemoControlRow("POSTURE", posture.name, themeColor, themeColorDim, onCyclePosture)
             DemoControlRow("HUE", themeHue.name, themeColor, themeColorDim, onCycleHue)
             DemoControlRow("SPEAKING RIPPLE", if (speakingPreview) "ON" else "OFF", themeColor, themeColorDim, onToggleSpeaking)

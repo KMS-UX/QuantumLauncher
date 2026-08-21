@@ -990,3 +990,854 @@ already correct and untouched by this pass.
 and Tier 3 (shader rim-glow polish) from the original plan, Director's call on priority — or the
 still-open Fold 6 hardware confirmation, now more relevant to schedule since Tier 1 changed what
 the bundled PNGs actually look like.
+
+## Tier 2 — DONE: lighting rig, portrait lens, raytraced shadows/AO, resolution
+
+The "look upgrade" tier explicitly deferred out of Tier 1's bug-fixing scope. All changes in
+`setup_render()` (`01_base_mesh_and_rig.py`) plus lens/distance in both scripts' camera-placement
+functions; two real miscalibrations were caught by measuring before locking anything in, not
+assumed from the numbers alone.
+
+**Lighting rig:** the 4 flat `SUN` lamps (parallel rays -- hard edges, no falloff, no real shadow
+softness) replaced with `AREA` lights (softness comes from `size`, not a separate property) in a
+loose 3-point-plus-backlight arrangement, plus a genuine new `BackLight` giving the shader's
+rim-glow a real physical light to build on instead of faking the whole effect from nothing. Kept
+multiple world-fixed lights (not a single camera-relative 3-point rig) because the turnaround
+orbits the camera around a static character across 5 angles -- a strictly camera-relative rig
+would only look correct from one of them.
+
+**A real miscalibration caught before shipping, not assumed:** first attempt reused SUN-light-like
+energy numbers (400W key, etc.) for the new AREA lights and rendered a nearly-fully-blown-out
+white figure with almost no shading definition -- confirmed by rendering and looking, not just by
+eyeballing the code. Root cause: `SUN.energy` is irradiance (W/m², distance-independent) but
+`AREA.energy` is total radiant power in Watts (falls off with distance/size) -- reusing similar
+numbers across the two unit systems was the bug. Fixed by iterating against the already-saved
+`quark_base.blend` directly (fast -- no mesh rebuild needed) at a single global energy multiplier,
+measuring actual bbox-relative mean luminance and highlight/shadow-side pixel values at each step
+(0.15x still clipped a highlight side to pure white; 0.06x gave a clean, un-clipped gradient
+between light/shadow sides with real midtone definition) rather than guessing a "looks about
+right" value, then baking the converged per-light Watt values into the script.
+
+**Raytraced shadows/AO + samples:** `scene.eevee.use_raytracing = True`, `use_shadows = True`,
+`taa_render_samples = 128` -- confirmed these are the real Blender 5.2 EEVEE Next property names
+by introspecting `scene.eevee.bl_rna.properties` first rather than guessing (this build's engine
+identifier is actually still `'BLENDER_EEVEE'`, not `'BLENDER_EEVEE_NEXT'` -- that enum value
+doesn't exist on this build, confirmed by a `TypeError` when tried; EEVEE Next is what
+`'BLENDER_EEVEE'` now means in 5.2. `setup_render()`'s existing three-way engine fallback already
+handled this correctly by accident, via its own `except TypeError: continue`). `use_gtao` is gone
+in EEVEE Next -- AO now rides on `use_raytracing`, not a separate legacy toggle.
+
+**Portrait lens, distortion removed:** 24mm (turnaround) -- a wide-angle focal length that
+perspective-stretches a full-figure subject -- moved to 60mm, a standard portrait/product-shot
+focal length. Distance scaled by the same 60/24 ratio to hold framing (pinhole-camera model:
+image size is proportional to focal_length/distance for fixed sensor width, confirmed exactly via
+Blender's own `angle_y` FOV property before and after, not just assumed proportional -- both cases
+computed to an identical 0.7083 frame-height fraction). **A second real, previously-undiscovered
+bug found in passing while setting this up:** `03_posture_library.py`'s own comment claimed the
+posture-library presentation shot used a 35mm lens, but its `if scene.camera is None` fallback
+branch that actually set that value was dead code -- this script always loads the already-saved
+`quark_base.blend`, which always already has `TurnCam` as `scene.camera` by the time this runs, so
+every posture render to date had silently inherited TurnCam's lens (24mm pre-Tier-2) instead.
+Fixed by setting the lens explicitly regardless of which camera object is active, not just in the
+dead branch.
+
+**A framing regression that measurement disproved, not confirmed:** an initial visual comparison
+between an old and a new on-device screenshot looked like the character had shrunk to roughly half
+its previous on-screen size after the lens change. Checked directly rather than accepted: a
+controlled same-mesh, same-lighting A/B render pair (old lens/distance vs. new, both at the new
+1500x2100 resolution, everything else held constant) measured bounding-box heights of 1014px vs.
+990px -- a 2% difference, within scan-step noise, not a real regression. The screenshot comparison
+that suggested otherwise was an imprecise eyeball comparison across two different capture sessions,
+not a genuine defect; recorded here so a future session doesn't re-chase the same false lead.
+
+**Resolution:** raised ~1.5x (turnaround 900x1400 -> 1350x2100; posture library 1000x1400 ->
+1500x2100) now that the lighting/AA quality is worth resolving properly.
+
+**Verification, same discipline as Tier 1 -- rendered and measured before shipping, then confirmed
+end-to-end in the real app:** re-ran the full `01_base_mesh_and_rig.py` pipeline and
+`03_posture_library.py` after each fix; re-checked the accent-key's green-dominance separation
+still holds under the new lighting (body cluster `[-0.06, 0.03]`, accent cluster `[0.75, 0.94]`,
+still a clean gap around the shader's `smoothstep(0.15, 0.35, ...)` threshold -- no shader change
+needed). Copied the 3 regenerated PNGs into `quark-avatar/src/main/res/drawable-nodpi/`, rebuilt
+`:app:assembleDebug`, booted the `Pixel_10a` GPU emulator, and drove NEUTRAL/THINKING/ALERT again
+through the real CONFIG dev-preview UI: real dimensional shading and soft shadows visible on-device
+(not just in the isolated Blender renders), no perspective distortion, live CYAN retint still
+correct, the Tier-1 symmetric Thinking pose and corrected red Alert bake both still intact under
+the new lighting.
+
+**What did NOT need touching:** the shader (`QuarkAvatarShader.kt`) -- Tier 2 was purely upstream
+Blender-side rendering quality plus the two incidental script bugs above; the accent-key/alpha
+logic Tier 1 landed still holds under the new lighting without modification.
+
+**Deferred (Tier 3 from the original plan, not started this session):** making the shader's
+rim-glow offset resolution-derived instead of fixed-pixel, and tinting the rim from the live
+phosphor hue instead of hardcoded white. Now more clearly optional/cosmetic since Tier 2 gave the
+rim-glow a real physical backlight to sit on top of rather than being the only source of edge
+definition.
+
+**Next session:** Tier 3 shader polish, Director's call on priority -- or the still-open Fold 6
+hardware confirmation, now doubly relevant to schedule since both Tier 1 and Tier 2 changed what
+the bundled PNGs look like.
+
+## Tier 3 — DONE: rim-glow resolution-derived offset + live-hue tint
+
+The two shader-only polish items deferred out of Tier 1/2, both in `QuarkAvatarShader.kt`. No
+Blender-side changes this pass -- pure AGSL, verified the only way this layer can be (rebuild,
+install, look at the real running app on the `Pixel_10a` GPU emulator), same as Phase 4b's own
+precedent for shader work.
+
+**Resolution-derived rim offset:** the rim's edge-detection taps were a fixed 6px regardless of
+the surface's actual render size -- reads thicker on a small surface, thinner on a large one,
+instead of a consistent relative width. The `resolution` uniform existed in the shader source
+since Phase 4b but was never actually read anywhere. Now the tap radius is
+`max(2.0, resolution.y * 0.0045)` -- a fraction of render height, floored so it can't vanish on a
+tiny surface.
+
+**Rim detection reformulated, not just re-offset:** the old technique was a symmetric 4-tap
+central-difference gradient straddling the silhouette edge -- roughly half of its response came
+from taps OUTSIDE the mask, which can never actually reach the screen anyway (the shader's own
+`if (mask <= 0.0) return transparent` at the very top already discards every such pixel before the
+rim term would apply), so half the gradient's dynamic range was being spent computing a
+contribution that gets thrown away. Replaced with an 8-direction (4 axis + 4 diagonal) minimum-
+neighbor-mask sample: for a pixel already confirmed inside the mask, this asks "how close is the
+nearest background pixel" directly using every tap's full range, rather than differencing inside
+and outside taps against each other.
+
+**Rim tint now hue-live, not hardcoded white:** `rgb += rim * float3(1,1,1) * 0.9` became
+`rgb += rim * mix(float3(1,1,1), accentColor, 0.7) * 0.9` -- reuses the same `accentColor` uniform
+the accent retint already receives, so the rim now tracks whatever phosphor hue (or the fixed
+Alert red) is actually live instead of being a hue-independent white line. Kept a white bias in
+the mix rather than pure hue so it still reads as a glow, not a flat color wash.
+
+**Verification hit a real infrastructure snag, recorded rather than glossed over:** the GPU
+emulator failed to come up on the first relaunch attempt this session -- `adb` reported it
+`offline` for over 10 minutes with no forward progress in its own boot log (`WHPX ... operational`
+was the last line, then nothing), while two prior sessions (Phase 4b, and this same session's
+Tier 1/2 passes) had booted the identical AVD in under a minute each time. Diagnosed rather than
+just retried blindly: found stale `hardware-qemu.ini.lock` / `multiinstance.lock` files in the AVD
+directory (`~/.android/avd/Pixel_10a.avd/`) left over from a prior `adb emu kill`/relaunch cycle
+in this same session, consistent with a lock not being released cleanly. Force-killed both the
+`qemu-system-x86_64.exe` and `emulator.exe` processes, removed the two stale lock files, and
+relaunched with `-no-snapshot-load` -- booted cleanly on the next attempt. Flagging this here in
+case it recurs: this AVD's lock files are worth checking first before assuming a boot hang is
+something deeper.
+
+**On-device, both confirmed by screenshot, not assumed from the code:** NEUTRAL/CYAN now shows a
+clearly visible, distinctly cyan-tinted rim around the whole silhouette (previously white and, per
+Tier 2's own physical backlight, less necessary to even notice); cycling to ALERT shows the same
+rim retint to a red/salmon tone tracking the fixed Alert accent color, confirming `accentColor`
+genuinely drives the rim in both the live-hue and Alert-fixed-red cases, not just the accent patch
+itself.
+
+**What did NOT need touching:** the Blender scripts (`01_base_mesh_and_rig.py`,
+`03_posture_library.py`) and the bundled PNGs -- Tier 3 is a pure downstream-rendering change, the
+same three posture assets from Tier 2 are still current.
+
+**All three tiers from the original rendering-refinement plan are now done.** Remaining open items
+across the whole track: the real Fold 6 hardware confirmation (still the standing final word per
+this track's own discipline, not yet done on any tier); a genuinely alpha-matted re-render was
+actually delivered by Tier 1 (superseding the older "still open" note from Phase 4b); Thinking
+pose's arm asymmetry was fixed by Tier 1; hair as stylized shape/volume vs. groomed strands and the
+unused FACS facial bone set remain open per Phase 4c's own follow-up list, untouched by this
+rendering-refinement track.
+
+## ▶ RESUME HERE — Armor rebuild: the reference comparison that reframed the whole track
+
+Director asked for a picture-to-picture comparison against the reference concept art. Built one
+(`renders/reference_comparison.png` — the sheet's FRONT view cropped and scaled to the same figure
+height as our render, so the comparison is like-for-like rather than impressionistic). The result
+invalidated the framing of the three preceding tiers.
+
+**What the comparison showed:** the reference is an armoured synthetic in a segmented, high-gloss
+ceramic exoshell. Our render was **a nude MakeHuman body with grey patches painted on it**. The
+"armour" had never been geometry at any point in this pipeline's history — it was purely
+`poly.material_index` assignment on bare skin, and `_classify_material_index()`'s default branch
+returned `ceramic`, so every unclassified body polygon was "armour" by fiat while remaining, in
+form, naked anatomy. Phase 4c's own entry had flagged a fidelity gap but framed it as a
+"texture-painting/hair-grooming polish tier" issue. **That framing was wrong**, and this is worth
+recording plainly: the gap was structural. Tiers 1–3 (alpha, gamma, lighting, lens, rim glow) were
+all real fixes and all correct, but they were polish on a model that was not the character — which
+is exactly why they improved the image measurably without moving it toward the reference.
+
+**What was rebuilt (`build_armor_shell()`, new):** the armour is now real, separate shell geometry
+— the rigged body mesh duplicated, non-plate faces deleted, the survivors smoothed, offset clear of
+the body, then Solidified for true plate thickness and Bevelled so each panel border catches a
+specular edge. Built after rigging deliberately so it inherits MPFB's vertex groups and deforms
+with the body (confirmed: plates follow the arms correctly in the re-rendered Thinking pose). The
+body mesh underneath became a full-coverage dark **under-suit**, which is what actually resolves
+the nudity — previously the un-plated remainder was literal bare skin.
+
+**Region classification rewritten to be skeleton-relative.** The old rules were pure Z/|x| bands,
+which cannot work on an A-posed mesh where a limb's height and lateral offset vary together. Plates
+are now assigned by nearest bone segment plus parametric position along it (`LIMB_SEGMENTS`,
+measured off the real generated rig via `bone.head_local`/`tail_local`, not guessed). The excluded
+span at each end of a bone becomes the visible joint gap — shoulder, elbow, wrist, hip, knee, ankle
+— which is how the reference's segmented armour reads.
+
+**Five real bugs found by rendering and looking at each step, none of which code review would have
+caught. Recorded with their wrong turns intact, per this track's standing discipline:**
+1. **Stray ceramic cube at the world origin.** ~30% of an MPFB mesh (5778 of 19158 verts, measured)
+   is MakeHuman fitting-helper and joint-cube geometry, invisible on the body only because MPFB
+   adds a `Hide helpers` MASK modifier keeping the `body` vertex group. Duplicating the raw mesh
+   bypassed that modifier, so the shell inherited all of it; the new boot rule then promoted
+   MakeHuman's `joint-ground` cube from invisible-dark to bright white between the feet. Fixed by
+   filtering on the same `body` group MPFB's own mask uses — the whole class, not the one cube that
+   happened to show.
+2. **Ceramic hands.** The hands hang off the lowerarm bone's `t=1.0` end, so they are FARTHER than
+   `LIMB_RADIUS` from it and fell through the limb branch entirely — landing in the torso abdomen
+   Z-band and getting plated. Fixed with an `|x| < 0.20` torso gate (torso never exceeds ~0.18
+   half-width, measured).
+3. **Shell sank inside the body.** First smoothing attempt (14 iterations, then a flat +6mm offset)
+   ignored that Laplacian smoothing loses volume; the shell rendered as torn patchy islands on the
+   thighs and shins.
+4. **Nipples and toes read straight through the "armour".** Second attempt fixed the sinking by
+   clamping every vertex to >=6mm outside the ORIGINAL body via BVH — which re-imprinted every
+   protrusion the smoothing had just removed. The clamp was fighting the smoothing.
+5. **A normal offset does not erase a feature, it translates it.** Third attempt raised the chest
+   standoff assuming that would bury the nipples; it did not, because offsetting moves a bump
+   outward along with the surface. (The toes only vanished at a 30mm standoff because neighbouring
+   toe offset-surfaces merge into one another — morphological dilation, not smoothing.) Actually
+   removing a small feature requires smoothing it away, so the bust now gets a concentrated
+   region-targeted smoothing pass. The breast form itself is large and survives, which is correct:
+   the reference's cuirass is shaped to the bust; only nipple-scale detail must not read through.
+
+**Also fixed:** the emissive accent is now dedicated geometry (a brow circlet + spine strip) rather
+than a Z-band of body polygons — a polygon classifier cannot draw a thin clean line on organic
+topology, which is why it had been rendering as a thick ragged slab across the forehead. Its first
+placement used a 0.083 circular radius and rendered as *nothing*, buried inside the skull: the head
+is an ellipse at brow height (x half-width 0.0766, y half-depth 0.1056, centred y=-0.057 —
+measured, and the circlet height set between the measured eye centres and the measured hairline).
+The procedural voronoi panel/rivet pattern was turned OFF on the ceramic — it existed to fake seams
+when the armour was paint, and with real geometry it only competed with the true panel lines as
+dark diagonal smears. Ceramic gained a clear coat and dropped to roughness 0.22 for the sheet's
+glazed look, and its base colour was corrected to the sheet's own stated `#E6E1DD` (the blue
+channel was 0.816, i.e. `#E6E1D0` — measurably more yellow than specified, reading as a green-grey
+cast).
+
+**Shader recalibrated against the new bake, measured not assumed:** the accent now reads 0.72–0.95
+green-dominance (cleaner, being dedicated emissive geometry), but the ceramic plates push a few
+body pixels to 0.22 — inside the previous `smoothstep(0.15, 0.35)` ramp, which would have partially
+retinted them. Moved to `smoothstep(0.35, 0.55)`: clear of the body maximum, well under the accent
+minimum. Verified end-to-end on the `Pixel_10a` GPU emulator — armoured figure renders with correct
+transparency, live CYAN accent + rim, and no false tinting anywhere on the body.
+
+**Honest remaining gap to the reference, stated rather than glossed:** this is now unmistakably an
+armoured character, but it is not the reference. Still open, roughly by impact:
+- **Proportions** — ours reads as a realistic adult build; the reference is idealised (longer legs,
+  narrower waist). A MakeHuman macro-tuning question, not a modelling one.
+- **Panel borders are stair-stepped**, following mesh topology, where the reference has crisp
+  machined lines. This is the real ceiling of the delete-faces-from-a-body-copy technique: plate
+  outlines can only ever follow existing edge loops. Genuinely crisp panels need plates modelled as
+  their own hard-surface forms (or a boolean cut), which is a substantially larger effort.
+- **Face** is a blank mannequin — no eyebrows, flat eyes. The rig's unused FACS bone set and a real
+  eyebrow/lash pass remain the open Phase 4c follow-up.
+- **Hair** is still a solid blob vs. the reference's braided updo.
+- **Accent** is one band vs. the reference's fine circuit tracery, ear module, and brow ornament.
+- **Minor:** a faint bump reappears on one breast in the posed Thinking render but not in the rest
+  pose — the shell was smoothed after inheriting weights, so its vertices deform very slightly
+  differently from the body's. Flagged, not fixed.
+
+**Next session:** Director's call. Highest visual return is probably proportions (cheap, macro
+values) then face detail; crisp panel borders are the expensive one.
+
+## ▶ RESUME HERE — Tooling survey + Phase A–D workplan toward the reference
+
+Director's call before resuming: get the right tools first, on the explicit reasoning that a
+refinement loop cannot substitute for them. Surveyed what is actually on this machine rather than
+assuming, and the survey changed the plan.
+
+**Three findings from the survey:**
+1. **MPFB's asset system is entirely empty.** `AssetService.system_assets_pack_is_installed()`
+   returns False; `list_mhclo_assets()` returns 0 for clothes/hair/eyebrows/eyelashes/eyes/teeth/
+   proxymeshes; the MPFB user-data directory contains no files at all. **This corrects an inference
+   in the Phase 4c entry above**, which recorded that "MPFB ships no default eyeball geometry, skin
+   textures, or hair assets (confirmed by searching its installed files)". The observation was
+   right, the conclusion was wrong: the asset *packs were never downloaded*. Eyes were hand-built
+   from spheres and hair from primitives while a complete fitted-asset pipeline sat unused. That is
+   the single biggest unforced limitation in this track's history.
+2. **Bare Blender otherwise** -- 14 addons, all stock, plus MPFB. `io_curve_svg` IS enabled, which
+   opens authoring panel outlines as SVG and importing them as boolean cutters.
+3. **Probable cause of the ceramic still not reading as glazed:** the world is a flat dark colour
+   (`0.05, 0.065, 0.05`). `film_transparent` removes the world from the *alpha*, not from
+   reflections -- so the Tier-2/armor-pass clear coat has a perfectly uniform environment to
+   reflect and produces almost no highlight variation. Gloss is mostly reflected environment.
+   Untested hypothesis, cheap to falsify with a studio HDRI.
+
+**Tooling decisions (Director):** CC0 asset packs only -- no CC-BY, so no attribution burden in the
+shipped app. This rules out Hair 02 (high-poly) and Suits 02 (sci-fi suits) and accepts whatever
+the CC0 hair offers. `makehuman_system_assets` (267 MB, CC0) is the key download: hair including
+braids, 12 eyebrow sets, 4 eyelash sets, eye colours, skin textures, proxies, teeth. Plus a Poly
+Haven studio HDRI (CC0) for the gloss hypothesis.
+
+**Paid hard-surface addons assessed and declined, with reasons:** Hard Ops/BoxCutter, MESHmachine,
+MACHIN3tools are the standard recommendations but are modal/interactive tools built for viewport
+hand-modelling; this pipeline runs `--background` headless, so they fight the architecture. Quad
+Remesher (Exoside) *is* scriptable and would give cleaner topology to boolean against, but built-in
+QuadriFlow may suffice -- deferred until booleans demonstrably need it. **Nothing needs to be
+bought:** the crisp-panel problem is a technique change, not a tooling gap. Face-deletion makes
+plate borders follow existing edge loops (hence the stair-stepping); a boolean cut produces the
+exact intersection curve independent of topology, then Bevel gives the machined edge.
+
+**Ordered workplan. Phase B is deliberately NOT last:**
+- **A. Tooling.** Install CC0 packs; add studio HDRI; verify assets load *headlessly* through
+  MPFB's services -- its asset flow is built around interactive panels, so background-mode loading
+  is a real risk to prove before building on it. Test the HDRI gloss hypothesis.
+- **B. Proportions.** Retune the MakeHuman macros toward the reference's idealised build (longer
+  legs, narrower waist). **This must precede the armour work.** Every constant in
+  `01_base_mesh_and_rig.py` -- `LIMB_SEGMENTS`, all `Z_*` landmarks, the head-ellipse measurements
+  driving the circlet, the per-region standoffs -- was measured against the current mesh, and the
+  script's own header says they must be remeasured if the macro values change. Armour-first would
+  mean measuring everything twice.
+- **C. Face & hair.** Real eye assets replacing the primitive spheres, eyebrows, eyelashes, a
+  fitted braided style replacing the hair blob, a real skin material. Biggest fix to the
+  "uncanny mannequin" read.
+- **D. Armour v2.** Boolean-cut plates for crisp borders, replacing face-deletion.
+
+**Flagged as genuinely uncertain rather than promised:** CC0 hair may not match the reference's
+specific braided updo, and MPFB's headless asset loading is unproven -- both get verified in
+Phase A before anything is built on them.
+
+### Phase A — DONE. Both flagged risks resolved; one confirmed, one partly negative.
+
+**`makehuman_system_assets` installed (CC0, 267 MiB).** Download note worth keeping: the two
+official mirrors differ by ~100x in throughput. `files2.makehumancommunity.org` delivered ~11 KB/s
+(a >6-hour ETA); `files.makehumancommunity.org` delivered ~1.1 MB/s and supports HTTP range
+requests, so the partial transfer was resumed cross-mirror with `curl -C -` and finished in ~31s.
+Zip verified (517 entries, `testzip()` clean) before installing, since resuming one mirror's
+partial against another risks a corrupt archive.
+
+**Headless install works** -- the real risk, since MPFB's asset flow is built around interactive
+panels. `AssetService.fix_and_extract_asset_pack_zip(zip, target_dir)` (note: takes a target dir,
+not just the zip) into `LocationService.get_user_data()`, then `rescan_pack_metadata()` +
+`update_all_asset_lists()`. Result: `system_assets_pack_is_installed() == True`; eyes 2,
+eyebrows 12, eyelashes 4, hair 10, teeth 6, clothes 20, skins 23.
+
+**Headless *loading* also works** -- listing is not loading, so this was verified separately.
+`HumanService.add_mhclo_asset(path, human, asset_type=...)` successfully fitted eyes (1064 verts),
+eyebrows (124), eyelashes (250) and hair (4493) onto a generated human, and
+`HumanService.set_character_skin(mhmat, human, skin_type='ENHANCED_SSS')` applied a real
+subsurface-scattering skin. All of this replaces hand-built primitive spheres and a procedural
+flat skin tone.
+
+**Verified by rendering, not by trusting the vert counts:** `renders/asset_face_test.png` -- a real
+face with textured subsurface skin, irises with catchlights, eyebrows, eyelashes and defined lips,
+against a Poly Haven studio HDRI (CC0). The difference from the previous blank-mannequin face is
+not incremental.
+
+**The negative result, recorded rather than glossed:** the CC0 hair set contains **no braided
+updo/bun**. `braid01` is named for a braid texture but renders as a swept bob (see
+`renders/hair_options/_hair_options_strip.png`, four candidates rendered for comparison). Closest
+structural match to the reference is `ponytail01` -- hair pulled back off the face, which is the
+silhouette the reference needs and, importantly, leaves the forehead clear for the emissive
+circlet. A true braided updo would need either CC-BY Hair 02 (rejected on licence) or a modelled
+hair pass. Director's call pending.
+
+**Gloss hypothesis still untested** -- the HDRI is downloaded and proven to load, but has not yet
+been swapped into `setup_render()` in place of the flat dark world, so whether it fixes the ceramic
+clear-coat readability remains an open question, not a claim.
+
+### Phase B — DONE (proportions), and it exposed a shape-key bug that had been silently discarding work
+
+**Reference proportions measured, not eyeballed.** Analysed the concept sheet's own front view
+(silhouette profile, normalised by figure height, identical code run against our render so
+systematic error cancels): the reference's legs separate at ~0.49 of height from the top, ours at
+~0.54. Leg length is therefore ~51% of total height in the reference against ~46% in ours -- a
+concrete 5-point target rather than "longer legs".
+
+**The `proportions` macro is a dead end, measured.** Swept across its entire 0.5-1.0 range it moved
+the leg fraction by 0.0005 (0.4645 -> 0.4640) -- i.e. nothing. This is the same class of finding as
+this track's earlier discovery that the `height` macro has no independent effect: MakeHuman's macro
+sliders blend whole shape-key sets and several do not control what their names suggest. The fix was
+MPFB's **detailed targets** (1258 of them ship with the addon), specifically
+`legs/{l,r}-{upper,lower}leg-scale-vert-incr` and `torso/torso-scale-vert-decr`, applied via
+`TargetService.load_target(obj, full_path, weight=...)`. Measured results:
+`leg=0 -> 159.67cm / 0.450`; `leg=1 -> 167.99cm / 0.480`; `leg=1 torso=1 -> 163.68cm / 0.490`.
+Shipped `leg=1.0, torso_shorten=0.35`: **166.5cm, leg fraction 0.485** (re-measured from the render
+by the same silhouette method: separation moved 0.54 -> 0.515). About half the gap closed; the rest
+is deliberately not forced, since maxing torso shortening buys 0.005 more fraction for 4cm of
+height against an explicitly specified 167cm.
+
+**Correction to an earlier entry.** Phase 4c recorded the mesh as "169.46cm (1.5% over spec)". That
+measurement included MakeHuman's helper/joint-cube geometry, which extends below the feet. The real
+body is 166.59cm base / 166.5cm evaluated -- essentially exactly the sheet's 167cm. There was never
+a height discrepancy to explain.
+
+**The real find: a shape-key bug that had been discarding the armour smoothing entirely.**
+MakeHuman macros and targets are all SHAPE KEYS, and a Blender shape key stores ABSOLUTE vertex
+positions, not deltas. `build_armor_shell()` was cloning `human.data`, so the shell inherited all
+16 non-zero key blocks -- and every bmesh edit (smoothing, standoff offset, clearance clamp) was
+written into base coordinates that evaluation then overwrote with the shape keys' own stored
+positions. Measured proof: the shell's base z-range was (-0.023, 1.314) while its evaluated range
+was (-0.118, 1.264). **The nipple-removal smoothing from the armour pass had never actually reached
+the render**; it only appeared to work earlier by coincidence of which positions happened to
+dominate. Fixed by building the shell from `bpy.data.meshes.new_from_object(evaluated)`, which
+bakes shape keys and modifiers into plain geometry -- so the bmesh edits are what renders. Bonus:
+that also applies MPFB's "Hide helpers" mask upstream, so the explicit `body`-group filter added
+during the armour pass (to stop the stray `joint-ground` cube) is no longer needed and was deleted.
+
+**And a second, older bug it uncovered: the classifier was mixing two coordinate spaces.**
+`Z_ANKLE`/`Z_KNEE`/.../`Z_NECK` were `joint-*` vertex-group centroids measured on the BASE mesh,
+while `LIMB_SEGMENTS` were bone positions read off the rig -- and MPFB fits the rig to the
+EVALUATED body. The two spaces differ by a ~8.5cm shift, so the two rule sets had always disagreed
+about where the body was; it survived only because the limb test is distance-based with a generous
+radius. The Phase-B targets then made it undeniable, because they stretch legs and shorten torso
+NON-uniformly, so no single remap can reconcile the spaces -- an attempted linear z-remap put the
+bands on visibly wrong anatomy (a crop-top cuirass, blocky cut-outs across the hips). Replaced both
+constant tables with `measure_shell_landmarks()`, which reads the real evaluated mesh and the real
+fitted rig at runtime: crotch by connected-component scan, neck and limb segments from bones, and
+torso bands expressed as fractions of the measured crotch->neck span (the fractions being exactly
+what the previously-tuned absolute values worked out to, so this is a change of reference frame,
+not a re-tune). All stale constants deleted rather than left lying around. Verified by rendering:
+plate bands now sit correctly on chest / waist gap / hip / thigh / knee gap / shin / boot, with
+proper elbow and wrist breaks.
+
+**Also this pass:** the headband circlet is now placed from a live measurement of the evaluated
+head (`_measure_head_ring`) instead of a hardcoded z. It had been hardcoded from a BASE-space
+measurement and only *happened* to land on the brow; the crown differs by 8.6cm between the two
+spaces, so any proportion change would have silently moved it.
+
+**Still open / honestly flagged:** a faint bump remains on one breast; ponytail01 is chosen per
+Director but not yet wired into the pipeline (still the procedural hair blob in these renders);
+Phase C (assets into the real pipeline) and Phase D (boolean-cut crisp panel borders) not started;
+gloss/HDRI hypothesis still untested in `setup_render()`.
+
+### Director phenotype rebuild + Phase C — DONE
+
+Director supplied MPFB "New human" panel settings directly (screenshot) and asked for a rebuild
+around them. Rather than transcribe the dropdown labels by eye, read MPFB's own
+`ui/new_human/newhuman/operators/createhuman.py` to get the exact formulas, so the macro dict in
+`create_and_tune_human()` now reproduces precisely what that UI would have produced:
+
+| panel | formula | value |
+|---|---|---|
+| Gender Female | `0.5 - phenotype_influence*0.5` (influence 1.00) | 0.0 |
+| Age Young | fixed | 0.5 |
+| Muscle Average | no branch fires -> default | 0.5 |
+| Weight **Minimum** | `0.5 - phenotype_influence*0.5` | **0.0** (was 0.4) |
+| Height Average | default | 0.5 |
+| Proportions Average | default | 0.5 |
+| Race **Caucasian** | single race = 1.0 | **1.0/0/0** (was mixed) |
+| Breast size **Larger** | `0.5 + breast_influence*0.5` (0.58) | **0.79** (was 0.5) |
+| Firmness **More firm** | `0.5 + breast_influence*0.5` | **0.79** (was 0.6) |
+
+**A mechanism explained, not just observed.** The `proportions` enum is literally
+"Inverted V-shape / Average / V-shape" -- a shoulder-versus-hip WIDTH axis. That is *why* the
+earlier sweep measured it doing nothing to leg length. It was never a leg control, which retro-
+justifies handling leg length through detailed targets instead.
+
+**Measured outcome (Director chose to keep the Phase-B leg targets on top):**
+`167.41cm, leg fraction 0.500` -- against the sheet's stated 167cm and the reference's measured
+0.51. Best yet; previous build was 166.5cm / 0.475. Without the leg targets the same macros give
+160.6cm / 0.465, which is why they were kept.
+
+**The predicted regression happened, and was flagged before it did.** `cupsize 0.5 -> 0.79` plus
+firmer re-exposed nipple detail through the cuirass, because the 15mm chest standoff and
+26-iteration smoothing had been tuned against the smaller bust. Retuned to 48 iterations / 22mm and
+verified on a 2x-upscaled crop of the actual render, not by eye at full-figure scale.
+
+**Phase C landed in the same rebuild:** `add_makehuman_assets()` replaces the hand-built
+primitives -- MakeHuman high-poly eyes, eyebrow008, eyelashes01, and `ponytail01` hair (Director's
+pick; the CC0 set has no braided updo, and ponytail01 was chosen because it clears the forehead for
+the circlet), plus `young_caucasian_female2` skin at `ENHANCED_SSS`. Material ordering matters and
+is documented in-code: `set_character_skin` writes into the body's material slots, so it must run
+BEFORE `assign_materials()`, which now reuses that skin for the face instead of overwriting it with
+the flat procedural tone.
+
+**Gloss hypothesis: CONFIRMED.** Swapping the flat dark world for the Poly Haven `photo_studio_01`
+HDRI (CC0, now committed to `art/quark-avatar/hdri/` so the pipeline is self-contained) made the
+ceramic finally read as glazed white with real specular variation rather than flat grey. Gloss is
+mostly reflected environment, and `film_transparent` removes the world from the alpha but not from
+reflections -- so the clear coat previously had nothing but constant grey to mirror. Exposure then
+had to be rebalanced, measured rather than eyeballed: at HDRI strength 1.0 the plates clipped
+(mean luminance 0.76, torso 0.99). Reducing the area lights barely moved it (0.66 at 35%, 0.65 at
+15%) because the HDRI now dominates, so the fix was HDRI strength; settled at strength 0.45 with
+lights at 35% -> mean 0.52, no blown highlights.
+
+**Shader recalibrated against the new bake:** body/armour pixels now top out at 0.01 green-dominance
+while the accent spans 0.46-0.90 -- a far wider gap than before. The 0.35-0.55 ramp would have left
+the dimmest accent pixels partially tinted, so it moved to `smoothstep(0.12, 0.28)`. Posture library
+regenerated, copied into `drawable-nodpi`, `:app:assembleDebug` green.
+
+**Still open, unchanged:** stair-stepped plate borders (Phase D, the boolean-cut work -- still the
+single biggest remaining gap to the reference); no braided updo in CC0; fine circuit tracery, ear
+module and brow ornament absent; on-device emulator verification of this build not yet run.
+
+### Prototype-art evaluation + Option B (real-time 3D) feasibility
+
+**Director-supplied art evaluated for direct AGSL use.** Measured, then tested in the real app:
+
+| file | size | alpha==0 | verdict |
+|---|---|---|---|
+| QUARK_prototype.png | 200x550 | 61.2% | renders correctly, but subject only 156x512 vs an 864px-wide slot |
+| QUARK_HiRes.png | 1024x1536 | 0.0% (colortype 2 = RGB) | no alpha channel at all |
+| QUARK_HiRes_draft.png | 560x1536 | 0.0% | opaque dark |
+| QUARK_HiRes1.png | 560x1536 | 0.0% | RGBA container, alpha entirely 255 |
+
+**A measurement error of mine, corrected by the app.** An early read of `QUARK_HiRes1.png` reported
+"68.5% transparent". That was wrong: Blender's image loader returned `has_data == False` and
+`image.pixels` yielded garbage. The in-app render (a white box behind the figure) contradicted the
+measurement, and re-reading with an assert on `has_data` -- and finally with a hand-written PNG
+IDAT/zlib decoder that removes Blender from the loop entirely -- confirmed 100% opaque. Lesson
+recorded: `bpy.data.images.load()` can silently yield empty pixel data; always assert `has_data`.
+
+**Why the art can't drive the accent:** the shader keys green-dominance; all supplied art uses a
+CYAN accent (blue-dominance up to 0.196, green-dominance never above 0.024), so the key can never
+fire. Confirmed on-device: cycling the hue retinted the shader-generated rim and the app chrome
+while the character's own knee accents stayed cyan.
+
+**Option B (real-time 3D) -- FEASIBLE, measured not estimated.** Exported the existing rigged
+character to glTF and validated by re-importing:
+
+| variant | size |
+|---|---|
+| geometry only, Draco | **0.49 MB** |
+| animated + 1024^2 textures + Draco | **5.68 MB** |
+| animated + 512^2 textures + Draco | **3.92 MB** |
+
+73,852 tris as-authored; textures are ~8.4MB of the unoptimised 11MB, geometry is negligible.
+Round-trip re-import confirms 1 armature, 2 skinned meshes (body + armour) and the authored
+`QUARK_Idle` action all survive. For scale: the three posture PNGs currently ship at ~3.2MB, so a
+3.9MB animated GLB is roughly size-neutral while adding animation and arbitrary pose/angle.
+
+**Export-prep step required (found, not glossed):** `export_apply=True` cannot be combined with
+shape keys, but the body carries 16 macro shape keys AND a "Hide helpers" MASK that must be applied
+(or the joint-cube helper geometry ships), while the armour needs its Solidify/Bevel applied (or the
+plates export with no thickness). A production exporter therefore needs a bake-down pass on
+duplicates -- apply modifiers, strip shape keys -- before `export_scene.gltf`.
+
+**Runtime:** SceneView 4.22.0 (`io.github.sceneview:sceneview`), Filament-backed, Compose-native.
+Project is compatible as-is: minSdk 33, compileSdk 35, Compose BOM 2024.10.01, JVM 17.
+
+**Architectural consequence worth stating plainly:** Option B would retire the locked
+"pre-rendered frames + AGSL overlay" hybrid path. That is not purely a loss -- the accent retint
+stops being a fragile colour-key over a baked image and becomes a real emissive material parameter
+driven directly from `PhosphorHueRuntime`, which removes the entire class of bug this log has spent
+several passes on. Rim glow and Stealth dim likewise become material/fresnel parameters.
+
+**Unmeasured risk, flagged:** Filament ships native `.so` libraries per ABI; their contribution to
+APK size has NOT been measured and could exceed the model itself. Also unmeasured: continuous-3D
+battery/thermal cost for an always-visible avatar, and Fold 6 behaviour.
+
+### Kotlin 2.2.21 -> 2.4.0 upgrade (unblocks SceneView / Option B)
+
+Adding `io.github.sceneview:sceneview:4.22.0` failed to compile: the library carries **Kotlin 2.4.0
+metadata** while the project pinned **Kotlin 2.2.21** (reads up to 2.3.0). Diagnosed with the
+`android-gradle-kotlin-jdk-compatibility` skill's four-dimension framework rather than guessing --
+confirmed the other three dimensions were already clear (Gradle 8.9 host OK, JDK 17 daemon OK, no
+`org.gradle.java.home` pin) so only the Kotlin Gradle Plugin dimension needed moving.
+
+**Changes:** `org.jetbrains.kotlin.android`, `.jvm`, and `.plugin.compose` all 2.2.21 -> **2.4.0**
+in lockstep (the Compose plugin version must equal the Kotlin version).
+
+**One real API break, fixed across 12 modules:** Kotlin 2.4 turns `android { kotlinOptions {
+jvmTarget = "17" } }` from a deprecation into a hard error. Migrated each module to a top-level
+`kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }`.
+
+**KSP left at 2.2.21-2.0.5 deliberately.** It works fine under Kotlin 2.4.0 (verified by forcing
+`:optics:kspDebugKotlin` to genuinely re-execute with `--rerun-tasks`, not accept a FROM-CACHE
+result). Bumping to the current KSP release (2.3.11 -- note KSP moved off Kotlin-prefixed
+versioning after 2.2.21-2.0.5) fails with
+`'void AndroidComponentsExtension.addKspConfigurations(boolean)'`: it needs a newer AGP than 8.7.2.
+Not worth dragging AGP into this when the existing pin works.
+
+**Verified, not assumed:** full `:app:assembleDebug` green; SceneView 4.22.0 then compiles cleanly;
+app installed and run on the Pixel_10a emulator with the QUARK screen exercised (posture + hue
+cycling both working, accent and rim retinting to AMBER) and `logcat -b crash` clean.
+
+**APK cost measured -- and it corrects an earlier estimate of mine.** I had estimated Filament at
+3.07MB (arm64) / 12.40MB (all ABIs) from compressed sizes inside the AARs. The real APK delta is
+substantially larger:
+
+| build | APK |
+|---|---|
+| baseline (Kotlin 2.2.21, no SceneView) | 191.57 MB |
+| Kotlin 2.4.0, no SceneView | 199.87 MB (**+8.30 MB** for the upgrade alone) |
+| Kotlin 2.4.0 + SceneView | 228.70 MB (**+28.83 MB** for SceneView) |
+
+arm64 Filament libs land at 6.34MB in the APK (`libgltfio-jni` 2.94 + `libfilament-jni` 2.87 +
+`libfilament-utils-jni` 0.53) versus the 3.07MB I read from the AAR -- APK packaging/alignment
+inflates them, and the AAR scan also missed transitive native deps. **Caveat: these are unminified
+DEBUG builds.** A release build with R8 would strip much of the dex growth, so the +8.30MB Kotlin
+figure in particular is an upper bound, not the shipping cost. ABI splits or an App Bundle would cut
+the ~25MB native portion to a single ABI.
+
+**Current state: Kotlin 2.4.0 upgrade KEPT and committed to the working tree; the SceneView
+dependency REVERTED** -- it is pure APK weight until the 3D view is actually implemented, and
+Option B is still a pending decision, not a settled one.
+
+### Postures reworked to the reference + first ComfyUI polish test
+
+**Postures.** Cropped and enlarged the reference sheet's own POSTURE & EMOTION STATES row rather
+than working from the full-sheet thumbnail. Two findings:
+- Every standing state has the arms held CLOSE to the body, a much narrower silhouette than MPFB's
+  rest A-pose. `set_pose_relaxed_idle()` had been a deliberate no-op on the reasoning that the rest
+  pose was "already relaxed" -- that was reading the sheet too loosely. Now tucks the upper arms in
+  by 20 degrees. **Sign verified by render**: the first attempt used the opposite sign and splayed
+  the arms WIDER.
+- **Recorded discrepancy:** the sheet's THINKING (Processing) thumbnail shows STEEPLED HANDS
+  TOGETHER at chest height, NOT a hand on the chin. Director asked for the Rodin "Thinker" reading
+  explicitly, so that is what is built; the sheet's version remains a small change away.
+
+**Thinking pose rebuilt with IK.** Hand-authored world-axis rotations could not land the hand on the
+chin -- the arm swung out to the side, because one world-axis rotation per bone cannot express
+"reach that point" on a chain whose rest orientation is tilted in three axes. Added `_ik_reach()`:
+a temporary IK constraint plus target empty, solved, then `visual_transform_apply()` bakes it to
+plain bone rotations and the constraint/empty are deleted, so the saved posture has no leftover
+dependencies. Chin target measured off the evaluated head mesh (~(0,-0.13,1.39)), not guessed.
+
+Four rendered variants, each failing for a specific recorded reason: **A/B** reached chin HEIGHT
+but the hand sat beside the neck palm-out (reads as a wave -- IK positions the wrist and says
+nothing about hand ORIENTATION); **C** wrist rotated Z-55/X-25, fingers turned toward the face but
+short of it; **D** wrist Z-80/Y+30 with the target pulled in and down -- knuckles under the jaw.
+**D shipped.**
+
+**ComfyUI polish workflow -- TESTED END TO END, and it works, with one hard caveat.**
+ComfyUI 0.33.2 found running locally on :8188 with its HTTP API open, so the whole loop was driven
+from here rather than handed over as a recipe. Available: SDXL base + refiner, Flux 2 Klein.
+**No ControlNet models are installed** -- which turns out to be the crux.
+
+Pipeline built: Blender posture render -> composite over a dark studio backdrop at 832x1216 (SDXL
+portrait res) -> `LoadImage`/`VAEEncode`/`KSampler`/`VAEDecode` img2img -> retrieve via `/view`.
+The alpha matte is exported alongside so it can be re-applied afterwards (img2img returns opaque).
+
+Denoise sweep, all rendered and compared:
+
+| denoise | quality gain | pose | accent |
+|---|---|---|---|
+| 0.45 | large -- photoreal skin, crisp machined panel seams, blonde hair matching the reference | **DESTROYED** -- Thinker hand gone, arm back at the side | green headband lost |
+| 0.32 | moderate | mostly preserved, hand-at-chin softened | **green headband survives** |
+| 0.25 | slight | preserved | green headband survives |
+
+**The finding that matters:** there is a direct trade-off between fidelity gain and pose/accent
+integrity, and at the denoise needed for reference-level quality (~0.45) img2img re-invents the
+pose -- exactly the consistency risk flagged when this workflow was proposed. **A ControlNet
+(depth or openpose, SDXL) would break the trade-off**: it locks the pose structurally, allowing
+high denoise for quality without drift. That single missing model is the difference between this
+workflow being a curiosity and being production-viable, and is the concrete next step.
+
+---
+
+## Phase 5 — SceneView / Option B taken end to end, on device
+
+Director's call this session: park the ControlNet prerequisite and go **experience the SceneView
+workflow** instead. So Option B stopped being a paper estimate and became a running build: Blender
+→ GLB → Filament → the real app, on the Pixel_10a emulator, with the live phosphor hue driving the
+accent. **It works.** Screenshots in `renders/sceneview_device/`.
+
+### The exporter (`blender/scripts/04_export_gltf.py`)
+
+The two blockers flagged last session were real, and `bake_down()` solves both in one pass: hide the
+ARMATURE modifier, take the depsgraph-evaluated mesh via
+`bpy.data.meshes.new_from_object(..., preserve_all_data_layers=True)`, swap it in as the object's
+data, re-create the ARMATURE modifier. That **bakes** the shape-key mix rather than removing it —
+`shape_key_remove(all=True)` would have thrown the Director's whole phenotype away, since MakeHuman
+encodes height/gender/muscle/weight as a shape-key mix — and applies MASK / SOLIDIFY / BEVEL /
+SUBSURF while leaving skinning intact. Export then runs with `export_apply=False`.
+
+Measured bake-down: `QUARK_Armor` 4,769 → 21,224 verts (Solidify+Bevel real), `QUARK_Base`
+19,158 → 14,568 (the "Hide helpers" MASK really removed MakeHuman's joint cubes). Output:
+**8.53 MB GLB** with Draco, one root node, 8 meshes, 1 skin, 163 joints.
+
+### Two bugs the FIRST GLB had, both found by rendering and looking
+
+1. **Entirely flat white.** The re-imported GLB rendered as a white mannequin
+   (`renders/glb_verify_front.png`). Cause, confirmed in the GLB JSON: `QUARK_Ceramic` /
+   `UnderSuit` / `Graphite` / `MetalAlloy` drive Base Color and Roughness from
+   Noise/Voronoi/Wave/Geometry node chains, and glTF cannot represent a procedural graph — the
+   exporter silently drops the link and ships the socket default, i.e. `baseColorFactor` absent =
+   white. Fixed with `flatten_materials_for_gltf()`, which reads each material's OWN first RGB node
+   and its OWN Roughness-linked ramp so the constants are authored values, not invented ones:
+   Ceramic (0.902, 0.882, 0.867) r=0.135, UnderSuit (0.098, 0.106, 0.125) r=0.40, Graphite
+   (0.169, 0.176, 0.192) r=0.55, MetalAlloy (0.784, 0.800, 0.820) r=0.30. **Known cost, stated
+   plainly:** the ceramic mottling, brushed-metal anisotropy and panel grain are gone. The real fix
+   is a bake pass to base-colour / ORM / normal maps.
+2. **Hair, eyes, brows, lashes, headband and spine conduit all exported with `skin: None`.** They
+   are OBJECT-parented, which the Blender viewport honours but glTF's node hierarchy does not
+   reproduce under a *skinned* parent — on device the head would turn and the hair would stay
+   behind. Fixed by `rigid_bind()`: one full-weight vertex group on the bone each rigidly belongs to
+   (`head`, or `spine03` for the conduit), re-parented to the rig. Re-import now reports an ARMATURE
+   modifier on all 8 meshes.
+
+**Not a bug, recorded so it is not re-chased:** the re-import also lists an `Icosphere` (42 verts)
+and pulls the world bbox down to z = −1.0. It is not in the GLB — the JSON has exactly 8 meshes
+under a single `QUARK_Rig` root. Blender's glTF *importer* creates it as a bone-display shape. The
+honest measured figure with it excluded is **1.71 m** tip-to-toe including hair.
+
+### Three corrections to earlier entries in this log
+
+- **"the authored `QUARK_Idle` action survives export" is WRONG.** `quark_base.blend` contains
+  **zero actions**, and no script in `blender/scripts/` authors one. That action was made in a
+  throwaway session and never saved, so last session's "animated + textures + Draco = 3.92 / 5.68
+  MB" figures describe a file that cannot be reproduced from the repo. The current reproducible
+  number is 8.53 MB, static.
+- **"1 armature, 2 skinned meshes (body + armour)" understated it.** The scene is 8 meshes: body,
+  armour, headband, spine conduit, hair, eyes, eyebrows, eyelashes.
+- **"the body carries 16 macro shape keys"** — it carries **12**.
+
+### The Android side (`ui/scene/Quark3dView.kt`)
+
+SceneView 4.22.0, `implementation("io.github.sceneview:sceneview:4.22.0")` on `:quark-avatar`.
+Notably the API guessed from the skill's canonical example compiled **first try**: `rememberEngine`
+/ `rememberModelLoader` / `rememberEnvironmentLoader` / `rememberModelInstance`, then
+`SceneView(...) { LightNode(...); ModelNode(modelInstance = …, scaleToUnits = …, centerOrigin = …,
+rotation = …) }` with an `onFrame` lambda driving a slow turntable yaw. Defaults cover engine,
+environment, camera and gestures — there is very little ceremony.
+
+The GLB ships at `quark-avatar/src/main/assets/models/quark.glb`. `QuarkAvatarScreen` gained a
+**RENDER** row toggling `3D (SceneView)` against `2D (baked+AGSL)`, so both paths run in the same
+app on the same screen with the same hue and Stealth state. That is the comparison the Director
+needs, made concrete rather than argued.
+
+**The architectural claim is now demonstrated, not asserted.** The accent retint is a single
+`materialInstance.setParameter("emissiveFactor", r, g, b)` on the shared `QUARK_Emissive` material.
+Headband and spine conduit both recolour; nothing else can be caught by accident. The entire
+green-dominance colour-key apparatus — and the class of bug it generated — is simply not needed on
+this path. Alert's fixed `--warn` red still comes through correctly, because the screen already
+decides `accentColor` before either path sees it.
+
+**One measured on-device fix.** The first 3D render showed an AMBER headband as a **white bar with
+a faint amber halo** (`renders/sceneview_device/device_3d_amber_accent.png`). `QUARK_Emissive`
+carries `KHR_materials_emissive_strength = 7.0`, which Filament multiplies by `emissiveFactor`, so
+writing the raw sRGB accent lands at ~7× and clips. `ACCENT_GAIN = 0.3f` restores a readable hue —
+verified by switching to CYAN and seeing the spine conduit read cyan
+(`device_3d_cyan_back.png`). `scaleToUnits` also went 1.7 → 1.15; at 1.7 the arms and feet ran
+off-frame.
+
+### Measured
+
+| | |
+|---|---|
+| GLB (Draco, 2K textures, static) | 8.53 MB |
+| APK, Kotlin 2.4.0 + SceneView + GLB (debug, all ABI) | **237.17 MB** |
+| …versus SceneView-without-model last session | 228.70 MB (so the model itself is +8.5 MB) |
+| Filament backend on Pixel_10a emulator | OpenGL ES 3.1, feature level 1, no active workarounds |
+| frame times, emulator, turntable running | 50th pct **17 ms**, 90th **133 ms**, 95th **400 ms** |
+
+**The frame-time number is not a verdict.** It is a software-GL emulator translating to a host GPU
+while the model spins continuously, and the 90th/95th percentiles are dominated by first-frame
+shader compilation and asset load. Real-time cost has still **never been measured on hardware**, and
+the Fold 6 pass still has not been run. Do not let this table settle the Option A/B decision.
+
+### Open defects on the 3D path, seen on device
+
+- **The eyes are broken in Filament.** They render as detached opaque grey spheres in front of the
+  face, and the eyelashes as a dark card. The same GLB re-imported into Blender renders the face
+  correctly, so this is not an export bug — it is MakeHuman's high-poly eye being a transparent
+  cornea shell over an iris, and Filament shading it opaque. Needs an alpha/blend-mode pass on those
+  materials.
+- A small red/salmon triangle sits on the right side of the neck at every angle — unclassified
+  geometry or a stray material assignment.
+- Stair-stepped plate borders (Phase D booleans) are **more** visible in real-time 3D than in the
+  Cycles renders. Still the single biggest fidelity gap.
+- No idle animation exists to play, because no action exists to export.
+
+### Where this leaves the decision
+
+Option B is no longer hypothetical: it renders, it is hue-driven, it costs ~8.5 MB of model on top
+of the ~28.8 MB of SceneView, and it retires the colour-key. Its ceiling is still short of the
+reference art, and this build is short of its own ceiling (flat materials, broken eyes, no
+animation). Option A (ComfyUI-polished frames) remains gated on the SDXL ControlNet install, which
+was deliberately deferred this session and is still the right first move on that track.
+
+**The Director has still not chosen.** Nothing here was committed.
+
+---
+
+## ▶ SESSION CLOSE — next session is dedicated to QUARK rendering
+
+**Working tree state at close:** 39 tracked files modified, 9 untracked additions (the `hdri/`
+folder, four Director-supplied reference PNGs, three ComfyUI test outputs, and
+`reference_comparison.png`). `:app:assembleDebug` is **green**. **Nothing has been committed** --
+the Director commits personally.
+
+### What shipped this session
+
+1. **Reference comparison built** (`renders/reference_comparison.png`) and it reframed the track:
+   the render was a nude MakeHuman body with grey patches painted on it, because the armour had
+   never been geometry. Tiers 1-3 were real fixes but polish on a model that was not the character.
+2. **Armour rebuilt as real shell geometry** + full-coverage under-suit; skeleton-relative plate
+   classification; boots; accent as dedicated geometry.
+3. **Director's phenotype applied** (Weight Minimum, Larger/More firm at 0.58 influence, pure
+   Caucasian), transcribed from MPFB's own operator formulas -> **167.41cm, leg fraction 0.500**
+   against the reference's measured 0.51.
+4. **Phase A/C assets**: MakeHuman CC0 system assets installed and wired in -- real eyes, eyebrows,
+   eyelashes, `ponytail01` hair, `ENHANCED_SSS` skin.
+5. **Gloss hypothesis confirmed** -- studio HDRI (Poly Haven CC0, committed to `art/quark-avatar/hdri/`)
+   made the ceramic finally read as glazed; exposure rebalanced by measurement.
+6. **Kotlin 2.2.21 -> 2.4.0** across 12 modules, unblocking SceneView. Verified by build AND by
+   running on the emulator.
+7. **Postures reworked to the reference**: arms tucked in; Thinker pose built with IK.
+8. **ComfyUI polish workflow proven end to end** against the live local instance.
+
+### Bugs found by rendering and looking, not by reasoning
+
+Shape keys silently discarding every bmesh edit on the armour shell; the classifier mixing BASE and
+EVALUATED coordinate spaces; MakeHuman helper geometry leaking a ceramic cube to the world origin;
+hands classified as torso; a normal offset translating features rather than erasing them; the
+arm-tuck sign inverted; `bpy.data.images.load()` returning silent garbage when `has_data` is False.
+
+### Two corrections to earlier entries in this log
+
+- Phase 4c's "MPFB ships no eyeball geometry, skin textures, or hair assets" -- the observation was
+  right, the inference wrong. The asset packs had simply never been downloaded.
+- Phase 4c's "169.46cm (1.5% over spec)" -- that measurement included MakeHuman helper geometry.
+  The real body is 166.5cm. There was never a height discrepancy.
+- (And one of mine, mid-session: an early alpha reading of `QUARK_HiRes1.png` was garbage from a
+  failed Blender image load; the in-app white box was the ground truth that caught it.)
+
+### ▶ NEXT SESSION — QUARK RENDERING. Start here.
+
+**The single highest-value action, and it is a prerequisite, not a nice-to-have:**
+install an **SDXL ControlNet (depth and/or openpose)** into ComfyUI. The polish workflow is built
+and proven, but measured: at denoise ~0.45 the quality reaches toward reference level and the POSE
+IS DESTROYED; at 0.32 the pose and the green accent survive but the quality gain is modest. A
+ControlNet locks pose structurally and breaks that trade-off. Everything else downstream is gated
+on it.
+
+Then, in order:
+1. Wire the ControlNet-conditioned workflow (depth pass rendered from Blender as conditioning) and
+   re-run the denoise sweep -- expect high denoise to become usable.
+2. Re-apply the exported alpha matte to polished frames, and verify the green accent still keys
+   (shader band is currently `smoothstep(0.12, 0.28)`; body tops out at 0.01, accent 0.46-0.90).
+3. Push the polished postures through to the app and verify on the emulator.
+
+**Still open, unchanged:** stair-stepped plate borders (Phase D booleans -- the biggest remaining
+3D-side gap); no braided updo in CC0 hair; fine circuit tracery / ear module / brow ornament absent;
+Fold 6 hardware pass never done.
+
+**Decisions still genuinely open (do not treat as settled):** Option B (real-time 3D via SceneView)
+vs. the ComfyUI-polished pre-rendered frame path. Measured inputs for that call: SceneView costs
+**+28.83MB** APK (debug, all ABIs; arm64-only and R8 would both cut it) and would retire the
+colour-key accent hack entirely in favour of a real emissive material parameter -- but its fidelity
+ceiling is "very good stylised game character", short of the reference. The ComfyUI path can reach
+reference fidelity but only for pre-baked poses. **The Director has not chosen between them.**
+
+---
+
+## ▶ RESUME HERE — after the Phase 5 SceneView session
+
+**The "SESSION CLOSE" block above is superseded.** Its plan (ControlNet first) was deliberately
+set aside when the Director asked to experience the SceneView workflow instead. Read the **Phase 5**
+entry for current state.
+
+**State of the working tree:** SceneView 4.22.0 is back on `:quark-avatar`, `assets/models/quark.glb`
+(8.53 MB) is in the module, `blender/scripts/04_export_gltf.py` and
+`ui/scene/Quark3dView.kt` are new, and `QuarkAvatarScreen`/`QuarkAvatarActivity` carry a RENDER
+2D↔3D toggle. `:app:assembleDebug` is green, installed and exercised on the Pixel_10a emulator.
+**Nothing committed — the Director commits personally.**
+
+**Next, on the 3D path, in rough value order:**
+1. Fix the eyes (opaque grey spheres in Filament) — alpha/blend mode on the MakeHuman high-poly eye
+   and eyelash materials. Most visible defect by far.
+2. Author an idle action in Blender and export it, so the avatar breathes instead of spinning.
+   Nothing in the repo authors one today.
+3. Bake the procedural materials to base-colour / ORM / normal textures, replacing the flat
+   constants `flatten_materials_for_gltf()` currently ships.
+4. Track down the red/salmon triangle on the neck.
+5. Measure on real hardware — every perf number so far is emulator-only, and the Fold 6 pass has
+   never been run.
+
+**Next, on the pre-rendered path:** unchanged — install an SDXL ControlNet (depth and/or openpose)
+into the local ComfyUI. Still the gate on everything downstream there.
+
+**The Option A / Option B decision is still the Director's and still open.**

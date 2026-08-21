@@ -45,6 +45,7 @@ class QuarkAvatarActivity : ComponentActivity() {
             var posture by remember { mutableStateOf(DemoPosture.NEUTRAL) }
             var speakingPreview by remember { mutableStateOf(false) }
             var stealthPreview by remember { mutableStateOf(false) }
+            var render3d by remember { mutableStateOf(false) }
 
             AppShell(
                 title = "Quark",
@@ -58,6 +59,7 @@ class QuarkAvatarActivity : ComponentActivity() {
                     themeColorDim = themeColorDim,
                     speakingPreview = speakingPreview,
                     stealthPreview = stealthPreview,
+                    render3d = render3d,
                     onCyclePosture = {
                         val values = DemoPosture.entries
                         posture = values[(values.indexOf(posture) + 1) % values.size]
@@ -65,6 +67,7 @@ class QuarkAvatarActivity : ComponentActivity() {
                     onCycleHue = { PhosphorHueRuntime.cycleHue(context) },
                     onToggleSpeaking = { speakingPreview = !speakingPreview },
                     onToggleStealth = { stealthPreview = !stealthPreview },
+                    onToggleRender3d = { render3d = !render3d },
                     contentPadding = padding
                 )
             }

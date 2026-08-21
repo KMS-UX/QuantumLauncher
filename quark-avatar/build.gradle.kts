@@ -23,11 +23,16 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        // Migrated from android { kotlinOptions { jvmTarget = "17" } }, which Kotlin 2.4
+        // turned from a deprecation into a hard error.
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 
@@ -42,6 +47,11 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
+    // SceneView 4.22.0 -- Filament-backed real-time 3D, the "Option B" render path being
+    // evaluated against the pre-rendered-frames + AGSL-overlay path (PRODUCTION_LOG Phase 5).
+    // Requires Kotlin 2.4.0 (the library ships 2.4.0 metadata) -- that upgrade already landed.
+    implementation("io.github.sceneview:sceneview:4.22.0")
+
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

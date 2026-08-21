@@ -21,12 +21,15 @@ Run headless:
 import bpy
 import bmesh
 import math
+import mathutils
+from mathutils.bvhtree import BVHTree
 import os
 import addon_utils
 
 addon_utils.enable('bl_ext.blender_org.mpfb', default_set=True)
 from bl_ext.blender_org.mpfb.services.humanservice import HumanService
 from bl_ext.blender_org.mpfb.services.targetservice import TargetService
+from bl_ext.blender_org.mpfb.services.locationservice import LocationService
 
 
 def clear_scene():
@@ -49,16 +52,35 @@ def clear_scene():
 # remeasuring, not just eyeballing.
 # ---------------------------------------------------------------------------------------------
 def create_and_tune_human():
+    # Director-specified phenotype, transcribed from MPFB's own "New human" panel. These are not
+    # hand-picked numbers: each is what MPFB's `createhuman.py` operator computes for the chosen
+    # dropdown, so this dict reproduces exactly what that UI would have built.
+    #
+    #   panel setting            MPFB formula                       value
+    #   Gender:      Female      0.5 - phenotype_influence * 0.5    0.0    (influence 1.00)
+    #   Age:         Young       fixed                              0.5
+    #   Muscle:      Average     (no branch fires -> default)        0.5
+    #   Weight:      Minimum     0.5 - phenotype_influence * 0.5    0.0
+    #   Height:      Average     (no branch fires -> default)        0.5
+    #   Proportions: Average     (no branch fires -> default)        0.5
+    #   Race:        Caucasian   single race set to 1.0             1.0 / 0.0 / 0.0
+    #   Breast size: Larger      0.5 + breast_influence * 0.5       0.79   (influence 0.58)
+    #   Firmness:    More firm   0.5 + breast_influence * 0.5       0.79
+    #
+    # Note on `proportions`: its enum is literally "Inverted V-shape / Average / V-shape" -- a
+    # shoulder-versus-hip WIDTH axis. That is the mechanism behind this pipeline's earlier measured
+    # finding that sweeping it does nothing to leg length; it was never a leg control, which is why
+    # leg length is handled by detailed targets in `_apply_proportion_targets()` instead.
     macro = TargetService.get_default_macro_info_dict()
-    macro['gender'] = 0.0        # 0=female (confirmed against MakeHuman target filenames)
-    macro['age'] = 0.5           # young adult
-    macro['muscle'] = 0.6        # athletic/toned
-    macro['weight'] = 0.4        # lean
+    macro['gender'] = 0.0
+    macro['age'] = 0.5
+    macro['muscle'] = 0.5
+    macro['weight'] = 0.0        # Minimum -- markedly leaner than the previous 0.4
     macro['proportions'] = 0.5
     macro['height'] = 0.5
-    macro['cupsize'] = 0.5
-    macro['firmness'] = 0.6
-    macro['race'] = {'asian': 0.2, 'caucasian': 0.6, 'african': 0.2}
+    macro['cupsize'] = 0.79
+    macro['firmness'] = 0.79
+    macro['race'] = {'asian': 0.0, 'caucasian': 1.0, 'african': 0.0}
 
     human = HumanService.create_human(
         mask_helpers=True, detailed_helpers=True, extra_vertex_groups=True,
@@ -68,6 +90,51 @@ def create_and_tune_human():
     )
     human.name = "QUARK_Base"
     human.data.name = "QUARK_Base_Mesh"
+    _apply_proportion_targets(human)
+    return human
+
+
+# Detailed (non-macro) MakeHuman targets, applied on top of the macro dict above. MPFB ships 1258
+# of these; `TargetService.load_target(obj, full_path, weight=...)` takes a real file path, and
+# `LocationService.get_mpfb_data("targets")` resolves the directory portably rather than hardcoding
+# a user path.
+#
+# Why these exist: the reference is an IDEALISED figure -- measured off the concept sheet's own
+# front view, its legs are ~51% of total height, against ~45% for the untargeted MakeHuman body.
+# The obvious lever, the `proportions` macro ("uncommon"<->"idealistic"), turns out to do
+# essentially NOTHING to leg length: swept across its full 0.5-1.0 range it moved the measured leg
+# fraction by 0.0005 (0.4645 -> 0.4640). That is the same class of finding as this pipeline's
+# earlier discovery that the `height` macro has no independent effect -- MakeHuman's macro sliders
+# blend whole shape-key sets and several of them simply do not control what their name suggests.
+# The detailed `*-scale-vert-*` targets DO work, measured:
+#     leg=0.0            -> 159.67cm, leg_fraction 0.450
+#     leg=1.0            -> 167.99cm, leg_fraction 0.480
+#     leg=1.0 torso=1.0  -> 163.68cm, leg_fraction 0.490
+# Chosen: full leg extension plus a partial torso shortening -- keeps overall height essentially on
+# the sheet's stated 167cm while taking leg fraction from 0.450 to ~0.485, closing most of the gap
+# to the reference's 0.51. The remainder is left rather than forced: pushing torso shortening to
+# maximum buys 0.005 more fraction at the cost of 4cm of height, which is the wrong trade against
+# an explicitly specified 167cm.
+_LEG_TARGETS = (
+    "legs/l-upperleg-scale-vert-incr", "legs/r-upperleg-scale-vert-incr",
+    "legs/l-lowerleg-scale-vert-incr", "legs/r-lowerleg-scale-vert-incr",
+)
+_TORSO_TARGET = "torso/torso-scale-vert-decr"
+
+
+def _apply_proportion_targets(human, leg_weight=1.0, torso_shorten=0.35):
+    root = LocationService.get_mpfb_data("targets")
+    def _load(fragment, weight):
+        path = os.path.join(root, *fragment.split("/")) + ".target.gz"
+        if not os.path.isfile(path):
+            print(f"WARNING: proportion target missing, skipped: {path}")
+            return
+        TargetService.load_target(human, path, weight=weight,
+                                  name=fragment.rsplit("/", 1)[-1])
+    for frag in _LEG_TARGETS:
+        _load(frag, leg_weight)
+    if torso_shorten > 0.0:
+        _load(_TORSO_TARGET, torso_shorten)
     return human
 
 
@@ -77,15 +144,13 @@ def create_and_tune_human():
 # centroid). This mesh's rest pose is a relaxed A-pose (arms angled down), not the old blockout's
 # T-pose -- confirmed by rendering and looking, not assumed from the shape-key names.
 # ---------------------------------------------------------------------------------------------
-Z_ANKLE = 0.074
-Z_KNEE = 0.449
-Z_HIP = 0.891
-Z_SPINE4 = 0.937   # low waist
-Z_SPINE1 = 1.251   # upper chest
-Z_SHOULDER = 1.343
-Z_SCAPULA = 1.371
+# Only Z_NECK survives, and only because its single remaining consumer -- `_classify_material_index`
+# -- runs over the BASE body mesh's own polygons, which is the space this was measured in. The
+# other landmarks (ankle/knee/hip/spine/shoulder/scapula/mouth) were deleted rather than left
+# lying around: they were consumed only by the armor classifier, which now measures what it needs
+# from the evaluated mesh and the fitted rig at runtime (`measure_shell_landmarks`). Leaving stale
+# base-space constants next to evaluated-space code is precisely how the two spaces got mixed.
 Z_NECK = 1.408
-Z_MOUTH = 1.507
 
 # This mesh's front (face/nose) points toward -Y -- confirmed by rendering a camera at y=-1.1
 # looking toward +Y and seeing the face lit and centered, not assumed from the old blockout's
@@ -101,9 +166,14 @@ def make_material(
     name, base_color, metallic=0.0, roughness=0.5, emission=None, emission_strength=0.0,
     wear=True, wear_strength=0.35, noise_scale=22.0, noise_strength=0.12, bump_strength=0.04,
     panel_detail=False, panel_scale=9.0, rivet_scale=26.0, brushed=False,
+    coat=0.0, coat_roughness=0.05,
 ):
     """Procedural PBR material -- verbatim from the prior blockout pipeline (mesh-agnostic, works
-    on polygon material_index assignment regardless of the underlying mesh's topology)."""
+    on polygon material_index assignment regardless of the underlying mesh's topology).
+
+    `coat` adds a Principled clear-coat layer -- the reference sheet's ceramic reads as a glazed,
+    high-gloss shell with a sharp specular highlight, which a bare diffuse+roughness lobe cannot
+    produce no matter how low its roughness goes. Used for the armor ceramic; left 0 elsewhere."""
     mat = bpy.data.materials.new(name)
     mat.use_nodes = True
     nt = mat.node_tree
@@ -117,6 +187,9 @@ def make_material(
     links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
     bsdf.inputs['Metallic'].default_value = metallic
     bsdf.inputs['Roughness'].default_value = roughness
+    if coat > 0.0 and "Coat Weight" in bsdf.inputs:
+        bsdf.inputs["Coat Weight"].default_value = coat
+        bsdf.inputs["Coat Roughness"].default_value = coat_roughness
 
     base_rgba = (*base_color, 1.0)
     if emission is not None and "Emission Color" in bsdf.inputs:
@@ -305,74 +378,153 @@ def make_material(
     return mat
 
 
+# ---------------------------------------------------------------------------------------------
+# Limb segments are no longer hardcoded here. They used to be a literal table of bone positions
+# copied out of one particular generated rig, which went stale the moment the Phase-B proportion
+# targets moved the skeleton (measured: `foot.L` head z went 0.068 -> -0.015, `lowerleg01.L`
+# 0.447 -> 0.410) -- and, worse, they were in EVALUATED space while the sibling `Z_*` landmark
+# constants were in BASE space, so the two rule sets silently disagreed about where the body was.
+# `measure_shell_landmarks()` now reads the real rig and the real evaluated mesh at runtime.
+#
+# Classification by "nearest bone segment + parametric position along it" is still the right idea
+# and is retained: the mesh rests in an A-pose, so an arm's height and lateral offset vary TOGETHER
+# along its length, and any pure-Z or pure-|x| threshold necessarily misclassifies part of it.
+# Values below are side-agnostic (points are folded to |x| before testing).
+# ---------------------------------------------------------------------------------------------
+
+# Parametric plate coverage along each limb: (t_start, t_end). The EXCLUDED remainder at each end
+# is what becomes a visible dark under-suit gap at the joint -- shoulder, elbow, wrist, hip, knee,
+# ankle -- which is exactly how the reference sheet's segmented armor reads ("Armor segments move
+# smoothly with the body" on its own rigging panel). The gaps are the design, not missing coverage.
+LIMB_PLATE_SPAN = {
+    'upperarm': (0.26, 0.88),
+    'lowerarm': (0.14, 0.74),
+    'upperleg': (0.18, 0.86),
+    'lowerleg': (0.13, 0.84),
+}
+
+# A point closer than this to a limb segment is treated as belonging to that limb rather than the
+# torso -- replaces the old `ax >` torso/arm disambiguation.
+LIMB_RADIUS = 0.105
+
+
+def _nearest_limb(co, segments):
+    """Return (limb_name, t, distance) for the closest limb segment, folding x to |x| so one set of
+    .L-side bone positions serves both sides. t is the clamped parametric position along the bone."""
+    p = mathutils.Vector((abs(co.x), co.y, co.z))
+    best = (None, 0.0, 1e9)
+    for name, (h, t_) in segments.items():
+        a = mathutils.Vector(h)
+        b = mathutils.Vector(t_)
+        ab = b - a
+        denom = ab.dot(ab)
+        t = 0.0 if denom == 0 else max(0.0, min(1.0, (p - a).dot(ab) / denom))
+        d = (p - (a + ab * t)).length
+        if d < best[2]:
+            best = (name, t, d)
+    return best
+
+
+def _is_armor_plate(co, lm):
+    """True where a hard ceramic armor PLATE sits. Drives real shell geometry
+    (`build_armor_shell`), not a flat colour patch on bare skin.
+
+    All landmarks come from `lm` (see `measure_shell_landmarks`) -- measured on the evaluated mesh
+    and the fitted rig, in one consistent space."""
+    x, z = co.x, co.z
+    segs = lm["segments"]
+
+    if z > lm["neck_z"] - 0.035:    # head + neck collar: never plated (face is exposed skin)
+        return False
+
+    # Boot. Must be tested BEFORE the limb rule: the foot lies past the lowerleg segment's t=1.0
+    # endpoint, so it is still within LIMB_RADIUS of that segment and would otherwise fail the
+    # lowerleg span test and come out as a bare dark foot -- which is exactly what the first
+    # armored render showed. The reference gives QUARK armoured boots.
+    if z < lm["boot_z"]:
+        return True
+
+    if segs:
+        limb, t, d = _nearest_limb(co, segs)
+        if d < LIMB_RADIUS:
+            lo, hi = LIMB_PLATE_SPAN[limb]
+            # Hands sit past the end of the lowerarm segment; the plate span already excludes them,
+            # leaving them as dark under-suit gloves rather than bare skin.
+            return lo < t < hi
+
+    # Torso -- bands with deliberate gaps at the under-bust seam and the waist, matching the
+    # reference front view's chest / abdomen / pelvis plate stack. Positions are fractions of the
+    # measured crotch->neck span, so they track the body instead of assuming absolute heights.
+    #
+    # The |x| gate is load-bearing, not decorative: the hands sit far out on x but are FARTHER than
+    # LIMB_RADIUS from the lowerarm segment (they hang off its t=1.0 end), so they fall through the
+    # limb branch entirely. Without this gate their height lands inside the abdomen band and they
+    # get plated as though they were torso -- which is exactly what one render showed, ceramic
+    # hands instead of dark under-suit gloves. The torso never exceeds ~0.18 half-width.
+    if abs(x) > 0.20:
+        return False
+    f = (z - lm["crotch"]) / lm["span"]
+    for key in ("pelvis", "abdomen", "chest"):
+        lo, hi = lm[key]
+        if lo < f < hi:
+            return True
+    return False
+
+
 def _classify_material_index(co, idx):
-    """Region rules approximating the reference sheet's material breakdown, recalibrated against
-    THIS mesh's own measured landmarks (see the Z_* constants above) -- the old blockout's
-    coordinate thresholds are not transferable to a completely different mesh topology/proportions.
-    Face/hands stay real exposed skin only above the neck; per the reference's own "Hand (Palm)"
-    close-up the hands are ARMORED (segmented plates), not bare skin, unlike the old blockout's
-    treatment -- corrected here."""
-    x, y, z = co.x, co.y, co.z
-    ax = abs(x)
-    r_xy = math.hypot(x, y)
+    """Material for the BODY mesh, which is now the full-coverage dark under-suit the armor plates
+    sit on top of -- not the armor itself. Everything below the neck is under-suit; only the head
+    is exposed skin.
 
-    if z > Z_NECK:  # head / face -- real exposed skin, the whole point of the MPFB swap
-        if (Z_MOUTH + 0.06) < z < (Z_MOUTH + 0.075) and r_xy > 0.06:  # headband circuit
-            return idx['emissive']
+    This replaces a rule set that painted 'ceramic' directly onto the bare body as its default,
+    which is why the render read as a nude figure with grey blotches rather than an armored one:
+    the plates had no geometry, and the un-plated remainder was literal bare skin. Confirmed by a
+    scaled side-by-side against `reference/QUARK_sideview_color.png` -- see PRODUCTION_LOG."""
+    z = co.z
+    if z > Z_NECK:              # head / face -- the exposed skin the MPFB swap exists for
         return idx['skin']
-
-    if (Z_NECK - 0.03) < z <= Z_NECK:  # neck collar seam
-        return idx['graphite']
-
-    # Arm territory: this mesh rests in an A-pose (not the old blockout's T-pose), so x and z vary
-    # together along the arm -- ax alone is still a reasonable "out on the arm" gate since the
-    # torso itself stays well under 0.18m half-width at these heights (measured, not assumed).
-    if ax > 0.14 and Z_HIP < z < (Z_SCAPULA + 0.02):
-        if Z_SHOULDER - 0.04 < z <= Z_SCAPULA + 0.02 and ax < 0.23:
-            return idx['graphite']  # shoulder pauldron
-        if z < 0.90:
-            return idx['graphite']  # wrist band
-        return idx['ceramic']
-
-    if z < (Z_HIP + 0.02):  # leg territory
-        if (Z_KNEE - 0.035) < z < (Z_KNEE + 0.035):
-            return idx['graphite']  # kneecap
-        if Z_ANKLE - 0.01 < z < Z_ANKLE + 0.04:
-            return idx['graphite']  # ankle
-        if z < Z_ANKLE - 0.01:
-            return idx['graphite']  # foot
-        return idx['ceramic']
-
-    if Z_HIP - 0.02 < z < Z_HIP + 0.08 and r_xy > 0.075:  # hip wrap
-        if Z_HIP + 0.01 < z < Z_HIP + 0.05:
-            return idx['metal']
-        return idx['graphite']
-
-    # Back = +Y, front = -Y for this mesh (see the orientation note above the constants) --
-    # opposite the old blockout's sign convention. Getting this backwards was a real bug caught by
-    # rendering and looking (an early pass painted these regions on the front-facing side).
-    if y > 0.06 and ax < 0.05 and Z_SPINE4 < z < Z_NECK - 0.03:  # spine conduit (back)
-        return idx['emissive']
-
-    if y > 0.05 and 0.05 < ax < 0.13 and Z_SPINE1 < z < Z_SCAPULA + 0.02:  # scapula plates (back)
-        return idx['graphite']
-
-    if Z_SPINE1 - 0.03 < z < Z_SPINE1 and y < -0.02:  # chest seam (front)
-        return idx['graphite']
-
-    return idx['ceramic']  # default: torso plating
+    return idx['undersuit']
 
 
 def assign_materials(obj, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0):
     ceramic = make_material(
-        "QUARK_Ceramic", (0.902, 0.882, 0.816), roughness=0.45,
-        wear_strength=0.3, noise_scale=16.0, noise_strength=0.08,
-        panel_detail=True, panel_scale=3.2, rivet_scale=22.0,
+        # #E6E1DD -- the reference sheet's own stated "Primary (Ceramic)" hex. The blue channel was
+        # 0.816 (i.e. #E6E1D0), which is measurably more yellow than the sheet specifies and read
+        # as a green-grey cast against the neutral lighting rather than the sheet's warm ivory.
+        "QUARK_Ceramic", (0.902, 0.882, 0.867), roughness=0.22,
+        wear=True, wear_strength=0.06, noise_scale=60.0, noise_strength=0.015, bump_strength=0.004,
+        panel_detail=False,
+        coat=0.6, coat_roughness=0.04,
+    )  # roughness 0.45 -> 0.22 + a clear coat: the reference's ceramic is a glazed, high-gloss
+    # shell with a tight specular highlight, which the old near-matte setting could not produce.
+    # `panel_detail` is now OFF and wear/noise are near-zero: that procedural voronoi panel-and-
+    # rivet pattern existed to FAKE plate seams back when the armor was flat paint on skin. With
+    # real shell geometry (build_armor_shell) the seams are actual edges, and the fake pattern only
+    # showed up as the dark diagonal smears/cracks across the plates in the first armored render --
+    # competing with the real panel lines rather than reinforcing them.
+    # Prefer the real MakeHuman skin if `add_makehuman_assets()` already applied one. That call
+    # runs first and puts a proper subsurface-scattering skin (with actual texture maps) into the
+    # body's material slots; rebuilding the slot list here would silently discard it and put the
+    # flat procedural tone back on the face. Falling back to the procedural material keeps the
+    # script runnable if the CC0 asset pack was never installed.
+    existing = [m for m in obj.data.materials if m is not None]
+    if existing:
+        synth_skin = existing[0]
+        print(f"  using MakeHuman skin material for face: {synth_skin.name}")
+    else:
+        synth_skin = make_material(
+            "QUARK_SynthSkin", (0.867, 0.757, 0.686), roughness=0.5,
+            wear_strength=0.05, noise_scale=40.0, noise_strength=0.03, bump_strength=0.01,
+        )
+        print("  WARNING: no MakeHuman skin found -- falling back to procedural skin tone")
+    obj.data.materials.clear()
+    # The under-suit: a dark, slightly sheened bodysuit covering EVERYTHING below the neck. This is
+    # what the armor plates sit on, and what stops the un-plated remainder from reading as a nude
+    # body (the defect the reference comparison exposed). Distinct from `graphite` armor trim.
+    undersuit = make_material(
+        "QUARK_UnderSuit", (0.098, 0.106, 0.125), roughness=0.55,
+        wear_strength=0.12, noise_scale=48.0, noise_strength=0.05, bump_strength=0.02,
     )
-    synth_skin = make_material(
-        "QUARK_SynthSkin", (0.867, 0.757, 0.686), roughness=0.5,
-        wear_strength=0.05, noise_scale=40.0, noise_strength=0.03, bump_strength=0.01,
-    )  # a real skin tone -- this now covers the actual exposed MPFB face, not a flat placeholder
     graphite = make_material(
         "QUARK_Graphite", (0.169, 0.176, 0.192), roughness=0.7,
         wear_strength=0.4, noise_scale=25.0, noise_strength=0.15,
@@ -388,8 +540,8 @@ def assign_materials(obj, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0):
 
     idx = {}
     for key, mat in (
-        ('ceramic', ceramic), ('skin', synth_skin), ('graphite', graphite),
-        ('metal', metal_alloy), ('emissive', emissive),
+        ('ceramic', ceramic), ('skin', synth_skin), ('undersuit', undersuit),
+        ('graphite', graphite), ('metal', metal_alloy), ('emissive', emissive),
     ):
         idx[key] = len(obj.data.materials)
         obj.data.materials.append(mat)
@@ -409,6 +561,60 @@ def assign_materials(obj, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0):
 # camera through the visible socket pixels in a real render and recording where the ray hits the
 # mesh surface, not by trusting any named landmark.
 # ---------------------------------------------------------------------------------------------
+MH_ASSETS = (
+    ("Eyes",      "eyes/high-poly/high-poly"),
+    ("Eyebrows",  "eyebrows/eyebrow008/eyebrow008"),
+    ("Eyelashes", "eyelashes/eyelashes01/eyelashes01"),
+    ("Hair",      "hair/ponytail01/ponytail01"),
+)
+MH_SKIN = "skins/young_caucasian_female2/young_caucasian_female2"
+
+
+def add_makehuman_assets(human):
+    """Fit real MakeHuman assets (eyes, eyebrows, eyelashes, hair) and a subsurface skin.
+
+    Replaces this pipeline's hand-built primitives: eyeballs were UV spheres positioned by
+    raycasting through a rendered image, and hair was a scalp cap plus a bun and two locks made of
+    scaled primitives. Those existed because an earlier pass concluded MPFB "ships no default
+    eyeball geometry, skin textures, or hair assets (confirmed by searching its installed files)".
+    That observation was correct but the inference was wrong: MPFB's asset directory was simply
+    EMPTY because the packs had never been downloaded. `makehuman_system_assets` (CC0) provides all
+    four, properly fitted to the body by MakeHuman's own system, plus 23 skins.
+
+    Hair is `ponytail01` by Director's choice. Worth recording honestly: the CC0 set contains no
+    braided updo -- `braid01` is named for a braid texture but renders as a swept bob. ponytail01
+    was chosen not as a braid match but because it pulls the hair back off the face, which is the
+    reference's silhouette AND leaves the forehead clear for the emissive circlet.
+
+    Skin uses `skin_type='ENHANCED_SSS'` -- real subsurface scattering, versus the flat procedural
+    tone it replaces. `young_caucasian_female2` matches the Director-specified pure-Caucasian
+    phenotype."""
+    root = LocationService.get_user_data()
+    created = []
+    for asset_type, fragment in MH_ASSETS:
+        path = os.path.join(root, *fragment.split("/")) + ".mhclo"
+        if not os.path.isfile(path):
+            print(f"WARNING: MakeHuman asset missing, skipped: {path}")
+            continue
+        try:
+            obj = HumanService.add_mhclo_asset(path, human, asset_type=asset_type)
+            created.append(obj)
+            print(f"  asset {asset_type}: {obj.name if obj else None}")
+        except Exception as exc:                                  # noqa: BLE001
+            print(f"WARNING: failed to fit {asset_type}: {exc}")
+
+    skin_path = os.path.join(root, *MH_SKIN.split("/")) + ".mhmat"
+    if os.path.isfile(skin_path):
+        try:
+            HumanService.set_character_skin(skin_path, human, skin_type='ENHANCED_SSS')
+            print("  skin applied (ENHANCED_SSS)")
+        except Exception as exc:                                  # noqa: BLE001
+            print(f"WARNING: failed to apply skin: {exc}")
+    else:
+        print(f"WARNING: skin missing, skipped: {skin_path}")
+    return created
+
+
 def add_eyes(human):
     eye_radius = 0.012
     eye_mat_sclera = bpy.data.materials.new("QUARK_EyeSclera")
@@ -597,6 +803,342 @@ def add_rig_and_weights(human):
     return None
 
 
+def measure_shell_landmarks(human, arm_obj, eval_mesh):
+    """Derive every plate-classification landmark from the ACTUAL evaluated mesh and rig, at
+    runtime. Nothing here is hardcoded.
+
+    This replaces two sets of module-level constants that were quietly in DIFFERENT COORDINATE
+    SPACES, which is a bug that survived several passes only because the two spaces happened to be
+    close:
+      * `Z_ANKLE`/`Z_KNEE`/.../`Z_NECK` were centroids of `joint-*` vertex groups measured on the
+        BASE mesh (shape keys not applied).
+      * `LIMB_SEGMENTS` were bone positions read off the rig -- and MPFB fits the rig to the
+        EVALUATED body, so those were always in evaluated space.
+    Base and evaluated differ by a ~8.5cm downward shift, so the two rule sets disagreed about
+    where the body was. Worse, the Phase-B proportion targets stretch the legs and shorten the
+    torso NON-uniformly, so no single remap between the spaces can be correct -- an attempt at a
+    linear z-remap put the plate bands on visibly wrong anatomy (a crop-top cuirass and blocky
+    cut-outs across the hips). Measuring in one space, from the geometry that actually renders,
+    removes the whole class of problem and makes the classifier survive future proportion changes
+    without any constant being re-derived by hand.
+
+    Torso band positions are expressed as fractions of the crotch->neck span rather than absolute
+    heights. The fractions are exactly those the previously-tuned absolute values worked out to,
+    so this is a change of reference frame, not a re-tune."""
+    zs = [v.co.z for v in eval_mesh.vertices]
+    zmin, zmax = min(zs), max(zs)
+    height = zmax - zmin
+
+    # Crotch: scanning upward, the first z-slice whose vertices form a single x-run (legs fused).
+    crotch = None
+    for i in range(60, 141):
+        z = zmin + (i / 200.0) * height
+        xs = sorted(v.co.x for v in eval_mesh.vertices if abs(v.co.z - z) < height * 0.004)
+        if len(xs) < 8:
+            continue
+        runs = 1
+        for a, b in zip(xs, xs[1:]):
+            if b - a > 0.035:
+                runs += 1
+        if runs == 1:
+            crotch = z
+            break
+    if crotch is None:
+        crotch = zmin + 0.47 * height
+        print("WARNING: crotch detection failed; falling back to 0.47 of height")
+
+    def _bone(name):
+        b = arm_obj.data.bones.get(name) if arm_obj else None
+        if b is None:
+            return None
+        return (arm_obj.matrix_world @ b.head_local, arm_obj.matrix_world @ b.tail_local)
+
+    segs = {}
+    for key, first, last in (("upperarm", "upperarm01.L", "upperarm02.L"),
+                             ("lowerarm", "lowerarm01.L", "lowerarm02.L"),
+                             ("upperleg", "upperleg01.L", "upperleg02.L"),
+                             ("lowerleg", "lowerleg01.L", "lowerleg02.L")):
+        a, b = _bone(first), _bone(last)
+        if a and b:
+            segs[key] = (a[0], b[1])          # start of the first bone -> end of the second
+    neck_b = _bone("neck01")
+    neck_z = neck_b[0].z if neck_b else (zmin + 0.82 * height)
+    span = (neck_z - crotch) or 1.0
+
+    lm = {
+        "zmin": zmin, "height": height, "crotch": crotch, "neck_z": neck_z,
+        "segments": segs,
+        # (lo, hi) as fractions of the crotch->neck span
+        "pelvis": (0.041, 0.246),
+        "abdomen": (0.285, 0.490),
+        "chest": (0.538, 0.845),
+        "boot_z": zmin + 0.088,
+        "chest_lo_z": crotch + 0.538 * span,
+        "span": span,
+    }
+    print(f"Landmarks: height={height*100:.1f}cm crotch={crotch:.4f} neck={neck_z:.4f} "
+          f"segments={sorted(segs)}")
+    return lm
+
+
+def build_armor_shell(human, arm_obj):
+    """Build QUARK's ceramic armor as REAL, separate shell geometry sitting over the body.
+
+    Why this exists: every pass before this one expressed the armor purely as `poly.material_index`
+    on the bare body mesh -- flat colour patches painted onto naked skin. A scaled side-by-side
+    against `reference/QUARK_sideview_color.png` (see PRODUCTION_LOG's comparison entry) made the
+    consequence unmissable: no plate thickness, no panel edges, no silhouette break, and -- because
+    the un-plated default was literal bare skin -- a figure that read as nude with grey smudges on
+    it rather than as an armoured synthetic. That is a GEOMETRY gap, not a texture or lighting one;
+    no amount of Tier 1-3 render tuning could have closed it, which is exactly why those tiers
+    improved the image without moving it toward the reference.
+
+    Technique: duplicate the (already rigged and weighted) body mesh, delete every face that isn't
+    a plate region, push the survivors out along their own normals so the shell floats just proud
+    of the under-suit, then Solidify for real plate thickness and Bevel the resulting borders so
+    each panel catches a specular edge highlight. Built AFTER rigging deliberately -- the duplicate
+    inherits MPFB's vertex groups for free, so the plates deform with the body instead of needing a
+    second weighting pass; it only needs its own Armature modifier pointing at the same rig."""
+    # Build from the EVALUATED body, not `human.data.copy()`. This fixes a real architectural bug,
+    # not a cosmetic one:
+    #
+    # MakeHuman's macros and the proportion targets are all SHAPE KEYS, and a Blender shape key
+    # stores ABSOLUTE vertex positions, not deltas from the current base. A copied mesh therefore
+    # carried all 16 shape keys (verified: `QUARK_Armor` had 16 non-zero key blocks), so every
+    # bmesh edit below -- the smoothing, the standoff offset, the clearance clamp -- was written to
+    # base coordinates and then simply OVERRIDDEN at evaluation time by the shape keys' own stored
+    # positions. Measured proof: the shell's base z-range was (-0.023, 1.314) while its evaluated
+    # range was (-0.118, 1.264). The visible symptom was nipple detail reappearing through the
+    # cuirass after the proportion retune despite the dedicated smoothing pass that had previously
+    # removed it -- that smoothing had never actually reached the render.
+    #
+    # `new_from_object` on the evaluated object bakes shape keys AND modifiers down into plain
+    # geometry, so the shell has no shape keys and the bmesh edits below are what renders. It also
+    # applies MPFB's own "Hide helpers" MASK for free, removing the ~30% of the mesh that is
+    # MakeHuman fitting-helper/joint-cube geometry -- the thing that previously leaked a stray
+    # ceramic `joint-ground` cube into the shell at the world origin. The explicit `body`-group
+    # filter that used to do that job is gone, because the mask now does it upstream.
+    dg = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(human.evaluated_get(dg), depsgraph=dg)
+    mesh.name = "QUARK_Armor_Mesh"
+    shell = bpy.data.objects.new("QUARK_Armor", mesh)
+    bpy.context.collection.objects.link(shell)
+    shell.matrix_world = human.matrix_world.copy()
+
+    # Classification constants (Z_* and LIMB_SEGMENTS) were measured on the BASE mesh, but the
+    # geometry above is now in EVALUATED space, and the two differ by a near-uniform ~8.5cm
+    # downward shift (base z-range 0.002..1.668 vs evaluated -0.083..1.582 -- measured, and the
+    # offset matches at both ends, so it really is close to a translation). Rather than
+    # re-deriving every constant, map each evaluated coordinate back into base space purely for
+    # the classification tests; the geometry itself stays in evaluated space.
+    lm = measure_shell_landmarks(human, arm_obj, mesh)
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.faces.ensure_lookup_table()
+
+    # Relax the surface BEFORE cutting the plates out. An offset copy of a human mesh is still a
+    # human mesh: at a 10mm standoff the shell faithfully reproduced nipples, individual toes and
+    # knuckles, so the "armour" read as a shrink-wrapped nude rather than moulded plate -- armour
+    # is a hard-surface object with its own smooth forms. Laplacian smoothing flattens that fine
+    # anatomical detail into plate-like forms; doing it while the surface is still closed keeps it
+    # well-behaved, and cutting the plates out afterwards keeps their borders crisp instead of
+    # letting the smoothing curl them inward.
+    body_bvh = BVHTree.FromBMesh(bm.copy())   # the TRUE body surface, captured pre-smoothing
+    for _ in range(12):
+        bmesh.ops.smooth_vert(
+            bm, verts=bm.verts[:], factor=0.5,
+            use_axis_x=True, use_axis_y=True, use_axis_z=True,
+        )
+    bm.normal_update()
+
+    # Extra, REGION-TARGETED smoothing over the cuirass. Laplacian smoothing erases features by
+    # size, and the global pass above is tuned not to destroy limb definition -- but that leaves it
+    # far too gentle to remove nipples, which stayed clearly visible through the chest plate. A
+    # bigger standoff does NOT fix this: offsetting along normals TRANSLATES a feature outward, it
+    # does not erase it (the toes only disappeared because a 30mm offset is large enough for
+    # neighbouring toe surfaces to merge into one another -- morphological dilation, not
+    # smoothing). Removing a small feature requires actually smoothing it away, so the bust gets
+    # its own concentrated pass. The breast form itself is large and survives this, which is
+    # correct -- the reference's cuirass is shaped to the bust; it is only the nipple-scale detail
+    # that must not read through moulded ceramic.
+    chest_verts = [v for v in bm.verts if v.co.z > lm["chest_lo_z"] and abs(v.co.x) < 0.20]
+    for _ in range(48):
+        bmesh.ops.smooth_vert(
+            bm, verts=chest_verts, factor=0.5,
+            use_axis_x=True, use_axis_y=True, use_axis_z=True,
+        )
+    bm.normal_update()
+
+    # Offset the SMOOTHED surface outward along its own normals. The ordering here matters and was
+    # got wrong twice before landing:
+    #   1st attempt: smooth hard, then a flat +6mm. Laplacian smoothing loses volume (it always
+    #      pulls toward the local average), so the shell sank inside the body across every convex
+    #      region and rendered as torn patchy islands on the thighs and shins.
+    #   2nd attempt: clamp every vertex to >= 6mm outside the ORIGINAL body via a BVH lookup. That
+    #      fixed the sinking but re-imprinted every protrusion the smoothing had just removed --
+    #      the clamp was fighting the smoothing, so nipples and individual toes came straight back
+    #      through the "armour". Confirmed by rendering, not reasoned about.
+    # What actually works: offset the smoothed surface by a standoff LARGER than the local feature
+    # protrusion, so the plate floats clear of the detail instead of re-acquiring it. The standoff
+    # is therefore region-dependent -- a foot's toes stick out far further from a smoothed foot
+    # than a nipple does from a smoothed chest, and a limb needs almost none.
+    def _standoff(co):
+        if co.z < lm["boot_z"]:
+            return 0.030        # boot: must clear the toes entirely
+        if co.z > lm["chest_lo_z"] and abs(co.x) < 0.20:
+            return 0.022        # cuirass: must clear the bust
+        return 0.007            # limbs: close-fitting
+    for v in bm.verts:
+        v.co = v.co + v.normal * _standoff(v.co)
+    bm.normal_update()
+
+    # Safety net only: nothing may end up INSIDE the real body. With the standoffs above this
+    # should essentially never fire, but a 2mm floor guarantees no skin pokes through a plate on
+    # any future proportion change rather than trusting the constants to stay valid.
+    MIN_CLEAR = 0.002
+    for v in bm.verts:
+        hit = body_bvh.find_nearest(v.co)
+        if hit[0] is None:
+            continue
+        loc, nor = hit[0], hit[1]
+        if (v.co - loc).dot(nor) < MIN_CLEAR:
+            v.co = loc + nor * MIN_CLEAR
+    bm.normal_update()
+
+    kill = [f for f in bm.faces if not _is_armor_plate(f.calc_center_median(), lm)]
+    if len(kill) >= len(bm.faces):
+        bm.free()
+        bpy.data.objects.remove(shell)
+        print("WARNING: armor shell classified zero plate faces -- shell not built")
+        return None
+    bmesh.ops.delete(bm, geom=kill, context='FACES')
+    bm.normal_update()
+    # Float the shell proud of the body. Done per-vertex along the vertex normal (not a Shrinkwrap
+    # offset) so it follows the body's own curvature exactly and cannot self-intersect the skin.
+    # 4mm float + 6mm thickness = 10mm total proud of the body. The first attempt used 7mm+9mm and
+    # read as loose, baggy over-armour (the thigh plates especially looked like trousers rather
+    # than a fitted shell) -- the reference's armour is skin-tight, so the total standoff has to
+    # stay near the thickness of the plate itself.
+    bm.to_mesh(mesh)
+    bm.free()
+
+    # Plate thickness + a chamfered border. `offset=1.0` grows outward only, keeping the shell's
+    # inner face flush against the body rather than sinking half its thickness into it.
+    solid = shell.modifiers.new("Solidify", 'SOLIDIFY')
+    solid.thickness = 0.006
+    solid.offset = 1.0
+    bevel = shell.modifiers.new("Bevel", 'BEVEL')
+    bevel.width = 0.0022
+    bevel.segments = 2
+    bevel.limit_method = 'ANGLE'
+    bevel.angle_limit = math.radians(35)
+
+    # Ceramic only -- the shell carries no other material, so clear the inherited slot list and
+    # re-point every face at the ceramic index.
+    mesh.materials.clear()
+    ceramic = bpy.data.materials.get("QUARK_Ceramic")
+    mesh.materials.append(ceramic)
+    for poly in mesh.polygons:
+        poly.material_index = 0
+
+    if arm_obj is not None:
+        shell.parent = arm_obj
+        mod = shell.modifiers.new("Armature", 'ARMATURE')
+        mod.object = arm_obj
+
+    bpy.context.view_layer.objects.active = shell
+    bpy.ops.object.shade_smooth()
+    print(f"Armor shell built: {len(mesh.polygons)} plate faces")
+    return shell
+
+
+def _measure_head_ring(human, drop_from_crown=0.058):
+    """Measure the EVALUATED head's cross-section at brow height.
+
+    Returns (brow_z, y_centre, x_half, y_half). Uses the evaluated (shape-key-applied) mesh because
+    that is what actually renders -- see the caller's comment on why base-mesh coordinates are the
+    wrong space for world-positioned accent geometry."""
+    bpy.context.view_layer.update()
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = human.evaluated_get(dg)
+    me = ev.to_mesh()
+    mw = human.matrix_world
+    co = [mw @ v.co for v in me.vertices]
+    ev.to_mesh_clear()
+    crown = max(c.z for c in co)
+    brow_z = crown - drop_from_crown
+    band = [c for c in co if abs(c.z - brow_z) < 0.008]
+    if not band:                       # never trust a slice to be populated
+        band = [c for c in co if abs(c.z - brow_z) < 0.02]
+    xs = [c.x for c in band]
+    ys = [c.y for c in band]
+    x_half = max(abs(min(xs)), abs(max(xs)))
+    y_centre = (min(ys) + max(ys)) / 2.0
+    y_half = (max(ys) - min(ys)) / 2.0
+    return brow_z, y_centre, x_half, y_half
+
+
+def add_accent_geometry(human, arm_obj, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0):
+    """The emissive accent (headband circuit + spine conduit) as real geometry rather than
+    material_index assignment on body polygons.
+
+    The old approach coloured whichever body polygons fell inside a Z band, which on a 19k-vertex
+    organic mesh produced a thick, ragged, zigzag slab across the forehead -- visible in every
+    posture render and unmistakable next to the reference's fine 1-2px circuit line. A polygon
+    classifier fundamentally cannot draw a thin clean line on topology that wasn't built for one;
+    a small dedicated primitive can, and matches how eyes and hair are already handled here."""
+    accent = bpy.data.materials.get("QUARK_Emissive")
+    created = []
+
+    # Headband: a thin circlet at the brow, sized and placed from a LIVE measurement of the head
+    # rather than baked-in numbers.
+    #
+    # Two lessons are encoded here. First, the head is an ELLIPSE in cross-section, not a circle --
+    # an early attempt used a single 0.083 circular radius and rendered as literally nothing,
+    # because the head is far deeper (front-to-back) than it is wide, so the ring sat entirely
+    # buried inside the skull. Second, and the reason this is now measured at runtime: the circlet
+    # is separate geometry positioned in WORLD space, while the body's shape comes from shape keys
+    # (macros + the proportion targets). Base-mesh coordinates and evaluated/rendered coordinates
+    # therefore disagree -- the crown sits at z=1.668 on the base mesh but z=1.582 once evaluated,
+    # an 8.6cm difference. A hardcoded height measured in the wrong space only *happened* to land
+    # on the brow before, and any proportion change silently moves it. Measuring the evaluated mesh
+    # here makes the placement survive future retuning instead of needing a manual re-derivation.
+    brow_z, y_centre, x_half, y_half = _measure_head_ring(human)
+    band_r = 0.003                      # sit ~3mm proud of the skin
+    bpy.ops.mesh.primitive_torus_add(
+        major_radius=1.0, minor_radius=0.0042, major_segments=72, minor_segments=8,
+        location=(0.0, y_centre, brow_z),
+    )
+    band = bpy.context.active_object
+    band.name = "QUARK_Headband"
+    band.scale = (x_half + band_r, y_half + band_r, 1.0)
+    created.append(band)
+    print(f"Headband: z={brow_z:.4f} y={y_centre:.4f} rx={x_half + band_r:.4f} ry={y_half + band_r:.4f}")
+
+    # Spine conduit: a slim raised strip down the back (+Y is this mesh's back -- see the
+    # orientation note above the landmark constants). Pushed out to clear the armor shell, which
+    # now stands ~10mm proud of the body itself.
+    bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0.0, 0.108, 1.06))
+    conduit = bpy.context.active_object
+    conduit.name = "QUARK_SpineConduit"
+    conduit.scale = (0.010, 0.010, 0.145)
+    created.append(conduit)
+
+    for obj in created:
+        obj.data.materials.clear()
+        obj.data.materials.append(accent)
+        for poly in obj.data.polygons:
+            poly.material_index = 0
+        if arm_obj is not None:
+            obj.parent = arm_obj
+            mod = obj.modifiers.new("Armature", 'ARMATURE')
+            mod.object = arm_obj
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.shade_smooth()
+    return created
+
+
 def setup_render():
     scene = bpy.context.scene
     for engine in ('BLENDER_EEVEE_NEXT', 'BLENDER_EEVEE', 'CYCLES'):
@@ -605,8 +1147,10 @@ def setup_render():
             break
         except TypeError:
             continue
-    scene.render.resolution_x = 900
-    scene.render.resolution_y = 1400
+    # Rendering-refinement pass Tier 2: resolution raised ~1.5x (900x1400 -> 1350x2100) now that
+    # the lighting/AA quality below is worth resolving properly.
+    scene.render.resolution_x = 1350
+    scene.render.resolution_y = 2100
     # Real alpha matte -- was False, which is the entire root cause of the "PNGs are not
     # alpha-matted" bug flagged in PRODUCTION_LOG's Phase 4b entry (the shader had to synthesize
     # its own background-color chroma-key mask as a workaround). Explicit RGBA output alongside it
@@ -619,38 +1163,99 @@ def setup_render():
     # and why the original accent color-key was mathematically unfireable. 'Standard' renders
     # emissive colors at their authored saturation.
     scene.view_settings.view_transform = 'Standard'
+    # Studio HDRI environment instead of a flat colour. Gloss is mostly REFLECTED ENVIRONMENT, and
+    # `film_transparent` removes the world from the alpha but NOT from reflections -- so with the
+    # previous uniform dark world the ceramic's clear coat had nothing but a constant grey to
+    # mirror and produced almost no highlight variation, no matter how low its roughness went. The
+    # HDRI is `photo_studio_01_2k` from Poly Haven (CC0, no attribution required), committed into
+    # the repo so the pipeline is self-contained rather than depending on a machine-local download.
     scene.world = bpy.data.worlds.get("World") or bpy.data.worlds.new("World")
     scene.world.use_nodes = True
-    bg = scene.world.node_tree.nodes.get("Background")
-    if bg:
-        bg.inputs[0].default_value = (0.05, 0.065, 0.05, 1.0)
+    nt = scene.world.node_tree
+    nt.nodes.clear()
+    out_node = nt.nodes.new("ShaderNodeOutputWorld")
+    bg = nt.nodes.new("ShaderNodeBackground")
+    hdri_path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "hdri", "photo_studio_01_2k.hdr")
+    hdri_path = os.path.abspath(hdri_path)
+    if os.path.isfile(hdri_path):
+        env = nt.nodes.new("ShaderNodeTexEnvironment")
+        env.image = bpy.data.images.load(hdri_path)
+        nt.links.new(env.outputs["Color"], bg.inputs["Color"])
+        bg.inputs["Strength"].default_value = 0.45   # balanced against the area lights below;
+        # measured: at 1.0 the plates clipped (mean luminance 0.76, torso 0.99), at 0.45 they sit
+        # at 0.52 with real specular variation and no blown highlights.
+    else:
+        print(f"WARNING: studio HDRI not found, falling back to flat world: {hdri_path}")
+        bg.inputs["Color"].default_value = (0.05, 0.065, 0.05, 1.0)
+    nt.links.new(bg.outputs["Background"], out_node.inputs["Surface"])
 
-    sun = bpy.data.lights.new("KeyLight", type='SUN')
-    sun.energy = 3.0
-    sun_obj = bpy.data.objects.new("KeyLight", sun)
-    bpy.context.collection.objects.link(sun_obj)
-    sun_obj.rotation_euler = (math.radians(55), 0, math.radians(35))
+    # Tier 2 quality: EEVEE Next's raytraced AO/soft-shadow path and a higher final-render sample
+    # count -- was left at whatever the engine's own defaults were, uneffective for shadows.
+    # Confirmed both property names exist on this build (`scene.eevee.bl_rna.properties`) before
+    # using them -- `use_gtao` is gone in EEVEE Next; AO now rides on `use_raytracing`.
+    scene.eevee.use_raytracing = True
+    scene.eevee.use_shadows = True
+    scene.eevee.taa_render_samples = 128
 
-    fill = bpy.data.lights.new("FillLight", type='SUN')
-    fill.energy = 0.8
+    # Tier 2 lighting: was 4 flat SUN lamps (parallel rays -> hard, shadowless-looking edges,
+    # no falloff) with no dedicated backlight. Replaced with soft AREA lights (shadow softness
+    # comes from `size`, not a separate setting) in a loose 3-point-plus-backlight arrangement.
+    # This still has to read reasonably from every turnaround camera angle (the character doesn't
+    # rotate -- the camera orbits it across 5 fixed views), which is why this keeps multiple
+    # world-space-fixed lights covering different sides rather than a single camera-relative
+    # 3-point rig that would only look right from one angle.
+    key = bpy.data.lights.new("KeyLight", type='AREA')
+    key.energy = 8.4
+    key.size = 1.2
+    key_obj = bpy.data.objects.new("KeyLight", key)
+    bpy.context.collection.objects.link(key_obj)
+    key_obj.location = (1.3, -1.6, 2.0)
+    key_obj.rotation_euler = (math.radians(55), 0, math.radians(35))
+
+    fill = bpy.data.lights.new("FillLight", type='AREA')
+    fill.energy = 2.5
+    fill.size = 1.6
     fill_obj = bpy.data.objects.new("FillLight", fill)
     bpy.context.collection.objects.link(fill_obj)
+    fill_obj.location = (-1.6, -1.0, 1.4)
     fill_obj.rotation_euler = (math.radians(65), 0, math.radians(-120))
 
-    overhead = bpy.data.lights.new("OverheadLight", type='SUN')
-    overhead.energy = 3.0
+    overhead = bpy.data.lights.new("OverheadLight", type='AREA')
+    overhead.energy = 6.3
+    overhead.size = 1.8
     overhead_obj = bpy.data.objects.new("OverheadLight", overhead)
     bpy.context.collection.objects.link(overhead_obj)
+    overhead_obj.location = (0, 0, 3.2)
     overhead_obj.rotation_euler = (math.radians(80), 0, math.radians(0))
 
-    profile = bpy.data.lights.new("ProfileFillLight", type='SUN')
-    profile.energy = 1.5
+    profile = bpy.data.lights.new("ProfileFillLight", type='AREA')
+    profile.energy = 3.15
+    profile.size = 1.4
     profile_obj = bpy.data.objects.new("ProfileFillLight", profile)
     bpy.context.collection.objects.link(profile_obj)
+    profile_obj.location = (1.8, 0, 1.2)
     profile_obj.rotation_euler = (math.radians(25), 0, math.radians(90))
 
+    # New: a genuine physical backlight -- previously the rim-light effect only existed as the
+    # AGSL shader's synthetic edge-gradient hack (QuarkAvatarShader.kt). This gives the shader's
+    # rim something real to build on instead of faking the whole effect from nothing.
+    back = bpy.data.lights.new("BackLight", type='AREA')
+    back.energy = 5.25
+    back.size = 1.5
+    back_obj = bpy.data.objects.new("BackLight", back)
+    bpy.context.collection.objects.link(back_obj)
+    back_obj.location = (0, 1.8, 1.8)
+    back_obj.rotation_euler = (math.radians(-60), 0, math.radians(180))
+
+    # Tier 2 lens: was 24mm (turnaround) -- a wide-angle focal length that distorts a full-figure
+    # portrait subject (perspective stretching toward frame edges/near the camera). Moved to 60mm,
+    # a standard portrait/product-shot focal length with negligible distortion, with distance
+    # scaled by the same ratio (60/24) to preserve the existing framing/subject size in-frame
+    # (pinhole-camera approximation: image size is proportional to focal_length/distance for a
+    # fixed sensor width, so distance must scale with focal length to hold framing constant).
     cam_data = bpy.data.cameras.new("TurnCam")
-    cam_data.lens = 24
+    cam_data.lens = 60
     cam_obj = bpy.data.objects.new("TurnCam", cam_data)
     bpy.context.collection.objects.link(cam_obj)
     scene.camera = cam_obj
@@ -666,7 +1271,7 @@ def direction_to_euler(direction):
 def render_turnaround(cam_obj, out_dir, views=None, prefix="blockout"):
     target_z = 0.84
     cam_z = target_z + 0.15
-    dist = 2.0
+    dist = 5.0  # was 2.0 @ 24mm lens; scaled by the 60/24 lens-change ratio to hold framing
     if views is None:
         views = {
             "front": 0,
@@ -700,15 +1305,23 @@ def main():
     bpy.context.view_layer.objects.active = human
     bpy.ops.object.shade_smooth()
 
+    # Real MakeHuman assets first: `set_character_skin` writes into the body's material slots, so
+    # it has to happen BEFORE assign_materials(), which reuses that skin for the face rather than
+    # overwriting it with a procedural tone. Supersedes the old hand-built add_eyes()/add_hair().
+    add_makehuman_assets(human)
     emissive_mat = assign_materials(human, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0)
-    eyes = add_eyes(human)
-    hair = add_hair(human)
 
     uv_unwrap_if_needed(human)
     texture_dir = os.path.join(repo_root, "art", "quark-avatar", "textures")
     bake_textures(human, texture_dir)
 
     arm_obj = add_rig_and_weights(human)
+
+    # Armor + accent are built AFTER rigging on purpose: the shell duplicates the already-weighted
+    # body mesh, so it inherits MPFB's vertex groups and deforms with the rig without a second
+    # weighting pass. See build_armor_shell()'s docstring.
+    build_armor_shell(human, arm_obj)
+    add_accent_geometry(human, arm_obj, glow_color=(0.902, 0.945, 1.0), glow_strength=7.0)
 
     cam_obj = setup_render()
 

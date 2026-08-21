@@ -57,15 +57,29 @@ def rotate_bone_world(arm_obj, bone_name, axis, angle_deg):
     bpy.context.view_layer.update()
 
 
+ARM_TUCK_DEG = 20.0     # how far to bring the upper arms in from the MPFB rest A-pose
+
+
 def set_pose_relaxed_idle():
-    """A no-op on this rig: the MPFB mesh's REST pose is already a relaxed A-pose (arms angled
-    down at the sides), unlike the old blockout's T-pose rest -- confirmed by rendering the
-    unposed mesh and looking, not assumed. The old version of this function rotated
-    `upperarm_*`/`forearm_*` 90 degrees to bring a T-pose down to the sides; applying that same
-    rotation here would over-rotate past a pose that already reads correctly. Kept as an explicit
-    (empty) function rather than deleted so call sites/log entries documenting "relaxed idle" stay
-    meaningful, and so a future rig swap has an obvious place to add rotation back if needed."""
-    pass
+    """Bring the arms IN toward the body from MPFB's rest A-pose.
+
+    Previously a no-op, on the reasoning that the rest pose was already "a relaxed A-pose". Checked
+    against the reference sheet's own POSTURE & EMOTION STATES row (cropped and enlarged --
+    `renders/ref_poseA.png`): every standing state there (Neutral/Focused/Happy/Warm/Alert/Speaking/
+    Stealth) has the arms hanging close to the body in a narrow silhouette, noticeably tighter than
+    MPFB's rest A-pose, which splays them ~45 degrees out. The hi-res prototype art agrees. So the
+    rest pose is NOT the reference pose, and leaving this as a no-op was reading the sheet too
+    loosely.
+
+    Rotating around world Y with the sign flipped per side mirrors correctly (see
+    `set_pose_thinking` for the mirror-math note); a negative angle lowers/tucks where the positive
+    angle used for Thinking raises."""
+    arm_obj = bpy.data.objects.get("QUARK_Rig")
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode='POSE')
+    for side, label in ((1, "L"), (-1, "R")):
+        rotate_bone_world(arm_obj, f"upperarm01.{label}", 'Y', ARM_TUCK_DEG * side)
+    bpy.ops.object.mode_set(mode='OBJECT')
 
 
 def set_pose_thinking():
@@ -87,9 +101,104 @@ def set_pose_thinking():
     # rotation is. The previous `-100 * side` was the actual cause of the asymmetric "one arm to
     # the chin, the other out to the hip" pose flagged (not fixed) in PRODUCTION_LOG's Phase 4c
     # entry -- confirmed by this sign analysis, not just re-tuned by eye.
-    for side, label in ((1, "L"), (-1, "R")):
-        rotate_bone_world(arm_obj, f"upperarm01.{label}", 'Y', 70 * side)
-        rotate_bone_world(arm_obj, f"lowerarm01.{label}", 'X', -100)
+    # NOTE: superseded by `set_pose_thinking_ik()` -- kept only for reference. Hand-guessed
+    # world-axis rotations could not actually land the hand on the chin (the arm swung out to the
+    # side instead), which is the whole reason the IK version below exists.
+    #
+    # Director's direction: a single hand to the chin, Rodin's "The Thinker", rather than the
+    # symmetric two-handed gesture this used to produce.
+    #
+    # Recorded discrepancy, not silently resolved: the reference sheet's own THINKING (Processing)
+    # thumbnail actually shows STEEPLED HANDS TOGETHER at chest height, not a hand on the chin
+    # (see `renders/ref_poseB.png`, the enlarged crop). The Director asked for the Thinker pose
+    # explicitly, so that is what is built here; the sheet's version is a one-line change back
+    # (mirror this to both sides and drop the tuck) if that reading is preferred later.
+    #
+    # Mirror-math note retained from the earlier fix: reflecting a world-space rotation across the
+    # YZ plane flips the sign of Y/Z-axis rotations but PRESERVES X-axis rotations
+    # (M*Rx(t)*M^-1 = Rx(t)), which is why only the upperarm's Y angle is scaled by `side`.
+    THINK_SIDE, THINK_LABEL = -1, "R"          # right hand goes to the chin
+    rotate_bone_world(arm_obj, f"upperarm01.{THINK_LABEL}", 'Y', 62 * THINK_SIDE)
+    rotate_bone_world(arm_obj, f"lowerarm01.{THINK_LABEL}", 'X', -104)
+    # ...and the supporting arm tucks in across the body rather than hanging in the rest A-pose,
+    # which is what the standing-Thinker silhouette reads as.
+    rotate_bone_world(arm_obj, "upperarm01.L", 'Y', ARM_TUCK_DEG)
+    rotate_bone_world(arm_obj, "lowerarm01.L", 'X', -32)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+
+
+def _ik_reach(arm_obj, tip_bone, target_co, chain_count=4, pole_co=None, pole_angle=0.0):
+    """Pose an arm chain by INVERSE KINEMATICS to put `tip_bone`'s tail at `target_co`, then bake
+    the result into plain bone rotations and remove the rig it needed.
+
+    Hand-authored world-axis rotations were tried first for the Thinker pose and could not land the
+    hand on the chin -- the arm swung out to the side instead, because a single world-axis rotation
+    per bone cannot express "reach that point" on a chain whose rest orientation is already tilted
+    in three axes. IK solves the reach directly, which is what it is for. The constraint and its
+    target empty are deleted after `visual_transform_apply()` bakes the solved pose, so the saved
+    posture is ordinary bone rotation data with no leftover dependencies."""
+    tgt = bpy.data.objects.new("IK_TGT", None)
+    bpy.context.collection.objects.link(tgt)
+    tgt.location = target_co
+    pole = None
+    if pole_co is not None:
+        pole = bpy.data.objects.new("IK_POLE", None)
+        bpy.context.collection.objects.link(pole)
+        pole.location = pole_co
+
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode='POSE')
+    pb = arm_obj.pose.bones[tip_bone]
+    con = pb.constraints.new('IK')
+    con.target = tgt
+    con.chain_count = chain_count
+    if pole is not None:
+        con.pole_target = pole
+        con.pole_angle = math.radians(pole_angle)
+    bpy.context.view_layer.update()
+
+    bpy.ops.pose.select_all(action='SELECT')
+    bpy.ops.pose.visual_transform_apply()
+    pb.constraints.remove(con)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    bpy.data.objects.remove(tgt, do_unlink=True)
+    if pole is not None:
+        bpy.data.objects.remove(pole, do_unlink=True)
+
+
+def set_pose_thinking_ik():
+    """Rodin's "The Thinker": the right hand comes up to the chin, the left arm tucks across the
+    body. Director-specified.
+
+    Discrepancy recorded rather than silently resolved: the reference sheet's own THINKING
+    (Processing) thumbnail shows STEEPLED HANDS TOGETHER at chest height, not a hand on the chin
+    (see `renders/ref_poseB.png`). The Director asked for the Thinker reading explicitly, so that is
+    what is built; the sheet's version is a small change away if preferred.
+
+    The chin target is MEASURED off the evaluated head mesh (front-most low point of the head
+    region, ~(0, -0.13, 1.39)) rather than guessed, and offset slightly to the reaching side and
+    forward so the knuckles sit under the jaw instead of intersecting it."""
+    arm_obj = bpy.data.objects.get("QUARK_Rig")
+    # Right hand up under the chin. Target/pole/wrist values are the "D" variant of a rendered
+    # A/B/C/D sweep -- each was rendered and looked at, not reasoned about. The earlier attempts are
+    # worth recording because each failed for a specific reason:
+    #   A/B  wrist reached chin HEIGHT but the hand sat beside the neck, palm to camera -- reads as
+    #        a wave, because IK positions the wrist and says nothing about hand ORIENTATION.
+    #   C    wrist rotated (Z-55, X-25); fingers turned up toward the face but still short of it.
+    #   D    wrist rotated (Z-80, Y+30) with the target pulled in and down -- knuckles land under
+    #        the jaw. This is the shipped pose.
+    _ik_reach(arm_obj, "lowerarm02.R", (-0.030, -0.150, 1.290), chain_count=4,
+              pole_co=(-0.40, -0.40, 0.90))
+    bpy.context.view_layer.objects.active = arm_obj
+    bpy.ops.object.mode_set(mode='POSE')
+    # IK solves the REACH; it cannot express how the hand is turned. Without these two the hand
+    # arrives palm-out and the pose reads as "talk to the hand" rather than contemplation.
+    rotate_bone_world(arm_obj, "wrist.R", 'Z', -80)
+    rotate_bone_world(arm_obj, "wrist.R", 'Y', 30)
+    # supporting arm tucked in across the body
+    rotate_bone_world(arm_obj, "upperarm01.L", 'Y', ARM_TUCK_DEG)
+    rotate_bone_world(arm_obj, "lowerarm01.L", 'X', -38)
     bpy.ops.object.mode_set(mode='OBJECT')
 
 
@@ -138,7 +247,7 @@ def direction_to_euler(direction):
 def render_presentation_shot(out_path, target_z=0.9):
     scene = bpy.context.scene
     cam = scene.camera
-    dist = 2.4
+    dist = 6.0  # was 2.4 @ effectively-24mm; scaled by the 60/24 lens-change ratio to hold framing
     deg = 30  # 3/4-ish angle, matches how the reference examples read (mostly front, slight turn)
     rad = math.radians(deg)
     cam_z = target_z + 0.25
@@ -157,12 +266,20 @@ def main():
     scene = bpy.context.scene
     if scene.camera is None:
         cam_data = bpy.data.cameras.new("PostureCam")
-        cam_data.lens = 35
+        cam_data.lens = 60
         cam_obj = bpy.data.objects.new("PostureCam", cam_data)
         bpy.context.collection.objects.link(cam_obj)
         scene.camera = cam_obj
-    scene.render.resolution_x = 1000
-    scene.render.resolution_y = 1400
+    else:
+        # This script loads the already-saved quark_base.blend, which always has TurnCam as
+        # scene.camera by the time this runs -- so the `is None` branch above was dead code and
+        # this render was silently inheriting TurnCam's lens (24mm pre-Tier-2) rather than the
+        # 35mm this file's own comment claimed. Set explicitly so the intended focal length is
+        # actually what's used, regardless of which camera object is active.
+        scene.camera.data.lens = 60
+    # Tier 2 resolution: scaled by the same ~1.5x as setup_render()'s turnaround resolution.
+    scene.render.resolution_x = 1500
+    scene.render.resolution_y = 2100
 
     GREEN = (0.0, 1.0, 0.0)       # CLAUDE.md default active hue — stands in for "live PhosphorHueRuntime"
     RED = (1.0, 0.11, 0.02)       # CLAUDE.md --warn, hardcoded exception regardless of active hue
@@ -184,7 +301,7 @@ def main():
     # Thinking: the one posture with a real body-language difference
     set_emissive_color(GREEN)
     clear_pose()
-    set_pose_thinking()
+    set_pose_thinking_ik()
     render_presentation_shot(os.path.join(out_dir, "thinking_green.png"))
     print("Saved thinking_green")
 
