@@ -4,9 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -63,6 +66,8 @@ import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import com.quantumos.core.QuarkReflexPosture
+import com.quantumos.shell.ai.VoiceModelProvisioner
+import com.quantumos.quarkavatar.ui.QuarkProjection
 import com.quantumos.core.ScriptedResponse
 import com.quantumos.core.SoundCue
 import com.quantumos.quarkbrain.BrainReadyState
@@ -100,9 +105,22 @@ class QuarkAssistantActivity : ComponentActivity() {
     // Stealth dim target for THIS window — same value the launcher uses (keep them in step).
     private val stealthBrightness = 0.04f
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+
+        super.onWindowFocusChanged(hasFocus)
+
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+
+        // the system bars showing. Re-hide whenever this window is the one in front.
+
+        if (hasFocus) hideSystemBars()
+
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
 
         val engine = QuantumRuntime.engine
         val parser = QuantumRuntime.parser
@@ -157,17 +175,20 @@ class QuarkAssistantActivity : ComponentActivity() {
             // that forces free-text back onto the Scripted-Line Library. rememberSaveable so the panel
             // survives orientation changes; does NOT survive process death (intentional, matches every
             // prior debug-scaffolding toggle in this repo).
-            var diagnosticsOpen by rememberSaveable { mutableStateOf(false) }
-            var titleTaps by remember { mutableIntStateOf(0) }
+            // W3 (Phase 22): QUARK's own settings panel. This used to be `diagnosticsOpen`, reached
+            // by TRIPLE-TAPPING the title and described in this file as "visible only if you know to
+            // look". That was right for engineering scaffolding and wrong for the only route the
+            // Operator has to her voice and her weights, so it is a visible control now.
+            var quarkConfigOpen by rememberSaveable { mutableStateOf(false) }
+            // Lets the acquisition panel be reopened AFTER the brain has loaded. Before this it was
+            // shown only while `!brainLoaded`, so once she was online there was no way back to it --
+            // no re-import, no way to see what was on the device.
+            var forceAcquisition by rememberSaveable { mutableStateOf(false) }
+            // HOLSTER (Director, Fold 6 pass): stow the conversation, the rail and the panels so
+            // QUARK is unobstructed. She fills the surface now, and there was no way to actually
+            // LOOK at her -- the content sat over her from the chest down at all times.
+            var holstered by rememberSaveable { mutableStateOf(false) }
             val killSwitchActive by QuantumRuntime.killSwitchActive.collectAsState()
-
-            // Auto-reset tap counter if the sequence stalls (2 s window).
-            LaunchedEffect(titleTaps) {
-                if (titleTaps in 1..2) {
-                    delay(2_000)
-                    titleTaps = 0
-                }
-            }
 
             // Brain state — always subscribed (collectAsState can't be called conditionally).
             // onDeviceBrain() resolves the ONE shared QuarkBrainProvider instance; the model itself
@@ -189,6 +210,9 @@ class QuarkAssistantActivity : ComponentActivity() {
             // picking the sherpa Kokoro model tarball extracts it and flips H2 live.
             val voiceId by QuantumRuntime.voiceIdentity.collectAsState()
             val voiceModelStatus by QuantumRuntime.voiceModelStatus.collectAsState()
+            // The live backend readout (engine identity + why it is down). See
+            // QuantumRuntime.voiceDiagnostic for why MODEL below is not sufficient on its own.
+            val voiceDiagnostic by QuantumRuntime.voiceDiagnostic.collectAsState()
             val ctx = LocalContext.current
             val voiceModelLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.OpenDocument()
@@ -213,6 +237,16 @@ class QuarkAssistantActivity : ComponentActivity() {
             // the diagnostics panel as an engineering control.
             val voiceOn by QuantumRuntime.voiceEnabled.collectAsState()
 
+            // Fold 6 pass: "voice model for QUARK did not work (placeholder worked)". The sherpa
+            // native libraries ARE in the APK for arm64, so the overwhelmingly likely cause is that
+            // the Kokoro model was never imported -- it is deliberately not bundled, and until the
+            // QUARK panel existed its import control was behind a triple-tap nobody would find.
+            //
+            // Selecting QUARK-H2 with no model silently falls back to the placeholder, which is
+            // exactly what "it didn't work" looks like from outside. So the panel now REPORTS it:
+            // recomputed whenever an import changes `voiceModelStatus`.
+            val voiceModel = remember(voiceModelStatus) { VoiceModelProvisioner.status(ctx) }
+
             val close: () -> Unit = {
                 QuantumRuntime.stopCurrentSpeech()   // stop any in-flight TTS before leaving
                 parser.speakStowed()
@@ -231,6 +265,42 @@ class QuarkAssistantActivity : ComponentActivity() {
                         PleaseStandbyCard(subline = "ROUTING TO QUARK…", color = color, dimColor = dimColor, font = font)
                     }
                 } else {
+                    // W2 (Phase 22) — QUARK herself, filling the surface, with the conversation and
+                    // the command rail drawn OVER her lower frame.
+                    //
+                    // This replaces a 132dp ring-and-iris mark that had stood in for her since M5.
+                    // The avatar track spent Phases 15-21 building this presentation and it was
+                    // reachable only through a dev row in CONFIG; the floating trigger opens THIS
+                    // screen, so putting her here is what makes the trigger summon QUARK rather than
+                    // summon a menu with a logo on it.
+                    //
+                    // It takes no state: posture, speaking and stealth come from the same engine
+                    // this screen already reads (B4), so the two cannot disagree.
+                    QuarkProjection(modifier = Modifier.fillMaxSize())
+
+                    // A scrim, because QUARK is bright and the conversation has to stay readable
+                    // over her. Measured on the first build: the acquisition panel's body text sat
+                    // directly on her lit chest plate and was barely legible.
+                    //
+                    // A vertical CRT-ground gradient rather than a panel: it is the same falloff
+                    // language the housing and the App Shell already use, so it reads as the screen
+                    // fading rather than as a drawn box over her -- which the house style forbids.
+                    // Transparent across her face, opaque by the time it reaches the text.
+                    // The scrim exists ONLY to keep the conversation legible over her. Holstered,
+                    // there is nothing to keep legible and it would just be dimming her for no
+                    // reason, so it goes too.
+                    if (!holstered) Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    0.00f to Color.Transparent,
+                                    SCRIM_START to Color.Transparent,
+                                    SCRIM_FULL to Phosphor.Crt.copy(alpha = SCRIM_ALPHA),
+                                    1.00f to Phosphor.Crt.copy(alpha = SCRIM_ALPHA),
+                                )
+                            )
+                    )
                     Column(
                         Modifier
                             .fillMaxSize()
@@ -244,75 +314,30 @@ class QuarkAssistantActivity : ComponentActivity() {
                                 color = dimColor, fontFamily = font, fontSize = 12.sp,
                                 modifier = Modifier.clickable { close() }.padding(4.dp)
                             )
+                            Spacer(Modifier.width(10.dp))
+                            // Terse and mechanical, per the house voice. DEPLOY is the way back, so
+                            // the control never strands the Operator with a QUARK they cannot talk
+                            // to -- it is the same reasoning as the transient system bars.
+                            Text(
+                                if (holstered) "[ DEPLOY ]" else "[ HOLSTER ]",
+                                color = dimColor, fontFamily = font, fontSize = 12.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        holstered = !holstered
+                                        QuantumRuntime.playCue(SoundCue.UI_CLUNK)
+                                    }
+                                    .padding(4.dp)
+                            )
                             Spacer(Modifier.weight(1f))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    "QUARK",
+                                    if (quarkConfigOpen) "QUARK ▴" else "QUARK ▾",
                                     color = color, fontFamily = font, fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier
-                                        .clickable {
-                                            titleTaps++
-                                            if (titleTaps >= 3) { diagnosticsOpen = !diagnosticsOpen; titleTaps = 0 }
-                                        }
+                                        .clickable { quarkConfigOpen = !quarkConfigOpen }
                                         .padding(4.dp)
                                 )
-                                // Dim diagnostics — visible only if you know to look.
-                                if (diagnosticsOpen) {
-                                    Text(
-                                        "// BRAIN: ${if (brainLoaded) "ON-DEVICE" else "OFFLINE"}",
-                                        color = dimColor, fontFamily = font, fontSize = 9.sp
-                                    )
-                                    // The kill switch (brief §4) — the zero-risk rollback path. Forces
-                                    // free-text back onto the Scripted-Line Library even with a
-                                    // healthy, loaded brain.
-                                    Text(
-                                        "// FALLBACK: ${if (killSwitchActive) "SCRIPTED (KILL-SWITCH)" else "OFF"}",
-                                        color = if (killSwitchActive) Phosphor.Warn else dimColor,
-                                        fontFamily = font, fontSize = 9.sp,
-                                        modifier = Modifier
-                                            .clickable { QuantumRuntime.toggleKillSwitch() }
-                                            .padding(top = 2.dp)
-                                    )
-                                    // Voice sub-toggle: tap to enable/disable TTS.
-                                    Text(
-                                        "// VOICE: ${if (voiceOn) "ON" else "OFF"}",
-                                        color = dimColor, fontFamily = font, fontSize = 9.sp,
-                                        modifier = Modifier
-                                            .clickable { QuantumRuntime.toggleVoice() }
-                                            .padding(top = 2.dp)
-                                    )
-                                    // Voice identity. PLACEHOLDER = Android TTS; QUARK-H2 = her
-                                    // locked sherpa-onnx voice (needs its model imported once).
-                                    val isH2 = voiceId == QuantumRuntime.VoiceIdentity.QUARK_H2
-                                    Text(
-                                        "// VOICE-ID: ${if (isH2) "QUARK-H2" else "PLACEHOLDER"}",
-                                        color = dimColor, fontFamily = font, fontSize = 9.sp,
-                                        modifier = Modifier
-                                            .clickable {
-                                                QuantumRuntime.setVoiceIdentity(
-                                                    if (isH2) QuantumRuntime.VoiceIdentity.PLACEHOLDER
-                                                    else QuantumRuntime.VoiceIdentity.QUARK_H2
-                                                )
-                                            }
-                                            .padding(top = 2.dp)
-                                    )
-                                    // When H2 is selected, offer to import the sherpa Kokoro model
-                                    // tarball (once). Shows extract status.
-                                    if (isH2) {
-                                        Text(
-                                            "// [IMPORT VOICE MODEL] ${voiceModelStatus}",
-                                            color = dimColor, fontFamily = font, fontSize = 9.sp,
-                                            modifier = Modifier
-                                                .clickable {
-                                                    voiceModelLauncher.launch(
-                                                        arrayOf("application/x-bzip2", "application/octet-stream", "*/*")
-                                                    )
-                                                }
-                                                .padding(top = 2.dp)
-                                        )
-                                    }
-                                }
                             }
                             Spacer(Modifier.weight(1f))
                             Text(
@@ -322,19 +347,57 @@ class QuarkAssistantActivity : ComponentActivity() {
                             )
                         }
 
-                        Spacer(Modifier.height(8.dp))
-
-                        // ----- central reactive presence -----
-                        Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-                            QuarkPresence(posture = brain.activePosture, color = color, dimColor = dimColor)
+                        // The panel sits BELOW the header row, not inside its centre column. Nested
+                        // in the title's column it expanded inside the Row and sat across the STOW
+                        // control -- caught on device.
+                        if (quarkConfigOpen) {
+                            QuarkConfigPanel(
+                                brainLoaded = brainLoaded,
+                                killSwitchActive = killSwitchActive,
+                                voiceOn = voiceOn,
+                                isH2 = voiceId == QuantumRuntime.VoiceIdentity.QUARK_H2,
+                                voiceModelStatus = voiceModelStatus,
+                                voiceModelReady = voiceModel.modelReady,
+                                voiceModelMissing = voiceModel.missing,
+                                voiceDiagnostic = voiceDiagnostic,
+                                color = color, dimColor = dimColor, font = font,
+                                onToggleKillSwitch = { QuantumRuntime.toggleKillSwitch() },
+                                onToggleVoice = { QuantumRuntime.toggleVoice() },
+                                onToggleVoiceIdentity = {
+                                    val h2 = voiceId == QuantumRuntime.VoiceIdentity.QUARK_H2
+                                    QuantumRuntime.setVoiceIdentity(
+                                        if (h2) QuantumRuntime.VoiceIdentity.PLACEHOLDER
+                                        else QuantumRuntime.VoiceIdentity.QUARK_H2
+                                    )
+                                },
+                                onImportVoiceModel = {
+                                    voiceModelLauncher.launch(
+                                        arrayOf("application/x-bzip2", "application/octet-stream", "*/*")
+                                    )
+                                },
+                                onManageWeights = {
+                                    forceAcquisition = true
+                                    quarkConfigOpen = false
+                                },
+                            )
                         }
-                        Spacer(Modifier.height(4.dp))
+
+                        // Headroom, not a placeholder: QUARK is behind this Column now, and this is
+                        // what keeps her face clear of the conversation. Tuned on device.
+                        if (!holstered) Spacer(Modifier.height(PRESENCE_HEADROOM))
 
                         // ----- body: first-run acquisition panel, or normal content -----
                         // Shows automatically (brief §3) whenever the brain isn't loaded yet AND the
                         // Operator hasn't engaged the kill switch — a production first-run consent/
                         // progress step, not something gated behind finding the diagnostics panel.
-                        if (!killSwitchActive && !brainLoaded) {
+                        //
+                        // All of it holsters together. Stowing the log but leaving the rail would
+                        // just be a smaller obstruction; the point is to see her.
+                        if (holstered) {
+                            // Nothing. Deliberately not a placeholder or a hint: a holstered QUARK
+                            // is the whole screen, and the DEPLOY control in the header is the way
+                            // back.
+                        } else if (!killSwitchActive && (!brainLoaded || forceAcquisition)) {
                             ModelAcquisitionPanel(
                                 readyState = brainReadyState,
                                 color = color, dimColor = dimColor, font = font,
@@ -408,86 +471,6 @@ class QuarkAssistantActivity : ComponentActivity() {
 // Pull the system-bar insets as padding (edge-to-edge; we own inset handling, platform rule).
 @Composable
 private fun WindowInsetsPadding() = androidx.compose.foundation.layout.WindowInsets.systemBars.asPaddingValues()
-
-/*
- * QuarkPresence — the scaled-up central mark with the four locked reactive states. Static at rest
- * (Idle does zero idle redraw, house-style); the other three are short, discrete, STEPPED bursts
- * fired by the engine posture, consistent with the existing motion language — not a new ambient loop.
- *   Idle  — static, neutral, antenna still.
- *   Scan  — iris contracts, a scan-line sweeps, the sound-ring pulses.
- *   Happy — a hop/tilt + iris pulse.
- *   Warn  — turns --warn red and shakes, alert iris.
- */
-@Composable
-private fun QuarkPresence(posture: QuarkReflexPosture, color: Color, dimColor: Color) {
-    var offX by remember { mutableFloatStateOf(0f) }   // shake (dp)
-    var offY by remember { mutableFloatStateOf(0f) }   // hop (dp)
-    var scanY by remember { mutableFloatStateOf(-1f) } // 0..1 sweep position; <0 = no scan line
-    var iris by remember { mutableFloatStateOf(1f) }   // iris scale
-
-    LaunchedEffect(posture) {
-        offX = 0f; offY = 0f; scanY = -1f; iris = 1f
-        when (posture) {
-            QuarkReflexPosture.SCAN -> {
-                iris = 0.65f
-                while (true) {                         // sweep loops only WHILE scanning
-                    for (s in 0..6) { scanY = s / 6f; delay(55) }
-                    scanY = -1f
-                    delay(120)
-                }
-            }
-            QuarkReflexPosture.HAPPY -> {              // hop + iris pulse burst, then settle static
-                for (frame in listOf(-16f to 1.3f, -9f to 1.15f, 0f to 1f, -6f to 1.1f, 0f to 1f)) {
-                    offY = frame.first; iris = frame.second; delay(70)
-                }
-            }
-            QuarkReflexPosture.WARN -> {               // shake burst, then settle (stays red)
-                for (x in listOf(-12f, 12f, -9f, 9f, -5f, 5f, 0f)) { offX = x; delay(50) }
-            }
-            QuarkReflexPosture.IDLE -> { /* static at rest — no redraw */ }
-        }
-    }
-
-    val markColor = if (posture == QuarkReflexPosture.WARN) Phosphor.Warn else color
-    val ringColor = if (posture == QuarkReflexPosture.WARN) Phosphor.Warn else dimColor
-
-    Canvas(
-        Modifier
-            .size(132.dp)
-            .graphicsLayer { translationX = offX.dp.toPx(); translationY = offY.dp.toPx() }
-    ) {
-        val cx = size.width / 2f
-        val cy = size.height / 2f
-        val r = size.minDimension / 2f * 0.92f
-        val stroke = r * 0.10f
-
-        // CRT-ground iris disc → bright outer ring → dim inner ring → centre aperture.
-        drawCircle(color = Phosphor.Crt, radius = r)
-        drawCircle(color = markColor, radius = r, style = Stroke(width = stroke))
-        drawCircle(color = ringColor, radius = r * 0.62f, style = Stroke(width = stroke * 0.7f))
-        drawCircle(color = markColor, radius = r * 0.18f * iris)
-
-        // antenna stub (still at Idle) — a short top mast that reads as "field unit", not decoration.
-        drawLine(
-            color = ringColor,
-            start = Offset(cx, cy - r),
-            end = Offset(cx, cy - r - r * 0.22f),
-            strokeWidth = stroke * 0.8f
-        )
-
-        // Scan sweep line — only present mid-scan.
-        if (scanY in 0f..1f) {
-            val y = (cy - r) + 2f * r * scanY
-            val halfW = kotlin.math.sqrt((r * r) - ((y - cy) * (y - cy))).coerceAtLeast(0f)
-            drawLine(
-                color = markColor,
-                start = Offset(cx - halfW, y),
-                end = Offset(cx + halfW, y),
-                strokeWidth = stroke * 0.6f
-            )
-        }
-    }
-}
 
 // The scrolling conversation log — most-recent visible, console aesthetic (monospace, phosphor, no
 // Material bubbles). A `>` prefix marks the Operator's typed input; `·` marks a rail action. The
@@ -803,5 +786,143 @@ private fun FreeTextEntry(color: Color, dimColor: Color, font: FontFamily, onSub
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clickable { send() }.padding(start = 8.dp)
         )
+    }
+}
+
+// How much clear space the conversation leaves above itself so QUARK's face is not covered. She is
+// bottom-anchored and runs off the bottom of the frame, so the content sits over her chest and
+// shoulders rather than her head.
+private val PRESENCE_HEADROOM = 300.dp
+
+// The scrim behind the conversation. Starts below QUARK's face and reaches full strength before the
+// first line of text, so she is unobscured where it matters and the copy is legible where it sits.
+private const val SCRIM_START = 0.34f
+private const val SCRIM_FULL = 0.52f
+private const val SCRIM_ALPHA = 0.86f
+
+/*
+ * QUARK's settings panel (W3, Phase 22) — everything about HER, in one place the Operator can find.
+ *
+ * What this replaces: a list of dim `// TOKEN: VALUE` lines that only appeared after triple-tapping
+ * the title, described in this file as "visible only if you know to look". As engineering
+ * scaffolding that was fine. As the ONLY route to her voice model and the only place her brain's
+ * fallback can be switched, it was not — the Operator had no way to reach any of it.
+ *
+ * Grouped by what the Operator is actually thinking about — her mind, then her voice — rather than
+ * by which subsystem owns the flag. Microcopy stays terse and status-reporting per the house style.
+ */
+@Composable
+private fun QuarkConfigPanel(
+    brainLoaded: Boolean,
+    killSwitchActive: Boolean,
+    voiceOn: Boolean,
+    isH2: Boolean,
+    voiceModelStatus: String,
+    voiceModelReady: Boolean,
+    voiceModelMissing: List<String>,
+    voiceDiagnostic: String,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onToggleKillSwitch: () -> Unit,
+    onToggleVoice: () -> Unit,
+    onToggleVoiceIdentity: () -> Unit,
+    onImportVoiceModel: () -> Unit,
+    onManageWeights: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp)
+            .border(1.dp, dimColor)
+            .background(Phosphor.Crt.copy(alpha = 0.92f))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+    ) {
+        ConfigGroup("// MIND", dimColor, font)
+        ConfigRow("WEIGHTS", if (brainLoaded) "ON-DEVICE" else "NOT LOADED", color, dimColor, font)
+        ConfigRow("[ MANAGE WEIGHTS ]", "", color, dimColor, font, onClick = onManageWeights)
+        // The kill switch forces free text back onto the Scripted-Line Library even with a healthy
+        // brain. `--warn` red when engaged, because a degraded QUARK is a state the Operator must be
+        // able to see at a glance rather than discover by her answers getting worse.
+        ConfigRow(
+            "FALLBACK",
+            if (killSwitchActive) "SCRIPTED (KILL-SWITCH)" else "OFF",
+            if (killSwitchActive) Phosphor.Warn else color, dimColor, font,
+            onClick = onToggleKillSwitch,
+        )
+
+        Spacer(Modifier.height(8.dp))
+        ConfigGroup("// VOICE", dimColor, font)
+        ConfigRow("SPEECH", if (voiceOn) "ON" else "OFF", color, dimColor, font, onClick = onToggleVoice)
+        // The LIVE backend, as opposed to MODEL below (which reports files on disk and so reads
+        // READY even when the engine never loaded). `--warn` when down, because a QUARK who cannot
+        // speak is a degraded state the Operator must see rather than discover by her silence.
+        ConfigRow(
+            "ENGINE", voiceDiagnostic.substringBefore(" // "),
+            if (voiceDiagnostic.contains("DOWN")) Phosphor.Warn else color, dimColor, font,
+        )
+        if (voiceDiagnostic.contains(" // ")) {
+            Text(
+                voiceDiagnostic.substringAfter(" // "),
+                color = dimColor, fontFamily = font, fontSize = 10.sp,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+            )
+        }
+        ConfigRow(
+            "IDENTITY", if (isH2) "QUARK-H2" else "PLACEHOLDER",
+            color, dimColor, font, onClick = onToggleVoiceIdentity,
+        )
+        // Only offered for H2 — PLACEHOLDER is Android's own TTS and needs nothing imported.
+        if (isH2) {
+            // The row that would have answered the Fold 6 question on the spot. H2 with no model
+            // does not error -- it quietly speaks in the placeholder voice, so the only way to tell
+            // them apart from outside is to say so here.
+            ConfigRow(
+                "MODEL",
+                if (voiceModelReady) "READY" else "NOT IMPORTED",
+                if (voiceModelReady) color else Phosphor.Warn, dimColor, font,
+            )
+            if (!voiceModelReady && voiceModelMissing.isNotEmpty()) {
+                Text(
+                    "MISSING: " + voiceModelMissing.joinToString(" · "),
+                    color = dimColor, fontFamily = font, fontSize = 10.sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 2.dp),
+                )
+            }
+            ConfigRow(
+                "[ IMPORT VOICE MODEL ]",
+                voiceModelStatus.ifBlank { "" },
+                color, dimColor, font, onClick = onImportVoiceModel,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ConfigGroup(label: String, dimColor: Color, font: FontFamily) {
+    Text(label, color = dimColor, fontFamily = font, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(2.dp))
+}
+
+@Composable
+private fun ConfigRow(
+    label: String,
+    value: String,
+    color: Color,
+    dimColor: Color,
+    font: FontFamily,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(vertical = 3.dp)
+    ) {
+        Text(label, color = dimColor, fontFamily = font, fontSize = 11.sp)
+        if (value.isNotBlank()) {
+            Spacer(Modifier.weight(1f))
+            Text(value, color = color, fontFamily = font, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }

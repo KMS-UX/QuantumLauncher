@@ -54,6 +54,14 @@ tests pass).
 - Consume the back gesture inside the shell; manifest `android:enableOnBackInvokedCallback="true"`.
 - State data classes = all-`val` primitives/enums (Compose infers them stable).
 
+## Shipping for test (standing rule, set after the first Fold 6 pass)
+After any **major or significant implementation or fix**, build the debug APK and hand it over for
+the Director to sideload and test on the Fold 6 — unless they say otherwise. The emulator is not the
+judge: the first real-hardware pass surfaced three defects that had survived nine phases of emulator
+verification (system bars overlaying every screen, a voice model that was never imported and never
+said so, and a phosphor-sync report that still cannot be reproduced off-device). Assume a defect
+class exists that only hardware shows.
+
 ## Hard guardrails
 - **Do NOT add `<category android:name="android.intent.category.HOME">` until M1.** For now this is a
   normal tappable app, so it can't take over the Fold's home screen by accident.

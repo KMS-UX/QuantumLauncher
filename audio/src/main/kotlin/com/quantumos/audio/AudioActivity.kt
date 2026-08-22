@@ -3,7 +3,8 @@ package com.quantumos.audio
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,10 +43,23 @@ class AudioActivity : ComponentActivity() {
 
     private val viewModel: AudioViewModel by viewModels()
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+
+        super.onWindowFocusChanged(hasFocus)
+
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+
+        // the system bars showing. Re-hide whenever this window is the one in front.
+
+        if (hasFocus) hideSystemBars()
+
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             val context = LocalContext.current
             PhosphorHueRuntime.init(context)

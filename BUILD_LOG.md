@@ -11,6 +11,120 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
+**Current milestone:** Fold 6 defect round — two findings from the Core Apps Polish Pass sideload
+test. Finding 1 (QUARK's phosphor switch not reaching the docked modules) is **root-caused and
+fixed**. Finding 2 (QUARK's voice worked once, then stopped) is **not root-caused** — it could not
+be, from the code alone — so this round makes it self-report and fixes the one defect in that
+pipeline that is provable by inspection. **Local `gradle` now works on this machine** (see Build
+reality below — a real change from every prior session): `test` + `assembleDebug` both green,
+86 unit tests, 0 failures. Still compile-verified only; the Fold 6 pass is what closes this.
+
+> **Finding 1 — QUARK's hue switch (FIXED).** Director's test: cycling Phosphor from the Vitality
+> panel recolored everything; cycling it from QUARK recolored QUARK and the launcher but left the
+> eight docked modules on the old hue.
+>
+> **Root cause, confirmed by code read:** `QuarkParser.railCyclePhosphor()` (`core/QuantumState.kt:891`)
+> mutates the ENGINE directly and dead-ends there. `PhosphorHueRuntime` — the process-wide source of
+> truth the polish pass introduced, which the docked modules actually collect — was only ever written
+> by `QuantumRuntime.cyclePhosphorHue()`, i.e. the Vitality-panel path, by hand. That asymmetry is
+> exactly the reported symptom. Three more call sites had the same bypass: QUARK's spoken/typed hue
+> commands (`QuantumState.kt:986-989` "go amber/cyan/green", and `:1048`). As a side effect none of
+> them persisted either — a QUARK-set hue died on restart.
+>
+> **Why it was not fixed at the call sites:** `QuarkParser` lives in `:core`, which is deliberately
+> Android-free; `PhosphorHueRuntime.setHue()` needs a `Context` for the durable store. `:core` cannot
+> reach it and should not.
+>
+> **Fix:** the bridge in `QuantumRuntime` is now genuinely bidirectional — a second collector observes
+> `engine.masterState.map { activeHue }.distinctUntilChanged()` and mirrors OUT to `PhosphorHueRuntime`.
+> Observing the engine instead of patching call sites closes all four bypasses at once, plus any
+> future one, and gets QUARK-set hues persisted for free. No loop: `setHue()` early-returns when
+> unchanged and the inbound collector guards on the engine's current value, so each direction stops
+> the moment the two agree. `cyclePhosphorHue()`'s existing explicit mirror is left in place —
+> redundant with the observer but idempotent, and the Vitality path is the one already hardware-
+> confirmed, so it is deliberately untouched.
+>
+> **Finding 2 — QUARK's voice (INSTRUMENTED + one real fix; NOT yet root-caused).** Director's test:
+> after importing the voice package, exactly one line came out in the real Kokoro voice; nothing
+> correct after that.
+>
+> **The honest finding, and the reason this round does not claim a fix:** that pipeline had TWO silent
+> failure paths and neither left any evidence — `speak()`'s `if (!isReady) { onDone(); return }` mute
+> bail, and a blanket `catch (_: Throwable) {}` around synthesis. The LOG line printed timings only, on
+> the paths that reached `onDone`, and never named the backend. So a silent H2, a missing engine, and a
+> healthy fall-back to Android TTS were **indistinguishable** — in the LOG, on screen, and by ear. The
+> debug panel's `MODEL: READY` row made it worse: it reports FILES ON DISK, not the running engine, so
+> it reads READY in every one of those cases. There are at least four candidate causes and the build
+> could not tell them apart. Per the standing "verify with a decisive test, don't blind-fix" rule, the
+> instrument comes first.
+>
+> **What is now reported** (`VoiceEngine` gains `engineLabel` + `lastFault`; both engines implement them):
+> * `VOICE: QUARK-H2 · TTS_START 412ms · PLAYBACK 1830ms` — healthy, and names the backend.
+> * `VOICE: QUARK-H2 SILENT // <reason>` — `onStart` never fired, so not one sample reached the
+>   speaker. The reason is the engine's own: `SYNTH FAILED // <exception>`, `SYNTH RETURNED 0 SAMPLES`,
+>   `PLAYBACK FAILED // <exception>`.
+> * `VOICE: QUARK-H2 UNAVAILABLE // ENGINE INIT FAILED // UnsatisfiedLinkError: …` — the sherpa JNI
+>   libs are not in the APK. Or `MODEL INCOMPLETE // <files>` / `VOICES PATCH FAILED`.
+> * `VOICE: PLACEHOLDER · …` — Android TTS is speaking, i.e. `buildVoiceEngine()` fell back. On its own
+>   that line is the answer.
+> * `VOICE: NO ENGINE // LINE DROPPED` — no engine object at all.
+>
+> Plus a live **ENGINE** row in QUARK's config panel (`QUARK-H2 · READY` / `· LOADING` / `· DOWN` with
+> the reason beneath, `--warn` red when down), sourced from the running engine's `readyState` — not
+> from disk like the `MODEL` row above it. Answers "which voice is this" without scrolling the LOG.
+>
+> **The one defect fixed outright** (provable by inspection, no device needed): `SherpaKokoroVoiceEngine`
+> had a **use-after-release race on its AudioTrack**. `stop()` ran `pause(); flush(); release()` from
+> the MAIN thread — `QuantumRuntime.stopCurrentSpeech()` calls it on every QUARK close/STOW — while the
+> WORKER thread could still be inside `playBlocking`'s write loop or its `playbackHeadPosition` poll,
+> which then calls `stop()`/`release()` on the same track again. A double free plus a use-after-release,
+> and every resulting exception was swallowed by the blanket catch. Fixed by ownership: the main thread
+> now only signals (`currentId`) and pauses+flushes (which is all stopping needs to achieve — audio goes
+> quiet immediately); creation, use and destruction all stay on the worker thread, with teardown moved
+> into a `finally` so a throw can never leak a track either. One owner, no race. **Whether this is THE
+> cause of the Fold 6 symptom is exactly what the next test answers** — it is a real bug on the stow
+> path, and stow-then-speak-again matches the report, but that is a hypothesis, not a confirmation.
+>
+> **Build reality — changed, and worth keeping:** local Gradle works on the Director's Windows machine
+> with **`JAVA_HOME=C:\Program Files\AdoptOpenJDK\jdk-17.0.0.20-hotspot`**. The trap that made every
+> prior session give up: Android Studio's bundled JBR is **Java 25**, which Gradle 8.9 cannot run on —
+> it fails with a bare, locale-garbled `What went wrong: 25.0.2` that reads like nothing at all. Use
+> the JDK 17 above, not the JBR. Deliberately NOT pinned in `gradle.properties` (it is machine-specific
+> and CI sets its own). Run:
+> `JAVA_HOME="/c/Program Files/AdoptOpenJDK/jdk-17.0.0.20-hotspot" ./gradlew --offline test assembleDebug`
+>
+> **Verification status:** `test` + `assembleDebug` green locally; 86 unit tests, 0 failures; the two
+> compiler warnings are pre-existing (`LocalLifecycleOwner` deprecation ×2, a Kotlin `Object` hint).
+> No new test covers the hue bridge — it is Android-side wiring in `:app` (StateFlow collectors over a
+> live engine), not `:core` logic, so a unit test would only assert the mock, not the fix. Flagged
+> rather than faked.
+>
+> **Director actions required (Fold 6):**
+> 1. **Hue — the actual fix under test.** From QUARK's rail, cycle PHOSPHOR. Without force-closing,
+>    open each docked module and confirm it is on the NEW hue. Then try QUARK by voice/text — "go
+>    amber" — same check (that path was broken too and is fixed by the same observer). Then restart
+>    the app and confirm the QUARK-set hue SURVIVED, which it previously did not.
+> 2. **Hue — regression check on the path that already worked.** Cycle from the Vitality panel and
+>    from RADIO's Vitality console; confirm both still propagate everywhere. Watch for any flicker or
+>    double-step, which would be the two observers fighting (they should not — both are guarded).
+> 3. **Voice — read the LOG, this is the whole point of the round.** Trigger several QUARK lines,
+>    then open the LOG channel and read the `VOICE:` lines. **Report them verbatim** — they name the
+>    cause directly and are the input to the next session.
+> 4. **Voice — reproduce the exact reported sequence.** Open QUARK, let one line speak, STOW
+>    mid-sentence, reopen, trigger another line. That is the AudioTrack race path; if the second line
+>    now speaks correctly, the fix landed. If it does not, the LOG line says why instead of going
+>    quiet.
+> 5. **Voice — check the new ENGINE row** in QUARK's config panel and report what it says. If it reads
+>    `PLACEHOLDER` at any point, that alone is the answer and no further digging is needed.
+>
+> **Deliberately NOT done this round:** the polish pass's five outstanding Fold 6 items (icon legibility
+> at 12–20dp, idle-redraw profiling, SIGNAL decode against a loaded brain) are unchanged and still
+> outstanding — they ride along in this APK to look at, but no code was written for them, so a
+> regression here is attributable to this diff alone.
+
+---
+
+## ▶ Prior milestone (Core Apps Polish Pass — full detail below)
 **Current milestone:** Core Apps Polish Pass Task Brief v1.0 (`docs/QuantumOS-Core-Apps-Polish-Pass-
 Task-Brief-v1_0.md`) — three deferred-but-decided gaps closed across the eight core instruments:
 house line-icons (decision 60), phosphor-hue live sync, and SIGNAL's decoder wired to the now-
@@ -1457,3 +1571,40 @@ HOME category was confirmed NOT declared before M1 work began (manifest verified
   debug APK, and the signed release APK all built. **Pending Director confirmation on the Fold 6** (icon
   legibility at deployed size, live cross-module hue sync, a real SIGNAL decode) before this pass is
   closed.
+
+---
+
+## 2026-08-22 — QUARK into the OS, and the first Fold 6 pass
+
+**Done.** QUARK now lives in the OS: the floating trigger opens the Assistant View and that view IS
+her, full-screen, reading and driving the real `QuantumStateEngine`. Since the last entry: the DA3
+relief and SceneView/Filament removed (APK 231.9 → 195.1 MB), four body state plates generated,
+B1 materialise, B2 sound (SoundEngine moved `:app` → `:app-shell` so docked modules can reach it),
+B3 SPEAKING/STEALTH redone as projection artefacts, B4 real-state wiring via a new
+`QuantumStateRuntime` seam in `:app-shell`, the QUARK settings panel, the new trigger icon, and the
+C1 measurement harness. Full detail in `art/quark-avatar/PRODUCTION_LOG.md` (Phases 14–24; the log
+was condensed this session from 3,757 to ~1,070 lines).
+
+**First real-hardware pass happened** — the Director sideloaded to the Fold 6. It found three things
+nine phases of emulator work had missed:
+
+- **Nothing was ever full screen.** All eleven activities called `enableEdgeToEdge()` and nothing
+  ever *hid* the system bars, so Android's clock/battery sat on every surface. Fixed with one
+  `engageFieldUnitDisplay()` helper in `:app-shell` + an `onWindowFocusChanged` re-hide. Verified.
+- **QUARK's voice fell back silently.** The Kokoro model is not bundled and was never imported;
+  selecting QUARK-H2 without it does not error. The QUARK panel now reports `MODEL: NOT IMPORTED`
+  in `--warn` red with the exact missing files.
+- **`[ HOLSTER ]` added** so the conversation, rail and scrim can be stowed and QUARK actually seen.
+
+**Known issue, unresolved.** Cross-module phosphor sync was reported as failing on the Fold 6 (only
+the launcher and QUARK followed). **It does not reproduce** — ruled out by inspection and by testing
+all three paths on the emulator, including cold launch after process death. This is the same item
+this log already listed as "pending Director confirmation on the Fold 6". Needs a repro: which
+surface the hue was changed FROM, which module showed wrong, and whether that module was already
+open. Not guessing at a fix for a working path.
+
+**Standing rule added to CLAUDE.md:** ship the debug APK for a Fold 6 sideload pass after any major
+or significant change, without waiting to be asked.
+
+**Resume here:** `art/quark-avatar/PRODUCTION_LOG.md` → "▶ RESUME HERE — next session". Nothing
+committed; the Director commits personally.

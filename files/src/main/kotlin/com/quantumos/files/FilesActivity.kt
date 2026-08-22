@@ -3,7 +3,8 @@ package com.quantumos.files
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.appshell.Phosphor
 import com.quantumos.files.ui.components.AppShell
@@ -19,10 +20,17 @@ import com.quantumos.files.viewmodel.FileExplorerViewModel
  * explicit and tappable. Mirrors OpticsActivity's structure.
  */
 class FilesActivity : ComponentActivity() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+        // the system bars showing. Re-hide whenever this window is the one in front.
+        if (hasFocus) hideSystemBars()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             val viewModel: FileExplorerViewModel = viewModel()
 

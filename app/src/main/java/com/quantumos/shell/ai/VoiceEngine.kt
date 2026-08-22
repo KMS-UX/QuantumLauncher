@@ -24,6 +24,36 @@ interface VoiceEngine {
     val isReady: Boolean
 
     /**
+     * Short, LOG-channel-safe name of the backend actually speaking ("QUARK-H2" / "PLACEHOLDER").
+     *
+     * The Fold 6 pass that found this necessary: H2 with a missing/broken model does not error — it
+     * silently speaks in the placeholder voice, or does not speak at all, and NOTHING on screen or
+     * in the LOG says which. The debug panel's `MODEL: READY` row reports files on disk, not the
+     * live engine, so it reads READY in both cases. Every voice line the runtime logs now carries
+     * this, so "which voice was that" is answerable from the LOG instead of by ear.
+     */
+    val engineLabel: String
+
+    /**
+     * The last silent failure, in-character and short, or "" when the engine is healthy.
+     *
+     * Both of this pipeline's failure paths were mute by construction — a `!isReady` bail that
+     * returns without a sound, and a blanket `catch (_: Throwable)` around synthesis — so a voice
+     * that stopped working left no evidence anywhere, on-device or off. Engines now record why they
+     * went quiet here and the runtime prints it to the LOG channel. Diagnostics only; nothing in the
+     * UI branches on it, and it never turns a silent degrade into a crash.
+     */
+    val lastFault: String
+
+    /**
+     * Optional level readout for the last utterance (e.g. "GAIN 4.2x"), or "" when the engine does
+     * no levelling of its own. Engines that render below full scale must lift themselves to a normal
+     * speaking level; this reports how far they had to, so "still too quiet" is answerable with a
+     * number rather than by ear. Android's TTS does its own levelling, so it has nothing to report.
+     */
+    val lastLevelInfo: String get() = ""
+
+    /**
      * Warm the engine so the first real utterance is fast. Neural engines (Kokoro) pay a one-time
      * cold cost — running a throwaway inference at boot / first Scan hides that cost inside the
      * reactive beat (Phase 2a's cold-start trick, carried into 2b). No-op for engines with no cold

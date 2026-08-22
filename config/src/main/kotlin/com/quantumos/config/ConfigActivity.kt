@@ -4,7 +4,8 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -28,10 +29,23 @@ class ConfigActivity : ComponentActivity() {
 
     private val viewModel: ConfigViewModel by viewModels()
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+
+        super.onWindowFocusChanged(hasFocus)
+
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+
+        // the system bars showing. Re-hide whenever this window is the one in front.
+
+        if (hasFocus) hideSystemBars()
+
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             val hue by viewModel.phosphorHue.collectAsStateWithLifecycle()
             val bootPace by viewModel.bootPace.collectAsStateWithLifecycle()

@@ -3,7 +3,8 @@ package com.quantumos.comms
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,9 +24,16 @@ import com.quantumos.comms.ui.screens.CommsScreen
  * header is the same return path, made explicit and tappable.
  */
 class CommsActivity : ComponentActivity() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+        // the system bars showing. Re-hide whenever this window is the one in front.
+        if (hasFocus) hideSystemBars()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             // Reads PhosphorHueRuntime (Core Apps Polish Pass, Item 2) -- the one process-wide live
             // source of truth every docked module + CONFIG + the launcher shares.

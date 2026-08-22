@@ -14,7 +14,8 @@ import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import android.hardware.Sensor
@@ -57,13 +58,26 @@ class OpticsActivity : ComponentActivity(), SensorEventListener {
     private val rollState = mutableStateOf(0f)
     private var hasRealSensor = false
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+
+        super.onWindowFocusChanged(hasFocus)
+
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+
+        // the system bars showing. Re-hide whenever this window is the one in front.
+
+        if (hasFocus) hideSystemBars()
+
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
 
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             OpticsTheme {
                 val context = LocalContext.current

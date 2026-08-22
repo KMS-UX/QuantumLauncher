@@ -4,13 +4,18 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// QUARK AVATAR -- Phase 4b of the parallel QUARK 3D avatar art-production track (see
-// art/quark-avatar/PRODUCTION_LOG.md; NOT part of the Tree 1.5 launcher milestone tree). Hosts the
-// real-time AGSL overlay shader (rim glow + live hue-tinted emissive accent + Stealth dim) applied
-// over the pre-rendered Blender posture-library frames, plus a dev-preview screen to see it on
-// device. Depends on :app-shell for the shared chrome/tokens/PhosphorHueRuntime, same shape as
-// :signal/:comms/:files/:audio/:radio. No :quark-brain dependency (no live brain/posture wiring
-// this pass -- see PRODUCTION_LOG's non-goals) and no runtime permissions (static bundled art only).
+// QUARK AVATAR -- the parallel QUARK avatar art-production track (see
+// art/quark-avatar/PRODUCTION_LOG.md; NOT part of the Tree 1.5 launcher milestone tree). Presents
+// QUARK as NATIVE ART: the chroma-keyed hologram plates shown as the art they are, in a Compose
+// projection housing, with four expression states and a materialise transition.
+//
+// NO 3D DEPENDENCY. SceneView/Filament was here for the DA3 relief and went with it in Phase 18 --
+// 24.98 MB of native libraries across four ABIs for a path the Director cut. Everything this module
+// draws is now Compose: a Canvas housing over an Image.
+//
+// Depends on :app-shell for the shared chrome/tokens/PhosphorHueRuntime, same shape as
+// :signal/:comms/:files/:audio/:radio. No :quark-brain dependency (no live brain/state wiring this
+// pass -- see PRODUCTION_LOG's non-goals) and no runtime permissions (static bundled art only).
 android {
     namespace = "com.quantumos.quarkavatar"
     compileSdk = 35
@@ -47,11 +52,6 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    // SceneView 4.22.0 -- Filament-backed real-time 3D, the "Option B" render path being
-    // evaluated against the pre-rendered-frames + AGSL-overlay path (PRODUCTION_LOG Phase 5).
-    // Requires Kotlin 2.4.0 (the library ships 2.4.0 metadata) -- that upgrade already landed.
-    implementation("io.github.sceneview:sceneview:4.22.0")
-
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

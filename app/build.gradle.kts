@@ -73,6 +73,12 @@ dependencies {
     implementation(project(":signal"))
     implementation(project(":config"))
     implementation(project(":quark-brain"))
+    // W2 (Phase 22): the Assistant View shows the REAL QUARK now -- the avatar presentation from the
+    // art track -- instead of a drawn ring-and-iris mark. `:app` -> docked module is the allowed
+    // direction (it already depends on every other one), and :quark-avatar depends only on :core and
+    // :app-shell, so this adds no cycle. CONFIG previously reached the avatar by class-name string
+    // precisely because this dependency did not exist.
+    implementation(project(":quark-avatar"))
 
     // Compose BOM keeps all Compose library versions aligned with one number.
     implementation(platform("androidx.compose:compose-bom:2024.10.01"))

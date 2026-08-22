@@ -7,7 +7,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.RectF
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -207,38 +212,76 @@ class QuarkTriggerService : Service() {
         iris = null
     }
 
-    // ---------- the iris mark (static placeholder art, NOT the final QUARK mascot) ----------
+    // ---------- the QUARK trigger mark ----------
+    //
+    // The real artwork now (`reference/QUARKIcon.png`, downscaled to 256px): her face in a circular
+    // HUD badge. It replaces the drawn iris rings that were labelled in this file as "static
+    // placeholder art, NOT the final QUARK mascot" from the day they were written.
+    //
+    // **Phosphor-tinted at draw time, not baked.** The source art is full colour -- measured mean
+    // saturation 0.55 -- and the house style is explicit that icons are themeable with the active
+    // phosphor and that off-palette colour is not introduced. So the bitmap is mapped
+    // luminance -> active hue through a ColorMatrix, exactly the maths the avatar plates use at
+    // PHOSPHOR TINT 100%. One asset serves green, amber and cyan, and it re-tints live when the hue
+    // changes rather than needing three files.
+    //
+    // The art survives that treatment: its luminance spans the full 0..255, so the face, the ring
+    // ticks and the wordmark stay legible as monochrome rather than flattening into a disc.
     private class IrisView(context: Context) : View(context) {
         private var bright: Int = DEFAULT_HUE_COLOR
-        private var dim: Int = dimOf(DEFAULT_HUE_COLOR)
 
-        private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-        private val discPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val icon: Bitmap? = runCatching {
+            BitmapFactory.decodeResource(context.resources, com.quantumos.shell.R.drawable.quark_trigger)
+        }.getOrNull()
+
+        private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val dst = RectF()
+
+        // A CRT-ground disc behind her, so the badge reads against any wallpaper the Operator has
+        // rather than only against a dark one.
         private val groundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = CRT_GROUND
         }
-        private val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        // Kept from the placeholder: a thin bright ring is what makes a floating control read as a
+        // control at 52dp, where the art alone is a small picture.
+        private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
         fun setHue(color: Int) {
             bright = color
-            dim = dimOf(color)
             ringPaint.color = bright
-            discPaint.color = dim
-            centerPaint.color = bright
+            iconPaint.colorFilter = ColorMatrixColorFilter(phosphorMatrix(color))
+            invalidate()
+        }
+
+        /** Map every channel to luminance x the hue, so the art becomes monochrome phosphor. */
+        private fun phosphorMatrix(color: Int): ColorMatrix {
+            val r = Color.red(color) / 255f
+            val g = Color.green(color) / 255f
+            val b = Color.blue(color) / 255f
+            return ColorMatrix(
+                floatArrayOf(
+                    LUMA_R * r, LUMA_G * r, LUMA_B * r, 0f, 0f,
+                    LUMA_R * g, LUMA_G * g, LUMA_B * g, 0f, 0f,
+                    LUMA_R * b, LUMA_G * b, LUMA_B * b, 0f, 0f,
+                    // Alpha untouched -- the badge's own transparent surround is the silhouette.
+                    0f, 0f, 0f, 1f, 0f,
+                )
+            )
         }
 
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
             val r = minOf(cx, cy)
-            val stroke = r * 0.12f
-            ringPaint.strokeWidth = stroke
-            // CRT ground disc → dim phosphor iris ring → bright outer ring → bright centre aperture.
+            val stroke = r * 0.08f
             canvas.drawCircle(cx, cy, r - stroke, groundPaint)
-            canvas.drawCircle(cx, cy, r * 0.62f, discPaint)
-            canvas.drawCircle(cx, cy, r - stroke, ringPaint)
-            canvas.drawCircle(cx, cy, r * 0.16f, centerPaint)
+            icon?.let {
+                dst.set(0f, 0f, width.toFloat(), height.toFloat())
+                canvas.drawBitmap(it, null, dst, iconPaint)
+            }
+            ringPaint.strokeWidth = stroke
+            canvas.drawCircle(cx, cy, r - stroke / 2f, ringPaint)
         }
     }
 
@@ -253,6 +296,12 @@ class QuarkTriggerService : Service() {
         // pushed in via redelivered start commands; see LauncherActivity.
         private const val DEFAULT_HUE_COLOR = 0xFF00FF00.toInt()
         private const val CRT_GROUND = 0xFF020402.toInt()
+
+        // Rec.709 luminance, the same weights the avatar's plate and colour-grading paths use, so
+        // the trigger and QUARK herself go monochrome by identical maths.
+        private const val LUMA_R = 0.2126f
+        private const val LUMA_G = 0.7152f
+        private const val LUMA_B = 0.0722f
 
         // Dim pair derived by halving RGB — keeps the iris on-palette for any active phosphor hue
         // without the Service needing the PhosphorHue enum.

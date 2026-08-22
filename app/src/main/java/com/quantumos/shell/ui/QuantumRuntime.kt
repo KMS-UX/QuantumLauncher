@@ -10,6 +10,8 @@ import android.os.BatteryManager
 import android.os.SystemClock
 import com.quantumos.appshell.PhosphorHueRuntime
 import com.quantumos.appshell.SettingsStore
+import com.quantumos.appshell.QuantumStateRuntime
+import com.quantumos.appshell.SoundEngine
 import com.quantumos.core.BootLifecycleState
 import com.quantumos.core.DeploymentRegion
 import com.quantumos.core.QuantumStateEngine
@@ -20,14 +22,18 @@ import com.quantumos.quarkbrain.QuarkOnDeviceBrain
 import com.quantumos.shell.ai.QuarkVoiceEngine
 import com.quantumos.shell.ai.SherpaKokoroVoiceEngine
 import com.quantumos.shell.ai.VoiceEngine
+import com.quantumos.shell.ai.VoiceReadyState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -121,8 +127,35 @@ object QuantumRuntime {
                 SherpaKokoroVoiceEngine(ctx)
             else
                 QuarkVoiceEngine(ctx)
+        trackVoiceDiagnostic(engine)
         engine.warmUp()   // hide any cold cost inside the reactive beat
         return engine
+    }
+
+    /*
+     * Live one-line readout of the voice backend, for QUARK's debug panel.
+     *
+     * The panel's existing `MODEL: READY` row reads FILES ON DISK, not the running engine, so it
+     * says READY whether H2 loaded, silently failed to load, or was never selected — which is how
+     * "voice stopped working" survived a Fold 6 pass without a single on-screen clue. This row
+     * reports the engine that actually exists right now and, when it is down, why.
+     */
+    private val _voiceDiagnostic = MutableStateFlow("NO ENGINE")
+    val voiceDiagnostic: StateFlow<String> = _voiceDiagnostic.asStateFlow()
+    private var voiceDiagnosticJob: Job? = null
+
+    private fun trackVoiceDiagnostic(ve: VoiceEngine) {
+        voiceDiagnosticJob?.cancel()   // one collector; a rebuilt engine replaces the old readout
+        voiceDiagnosticJob = appScope.launch {
+            ve.readyState.collect { st ->
+                _voiceDiagnostic.value = when (st) {
+                    VoiceReadyState.READY -> "${ve.engineLabel} · READY"
+                    VoiceReadyState.INITIALIZING -> "${ve.engineLabel} · LOADING"
+                    VoiceReadyState.UNAVAILABLE ->
+                        "${ve.engineLabel} · DOWN // ${ve.lastFault.ifBlank { "NO REASON REPORTED" }}"
+                }
+            }
+        }
     }
 
     /**
@@ -192,6 +225,9 @@ object QuantumRuntime {
      */
     fun stopCurrentSpeech() {
         _voiceEngine?.stop()
+        // Clear the flag here too: a stopped utterance never reaches its onDone, and QUARK's avatar
+        // would otherwise keep her emitter burning for a voice that is no longer speaking.
+        engine.setSpeaking(false)
     }
 
     /*
@@ -221,18 +257,55 @@ object QuantumRuntime {
                 // Brief gap to let the non-verbal chirp finish before speech begins (decision 45).
                 delay(280)
 
+                // Every line now reports WHICH engine took it and, if it went quiet, WHY. The Fold 6
+                // report this closes ("heard her real voice exactly once, then nothing") was not
+                // diagnosable from the old log line: it printed only timings, only on the paths that
+                // reached onDone, and never named the backend — so a silent H2, a silent-and-absent
+                // engine, and a healthy fall-back to Android TTS all looked identical in the LOG.
+                val ve = _voiceEngine
+                if (ve == null) {
+                    engine.appendSystemLog("VOICE: NO ENGINE // LINE DROPPED")
+                    return@collect
+                }
+                val label = ve.engineLabel
+                if (!ve.isReady) {
+                    // The mute path. Report it and settle posture by hand — speak() would settle it
+                    // via onDone, but would tell us nothing on the way past.
+                    engine.appendSystemLog(
+                        "VOICE: $label UNAVAILABLE // ${ve.lastFault.ifBlank { ve.readyState.value.name }}"
+                    )
+                    engine.setSpeaking(false)
+                    engine.dispatchQuarkReflex("VOICE_DONE", QuarkReflexPosture.IDLE, "", null)
+                    return@collect
+                }
+
                 val callTime = System.currentTimeMillis()
                 var audioStartTime = 0L
-                _voiceEngine?.speak(
+                ve.speak(
                     text = entry.line,
-                    onStart = { t -> audioStartTime = t },
+                    onStart = { t ->
+                        audioStartTime = t
+                        // B4: the one place that actually knows QUARK is speaking. Docked surfaces
+                        // read it through QuantumStateRuntime -- her avatar drives the projection
+                        // emitter's cadence from it.
+                        engine.setSpeaking(true)
+                    },
                     onDone = {
+                        engine.setSpeaking(false)
                         // Report latency to the LOG channel so the Director can read it.
                         val startLatencyMs = if (audioStartTime > 0) audioStartTime - callTime else -1
                         val playbackMs = System.currentTimeMillis() -
                             (if (audioStartTime > 0) audioStartTime else callTime)
+                        // audioStartTime == 0 means onStart never fired — synthesis or playback died
+                        // before a single sample reached the speaker. That is the exact silent case,
+                        // and the engine's own fault string is the only thing that can name it.
+                        val silent = audioStartTime == 0L
+                        val fault = ve.lastFault
                         engine.appendSystemLog(
-                            "VOICE: TTS_START ${startLatencyMs}ms · PLAYBACK ${playbackMs}ms"
+                            if (silent) "VOICE: $label SILENT // ${fault.ifBlank { "NO AUDIO, NO FAULT REPORTED" }}"
+                            else "VOICE: $label · TTS_START ${startLatencyMs}ms · PLAYBACK ${playbackMs}ms" +
+                                ve.lastLevelInfo.let { if (it.isNotBlank()) " · $it" else "" } +
+                                if (fault.isNotBlank()) " · LAST FAULT: $fault" else ""
                         )
                         // Settle the reactive presence back to Idle once audio finishes.
                         engine.dispatchQuarkReflex("VOICE_DONE", QuarkReflexPosture.IDLE, "", null)
@@ -256,6 +329,9 @@ object QuantumRuntime {
             engine.setBootPace(SettingsStore.loadBootPace(ctx))
             engine.setDeploymentRegion(SettingsStore.loadRegion(ctx))
             PhosphorHueRuntime.init(ctx)
+            // B4: hand the one engine to the shared seam so DOCKED modules can read and drive real
+            // state. Same shape, and the same reason, as PhosphorHueRuntime directly above.
+            QuantumStateRuntime.publish(engine)
             engine.updateEnvironmentProfile { it.copy(activeHue = PhosphorHueRuntime.activeHue.value) }
         }
         startPhosphorHueObserver()
@@ -306,10 +382,28 @@ object QuantumRuntime {
 
     private var phosphorObserverStarted = false
 
-    // Mirrors PhosphorHueRuntime -> the engine, so a hue change made from CONFIG or any OTHER docked
-    // module (which can't reach this live engine directly — see resyncPersistedSettings's own note on
-    // the circular-dependency constraint) still recolors the launcher + QUARK immediately, not just on
-    // the next ON_RESUME. cyclePhosphorHue() above already keeps the reverse direction in sync.
+    /*
+     * The phosphor bridge is BIDIRECTIONAL, and it has to be. Two observers, guarded so they can
+     * never ping-pong:
+     *
+     *  PhosphorHueRuntime -> engine: a hue change made from CONFIG or any docked module (none of
+     *    which can reach this live engine directly — see resyncPersistedSettings's note on the
+     *    circular-dependency constraint) recolors the launcher + QUARK immediately, not just on the
+     *    next ON_RESUME.
+     *
+     *  engine -> PhosphorHueRuntime: the fix for the Fold 6 finding that QUARK's own PHOSPHOR rail
+     *    button recolored QUARK and the launcher but NOT the docked modules. QuarkParser lives in
+     *    :core, which is deliberately Android-free and so cannot touch PhosphorHueRuntime (it needs
+     *    a Context for the durable store) — so railCyclePhosphor() and QUARK's spoken/typed hue
+     *    commands ("go amber") all mutate the engine directly, and every one of them used to dead-end
+     *    there. cyclePhosphorHue() below is the ONLY path that mirrored outward by hand, which is
+     *    exactly why the Vitality panel worked and QUARK did not. Observing the engine instead of
+     *    patching each call site catches all four bypasses at once — and any future one — and gets
+     *    QUARK-set hues persisted to SettingsStore as a side effect (they previously died on restart).
+     *
+     * No loop: setHue() early-returns when the value is unchanged, and the inbound collector guards
+     * on the engine's current value, so each direction stops dead the moment the two agree.
+     */
     private fun startPhosphorHueObserver() {
         if (phosphorObserverStarted) return
         phosphorObserverStarted = true
@@ -319,6 +413,12 @@ object QuantumRuntime {
                     engine.updateEnvironmentProfile { it.copy(activeHue = hue) }
                 }
             }
+        }
+        appScope.launch {
+            engine.masterState
+                .map { it.environment.activeHue }
+                .distinctUntilChanged()
+                .collect { hue -> appContext?.let { PhosphorHueRuntime.setHue(it, hue) } }
         }
     }
 

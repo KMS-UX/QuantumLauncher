@@ -199,6 +199,18 @@ data class OperatorConfig(
 data class QuarkBrainState(
     val matchedIntent: String = "IDLE",
     val activePosture: QuarkReflexPosture = QuarkReflexPosture.IDLE,
+    /**
+     * True while QUARK is actually speaking aloud.
+     *
+     * B4. Added because nothing in the model carried it: the voice engine knew, and no surface could
+     * ask. QUARK's avatar needs it to drive the projection emitter's cadence (the apparatus works
+     * harder while she talks), and it is a property of her state rather than of any one screen, so
+     * it belongs here next to the posture rather than in a per-Activity flag.
+     *
+     * Deliberately NOT part of `dispatchQuarkReflex`: a posture change and the act of speaking are
+     * different events with different lifetimes -- the posture persists after she stops.
+     */
+    val isSpeaking: Boolean = false,
     val responseTextSnippet: String = "",
     // One-line state caption for the Assistant View — distinct from the spoken response text.
     val caption: String = "STANDING BY",
@@ -366,6 +378,12 @@ class QuantumStateEngine(
         if (droppedStealth) logEvent("ENV: Stealth auto-released — Beacon takes priority.")
     }
 
+    /** Raise or clear the speaking flag. Idempotent, so the voice path can call it freely. */
+    fun setSpeaking(speaking: Boolean) {
+        if (_masterState.value.quarkBrain.isSpeaking == speaking) return
+        _masterState.update { it.copy(quarkBrain = it.quarkBrain.copy(isSpeaking = speaking)) }
+    }
+
     fun incomingTelemetryUpdate(bat: Int, chg: Boolean, upMs: Long, con: Int, temp: Float) {
         // Readiness composite = power + signal + temp (Bible §5 / glossary). Signal now included.
         val readiness = when {
@@ -378,7 +396,18 @@ class QuantumStateEngine(
 
     fun dispatchQuarkReflex(intent: String, posture: QuarkReflexPosture, snippet: String, audioToken: String?) {
         _masterState.update {
-            it.copy(quarkBrain = QuarkBrainState(intent, posture, snippet, captionFor(posture)))
+            // isSpeaking is carried across a reflex rather than reset by it: dispatching a posture
+            // and starting/stopping speech are separate events, and a reflex raised while she is
+            // mid-sentence must not silently claim she has stopped.
+            it.copy(
+                quarkBrain = QuarkBrainState(
+                    matchedIntent = intent,
+                    activePosture = posture,
+                    isSpeaking = it.quarkBrain.isSpeaking,
+                    responseTextSnippet = snippet,
+                    caption = captionFor(posture),
+                )
+            )
         }
         audioToken?.let { emitAudioCue(it) }
         logEvent("QUARK_BRAIN: [$intent] posture [$posture]")
@@ -398,7 +427,15 @@ class QuantumStateEngine(
         externalScope.launch {
             if (response.scanFirst) {
                 _masterState.update {
-                    it.copy(quarkBrain = QuarkBrainState(response.intent, QuarkReflexPosture.SCAN, "", "SCANNING…"))
+                    it.copy(
+                        quarkBrain = QuarkBrainState(
+                            matchedIntent = response.intent,
+                            activePosture = QuarkReflexPosture.SCAN,
+                            isSpeaking = it.quarkBrain.isSpeaking,
+                            responseTextSnippet = "",
+                            caption = "SCANNING…",
+                        )
+                    )
                 }
                 emitAudioCue("chirp_scan")
                 delay(SCAN_BEAT_MS)
@@ -406,11 +443,12 @@ class QuantumStateEngine(
             _masterState.update {
                 it.copy(
                     quarkBrain = QuarkBrainState(
-                        response.intent,
-                        response.posture,
-                        response.text,
-                        captionFor(response.posture),
-                        response.isCrisis
+                        matchedIntent = response.intent,
+                        activePosture = response.posture,
+                        isSpeaking = it.quarkBrain.isSpeaking,
+                        responseTextSnippet = response.text,
+                        caption = captionFor(response.posture),
+                        showCrisisResource = response.isCrisis,
                     )
                 )
             }

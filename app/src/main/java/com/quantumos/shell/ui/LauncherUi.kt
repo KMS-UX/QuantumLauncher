@@ -20,7 +20,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -243,9 +244,16 @@ class QuantumViewModel : ViewModel() {
 
 // ---------- Activity ----------
 class LauncherActivity : ComponentActivity() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+        // the system bars showing. Re-hide whenever this window is the one in front.
+        if (hasFocus) hideSystemBars()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        engageFieldUnitDisplay()
         setContent {
             val vm: QuantumViewModel = viewModel()
             val context = LocalContext.current

@@ -5,7 +5,8 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.quantumos.appshell.engageFieldUnitDisplay
+import com.quantumos.appshell.hideSystemBars
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,9 +39,16 @@ import com.quantumos.nav.ui.NavScreen
  * gesture simply finishes this Activity and returns to the still-live LauncherActivity on HOME.
  */
 class NavActivity : ComponentActivity() {
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // A transient reveal, a fold/unfold or coming back from another app all leave
+        // the system bars showing. Re-hide whenever this window is the one in front.
+        if (hasFocus) hideSystemBars()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()   // we own inset handling; the CRT surface reaches the screen edges
+        engageFieldUnitDisplay()   // we own inset handling; the CRT surface reaches the screen edges
         setContent {
             val vm: NavViewModel = viewModel()
             val context = LocalContext.current

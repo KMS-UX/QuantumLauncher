@@ -30,6 +30,14 @@ class QuarkVoiceEngine(context: Context) : VoiceEngine {
     override val readyState: StateFlow<VoiceReadyState> = _readyState.asStateFlow()
     override val isReady get() = _readyState.value == VoiceReadyState.READY
 
+    // See VoiceEngine.engineLabel/lastFault. This engine sounding at all is itself a finding when
+    // the Operator selected QUARK-H2 — it means buildVoiceEngine() fell back — so it must be able
+    // to name itself in the LOG rather than only being identifiable by ear.
+    override val engineLabel = "PLACEHOLDER"
+
+    @Volatile private var _lastFault: String = ""
+    override val lastFault get() = _lastFault
+
     private var tts: TextToSpeech? = null
 
     // Single in-flight utterance tracked by ID. gate ensures speak() and TTS callbacks
@@ -62,6 +70,7 @@ class QuarkVoiceEngine(context: Context) : VoiceEngine {
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
                         // Settle on error so posture doesn't stick.
+                        _lastFault = "TTS UTTERANCE ERROR"
                         val cb = synchronized(gate) {
                             if (utteranceId == pendingId) {
                                 pendingId = ""; pendingOnDone
@@ -73,8 +82,10 @@ class QuarkVoiceEngine(context: Context) : VoiceEngine {
                 tts?.language = Locale.US
                 tts?.setPitch(0.88f)       // EDI-register direction: slightly lower, deliberate
                 tts?.setSpeechRate(0.92f)  // measured field-tool pace
+                _lastFault = ""
                 _readyState.value = VoiceReadyState.READY
             } else {
+                _lastFault = "ANDROID TTS INIT FAILED // status=$status"
                 _readyState.value = VoiceReadyState.UNAVAILABLE
             }
         }
@@ -88,7 +99,10 @@ class QuarkVoiceEngine(context: Context) : VoiceEngine {
      * QUEUE_FLUSH replaces any currently-playing utterance.
      */
     override fun speak(text: String, onStart: (Long) -> Unit, onDone: () -> Unit) {
-        if (!isReady) { onDone(); return }
+        if (!isReady) {
+            if (_lastFault.isEmpty()) _lastFault = "NOT READY // ${_readyState.value}"
+            onDone(); return
+        }
         val id = System.nanoTime().toString()
         synchronized(gate) {
             pendingId = id
