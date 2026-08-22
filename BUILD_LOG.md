@@ -11,6 +11,436 @@ block at the end of every session.
 ---
 
 ## ▶ RESUME HERE
+**Current milestone:** Fold 6 round 3 — six defects from the sideload of the glyph-sweep/icon-pack
+build, all fixed. Two in RADIO, one on the floating trigger, three in CAM. `test` + `assembleDebug`
+green; **86 unit tests, 0 failures**; the glyph sweep re-verified at **0 remaining marks** after the
+restyle.
+
+> **RADIO — "the design language seems to differ from the other main modules." It did.** The shapes
+> were already `CutCornerShape`, so the drift was not the corner radius — it was that RADIO drove its
+> controls with **Material3 `Button`, `IconButton` and `Slider`**, and no other module in the OS does.
+> A Material Button brings its own ripple, elevation, minimum height and content padding; a Material
+> Slider draws a fully-rounded pill track with a floating round thumb, which is both Material's shape
+> language and *interpolated* motion, against a house rule that says stepped. Two rounded pills were
+> the loudest thing on the screen.
+> * **New `SteppedSlider` in `:app-shell`** — the same segment vocabulary `SegmentedGauge` already
+>   uses for every readout in the OS, made interactive: discrete blocks, quantised to a segment on
+>   tap AND on drag, so a value can never land between steps and there is no thumb to interpolate.
+>   Normalised 0..1 so the control knows nothing about frequencies or percentages. Both RADIO sliders
+>   (carrier position, audio power feed) now use it.
+> * **Every Material button in the module** — band selector, TUNE −/+, and the vitals console's
+>   stealth / cycle-phosphor / stow controls plus its close `IconButton` — is now the house
+>   Box + border + clickable idiom. Repo-grep confirms RADIO has **no `Button(`, `Slider(` or
+>   `RoundedCornerShape` left**; the VITALS pill's 12dp rounded border is `CutCornerShape(4.dp)`.
+>
+> **RADIO — the carrier-wave meter drew outside its own box.** The scale sat on top of the
+> "RECEPTION CARRIER WAVE" caption. Cause, not guesswork: the pivot was placed 8dp *below* the canvas
+> and the radius set to **1.3x the canvas height**, so the top of the arc landed at
+> `height + 8 − 1.3×height` ≈ 8dp **above** the canvas — and Compose does not clip a Canvas by
+> default, so it drew there happily. Geometry is now derived from the box: pivot just inside the
+> bottom edge, radius sized to leave room for the tick marks (which extend radius + 4dp) plus a
+> margin, canvas 55 → 76dp. **A second bug fell out of the same read:** the needle hung off a pivot
+> 8dp above the arc's own centre, so it never quite pointed at the scale it was reading. One shared
+> pivot now.
+>
+> **Floating trigger — the Director was right, and the cause was the new art.** The drawn ring dates
+> from the placeholder badge, where a bright ring was the only thing making a small picture read as a
+> control at 52dp. The hologram badge installed last round carries its **own** heavy HUD ring, so
+> ours stacked a second boundary on top of it. The previous build looked cleaner because the old
+> art's ring was far lighter, so the doubling barely showed. Our ring is **removed** (the art
+> supplies one); the CRT-ground disc stays and now fills the full radius rather than insetting for a
+> ring that no longer exists.
+>
+> **CAM — the tap-to-focus reading was on an opaque plate over the viewfinder.** The distance hung
+> *below* the reticle on a filled CRT rectangle — dropped over the live scene at exactly the moment
+> the Operator is looking at what they just tapped, so it occluded the subject being ranged. The
+> reading now sits **inside** the ring, centred, with no fill and no centre dot: the ring's own centre
+> is the tap point. The word "TARGET" is dropped — a ranging reticle with a distance in it does not
+> need to announce what it is, and the house voice is terse. Ring 48 → 56dp so the figure has room.
+>
+> **CAM — the mode dial sat across SENSOR ISO and CORE SYMMETRY.** It was a **sibling** of the console
+> aligned to `CenterEnd` of the whole screen, which floated a 76dp opaque disc over the middle of the
+> panel. It is now mounted **inside** the console Box on its top-right corner — which is what makes
+> "attached to the corner" possible at all: as a sibling it could not know where that corner was,
+> because the console's height changes with the active dial mode. Offset outward so roughly a quarter
+> overlaps the panel, tick ring cut to a **three-quarter sweep** with the gap facing the corner, so it
+> reads as a control emerging from the chassis rather than a disc laid on top of it.
+>
+> **CAM — the infinity tile.** Two problems in one. The glyph was two overlapping circles, which
+> reads as "oo" and not ∞ (I had already narrowed the lobes once for this; overlapping them was not
+> enough — **the eye needs the CROSSING**). It is a real lemniscate now: one continuous ribbon through
+> the centre, so the crossing is the shape rather than an artefact of two outlines meeting. Verified
+> at 120/48/24/14px. Separately, the far SUBJECT-DIST tile was the only tile in its row with a single
+> element, because the emoji sweep replaced "🏔️ ∞" with a horizon icon and an **empty** label.
+> `ScaleTile` gained a `labelGlyph` slot that occupies the row the number occupies on every other
+> tile, so the tile keeps its two-element rhythm and carries the Möbius mark the Director asked for.
+>
+> **Director actions (Fold 6):** RADIO first — confirm it now reads as the same OS as the other
+> modules, and that the stepped bars still tune and set volume comfortably by drag (they quantise, so
+> they will feel notchier than the old pills; that is intended, but it is a feel call). Then CAM —
+> tap to focus and confirm nothing is occluded, check the dial clears both labels at the corner, and
+> look at the ∞ tiles in both scales. Then the trigger, against a light wallpaper as well as a dark
+> one, since the ground disc is now the only thing separating her from it.
+
+---
+
+## ▶ Prior milestone (Openings round + Glyph Sweep + APPS-grid icon pack)
+**Current milestone:** Openings round + **the Glyph Sweep** + **the APPS-grid icon pack** — clearing the flagged-but-undecided
+backlog now the Director has ruled on it, then the repo-wide icon correctness pass. Three code changes landed (FILES idle-redraw ×2, C2 the fold), one long-standing
+"gap" was closed as a **decision rather than a feature**, and the plate work from last round was
+finished properly after a wrong call was caught. `test` + `assembleDebug` green locally; **86 unit
+tests, 0 failures**. All of it still needs the batched Fold 6 round.
+
+> **CAM PHOTO/VIDEO — CLOSED, and it was never a gap.** This log has carried "CAM has no PHOTO/VIDEO
+> mode — a real feature gap" since the Core Apps Polish Pass. **Director's ruling: there is no video
+> mode, by design** — a retro-futuristic film camera is a photographic instrument, and photography is
+> the whole point of it. So Optics being photo-only is correct and finished, not incomplete. Nothing
+> to build; the entry is struck rather than deferred again. (Camera work itself gets picked up later,
+> on its own terms.) **One loose end this creates:** `Glyph.ModeToggle` exists in the icon set for a
+> control that will now never be built — harmless, but it is dead vocabulary and should be dropped
+> whenever the icon set is next touched.
+>
+> **FILES idle-redraw — both violations FIXED** (Director: fix both).
+> * **Fabricated telemetry, deleted.** `monitorBattery()` ran a `while(true)` every 8s setting
+>   `coreTemperature = 35 + Random.nextInt(5)`, commented "to make it dynamic and rustic". It now
+>   reads `BatteryManager.EXTRA_TEMPERATURE` off the battery broadcast it was already registered for
+>   — the **exact source and conversion `QuantumRuntime.readBattery()` already uses**, so FILES and
+>   the launcher cannot disagree about the unit's temperature. Being broadcast-driven, the loop is
+>   gone entirely: real data AND zero idle cost, rather than a trade between them. `kotlin.random`
+>   is no longer imported by that file.
+> * **Uptime tick, gated to the foreground.** `startUptimeClock()` wrote a Compose state every second
+>   unconditionally — a 1 Hz recomposition for as long as the ViewModel lived, including while the
+>   Operator was looking at a different module. Now `startVitals()` / `stopVitals()`, driven from
+>   `FilesActivity.onResume/onPause` (the ViewModel moved to an Activity-level `by viewModels()` so
+>   the lifecycle can reach it). Gated rather than deleted, deliberately: a clock the Operator is
+>   LOOKING at should tick; one nobody is looking at should not exist.
+> * Also corrected a stale comment in `FilesActivity` claiming this module's hue "is not yet synced
+>   with the launcher's live selection" — it has been since the polish pass wired it to
+>   `PhosphorHueRuntime`.
+>
+> **C2 — the fold: FIXED, and the defect was bigger than "untuned".** The framing sized QUARK purely
+> off viewport WIDTH (`plateWidth = maxWidth * framingScale`). These plates are far taller than they
+> are wide, so height is the dependent variable — fine on the single 1080x2424 screen this was ever
+> tuned on, and broken everywhere else. Computed, not guessed:
+>
+> | viewport | BODY @100% plate height | |
+> |---|---|---|
+> | 1080×2424 (tuned) | 0.79 of screen | fine |
+> | **~2160×1856 (Fold 6 inner)** | **2.05× screen height** | head off-frame entirely |
+> | 2424×1080 (landscape) | **3.96× screen height** | torso only |
+>
+> The fix clamps the BASE size against viewport height and lets FRAMING scale that result — **not**
+> the final size. Clamping last was tried first and rejected: it makes FRAMING a dead control on the
+> inner screen (every step hits the same ceiling and renders identically), which is exactly the "four
+> pixel-identical screenshots" defect `QuarkPlateView` already carries a warning about. New per-mode
+> `RenderMode.baseHeightFill` is **derived, not chosen by eye**: it is what the tuned phone already
+> produces at FRAMING 100% (BODY 0.786, BUST 0.547), rounded a hair up so float equality cannot make
+> the clamp bind there.
+>
+> Verified arithmetically across three viewports: **on the tuned phone all four reachable
+> mode×framing combinations are unchanged** (not just the defaults — an earlier attempt at 0.86
+> silently clamped BODY@125%, a setting the Director can reach from the control, and that was caught
+> and fixed before it shipped). On the inner screen and in landscape QUARK is now drawn at the SAME
+> PROPORTION the Director already approved, and FRAMING still moves her (0.80 → 0.99).
+>
+> **Not done on C2, flagged:** no `FoldingFeature` / hinge awareness. On the inner display QUARK is
+> centred, which puts her across the hinge. Whether that matters is a look call on hardware — and it
+> is a genuinely separate problem from the overflow this fixed. Also untouched: the App Shell chrome
+> itself (nameplate, channel strip, action rail) has had no adaptive pass; this was scoped to the
+> avatar's framing, which is what C2 named.
+>
+> **Identity pass — trigger art swapped, app badge rebuilt on-palette.** Both from Director-supplied
+> reference art delivered this round.
+>
+> * **Floating trigger: hologram installed, classic retained.** The swap was tested rather than
+>   judged — `IrisView` maps the source luminance→hue through a ColorMatrix, so what matters is
+>   whether the LUMINANCE survives being collapsed to one channel at 52dp. Simulated both sources
+>   through the real matrix in all three hues: luma spread **176.0 (current) vs 170.3 (hologram)**,
+>   std 58.6 vs 56.4 — equivalent. The hologram wins on legibility at 78px (cleaner ring, stronger
+>   bracket ticks; the current art's finer detail muds). Installed at 256px as `quark_trigger.png`;
+>   the previous badge is kept as `art/quark-avatar/export/trigger/quark_trigger_classic_256.png`
+>   for the coloured cosmetic/theme pack the Director has in mind. **Correcting an expectation in
+>   PRODUCTION_LOG:** it predicted a hologram source would "drop the tint hack". It does not. The
+>   hologram is MORE saturated than the art it replaces (**0.709 vs 0.541**), and it has to render
+>   green and amber as well as cyan regardless — the luminance→hue mapping stays either way. The win
+>   is legibility, not architecture.
+> * **App badge: the reference was flagged, then used.** `QuantumLauncherIcon_reference.png` is the
+>   Director's composition and it is kept — Q-ring lockup, bracket ticks, hexagon ground, circuit
+>   traces. What could not ship as delivered was the PALETTE (measured mean saturation 0.603, running
+>   cyan→magenta→purple with chrome and an Earth-blue horizon, against a phosphor-only house rule)
+>   and the REGISTER (app-store gloss against "used-future"). Flagged to the Director, who chose to
+>   re-render on-palette. Also flagged and NOT silently corrected in art: the reference reads
+>   **"QUANTUMOIS PROJECT"**, not QUANTUMOS — the strapline is dropped from the badge entirely
+>   (illegible at icon size, and adaptive masking clips where it sat), so the typo never ships, but
+>   it is still wrong on the source art.
+>
+>   Two-stage pipeline, both stages new and checked in: `comfy/app_icon_repalette.py` (Flux 2 Klein
+>   edit, importing the SAME graph as the state plates rather than a copy) then
+>   `comfy/app_icon_finish.py`, which does deterministically what diffusion cannot do exactly —
+>   crops off the render's own rounded-square badge (Android supplies the mask; a source carrying its
+>   own gets double-masked), re-derives every pixel as luminance × the **exact** token so the badge is
+>   on-palette by construction, and fits the lockup into the 66/108dp safe zone. Verified: **0
+>   off-token pixels**, and the Q reads clearly under both circle and squircle masks down to 48px.
+>   Denoise mattered: 0.62 left chrome, the planet, all the text and the frame intact; **0.88** is
+>   what actually re-palettes it. GREEN ships; AMBER and CYAN are rendered and exported for the theme
+>   pack. The old placeholder vector foreground (`drawable/ic_launcher_foreground.xml`) is deleted —
+>   it would have been a same-name resource collision against the new nodpi PNG.
+>
+> **ComfyUI as the icon pipeline — a split recommendation, on the record.** Right tool for
+> illustrative badges (app icon, trigger medallion) and now proven twice. **Wrong tool for the ~36 UI
+> line glyphs**, which need exact geometry, uniform stroke weight, crispness at 12–20dp and live
+> retinting from `PhosphorHueRuntime`; diffusion gives raster approximations with inconsistent weight
+> and no vector. The existing `QuantumIcon` Canvas/Path discipline stays the route for those.
+>
+> **GLYPH SWEEP — DONE. Zero non-ASCII marks left in any UI string, repo-wide.** The Director took
+> the full sweep rather than the emoji only, and the audit's 40 sites across 10 modules are all
+> converted. Verified by re-running the same scan that found them: **40 → 0**. (The only remaining
+> hits anywhere are three XML *comments*, which never render.) No Material icon import exists in the
+> repo either.
+>
+> **What was actually wrong, stated once:** every one of these was a bare Unicode character sitting
+> inside a `Text()`. Chakra Petch does not carry them, so each was resolved by **font fallback** —
+> what rendered was whatever glyph the device chose to substitute, at whatever weight that font drew
+> it, ignoring the active phosphor hue entirely. Nine of them fell back to **colour emoji**: vendor
+> artwork, in full colour, inside a phosphor viewfinder. The rest merely looked fine on the machines
+> anyone happened to check.
+>
+> **19 new glyphs** in `app-shell/QuantumIcons.kt`, same Canvas/Path discipline as the existing set:
+> `Forward`, `TriangleLeft/Right`, `CaretUp/Down`, `Dot`, `Diamond`, `Crosshair`, `Swap`, `Cycle`,
+> `Atom`, `Charge`, plus CAM's `FocusMacro / FocusPortrait / FocusMid / FocusLandscape / Infinity /
+> Tilt / Develop`. **`ModeToggle` deleted** — the Director closed PHOTO/VIDEO as a decision, so it was
+> dead vocabulary.
+>
+> **One new shared composable, `GlyphLabel`.** Nearly every site was a mark *inside* a string
+> ("◄ STOW", "🌸 0.7m", "MODE: $mode ⇅"), so each had to become icon + text. Forty hand-rolled Rows
+> would have been forty slightly different spacings; this is the one shape, with a `trailing` flag so
+> marks that followed their label still do.
+>
+> **Decisions inside the sweep worth knowing:**
+> * **CAM's focus scale is now a RAMP, not four pictograms.** The emoji were a flower, a bust, a
+>   cyclist and a mountain — four unrelated pictures. The drawn set is one family: the same subject
+>   mark receding as distance grows. At 9dp what resolves is silhouette size and position, not detail.
+> * **`Infinity` and `FocusLandscape` are deliberately different tiles.** The subject scale ends in
+>   the horizon (it is a subject ramp); the focus-distance scale ends in ∞ (it is a numeric scale).
+>   An earlier pass used `Infinity` for both, which left `FocusLandscape` dead — caught by a
+>   reachability check, not by eye.
+> * **The QUARK acquisition progress bar was built from `█`/`░` block characters** — a bar whose
+>   segment shape, width and gap were all decided by the fallback font. It is `SegmentedGauge` now,
+>   the house renderer the Vitality panel and SIGNAL's link gauges already share.
+> * **`SegmentedGauge` gained `trailingGlyph`** so the POWER gauge's charging bolt is the gauge's own
+>   status mark rather than a `" ⚡"` concatenated into the value *string*.
+> * **One mark was NOT converted, on purpose.** `"Source: HuggingFace → google/gemma-4-E2B-it"` is
+>   prose, not a control. It became `//`, the separator the house microcopy already uses everywhere.
+>   An icon there would have been wrong; the arrow was merely fragile.
+> * **Bracket pairs stay text.** `"[●] $status"` and AUDIO's `"[RECORDER ●]"` keep their brackets as
+>   characters — the pair IS the house state/selection affordance — and only the fill mark inside
+>   became drawn. AUDIO's tab needed restructuring for that; the clickable moved up to the wrapping
+>   Row so the whole tab is still one target and nothing shrank.
+>
+> **Verification.** `test` + `assembleDebug` green; **86 unit tests, 0 failures**. Two automated
+> checks beyond compiling: every `Glyph` value has a real draw branch and the `when` has **no `else`
+> fallthrough** (so no glyph can silently render as nothing), and every declared glyph is reachable
+> from a call site. That second check found `FocusLandscape` dead and it was fixed. **One glyph
+> remains declared-but-unused: `Shutter`** — pre-existing, because CAM's shutter is a bespoke Canvas
+> dial. Flagged, not removed: unlike `ModeToggle` there is no Director ruling retiring it.
+>
+> **A geometry preview exists, and it is NOT a Compose render.** `comfy/glyph_geometry_preview.py`
+> re-plots the same normalised coordinates in PIL at 96/48/20px, which checks the SHAPES (it is what
+> caught `Infinity` reading as "oo" rather than a lemniscate — the lobes now overlap). It does not
+> prove Compose draws them identically. **The Fold 6 is still the judge**, and the icon-legibility
+> check is now meaningful: it tests house art rather than Android's emoji font.
+>
+> **APPS-GRID ICON PACK — DONE.** The last and largest off-palette surface in the OS.
+>
+> **What was wrong:** the APPS channel is a launcher, so every cell drew the installed app's OWN icon
+> straight from the PackageManager at 40dp — Google's multicoloured art, every vendor's gloss, tiled
+> across a phosphor CRT. The glyph sweep had just removed 40 stray marks from the chrome; this was
+> hundreds of off-palette pixels per screen sitting right next to them.
+>
+> **Three tiers, in order of how well each can honour the palette** (`AppCell`, LauncherUi.kt):
+> 1. **A themed mark from the new pack**, when the package is recognised — drawn, so it carries the
+>    active hue exactly like the rest of the chrome.
+> 2. **The app's REAL icon, mapped luminance → active hue**, when it is not. Identical ColorMatrix
+>    treatment `QuarkTriggerService` already uses on QUARK's badge, alpha passed through so the icon's
+>    own silhouette survives. An unrecognised app stays *recognisable* without one off-palette pixel —
+>    which a generic mark for the long tail would have destroyed.
+> 3. The registration diamond, only when the PackageManager returns no icon at all.
+>
+> **The pack:** new `app-shell/AppGlyphs.kt` — 25 marks (Messages, Mail, Contacts, Calls, Camera,
+> Gallery, Music, Video, Recorder, Notes, Calendar, Clock, Weather, MapPin, Browser, Store, Calculator,
+> Settings, Wallet, Translate, Health, Game, News, Files, Security) plus `appGlyphFor()`.
+>
+> **Deliberately a SEPARATE enum from `Glyph`.** `Glyph` is the OS's own chrome vocabulary — controls,
+> channels, states — and it is held to a rule this pack cannot honour: every value reachable from a
+> call site. Which entries of a third-party pack are reachable depends on what is installed on the
+> device, so mixing them would have destroyed that audit.
+>
+> **Matching is on the PACKAGE ID, by substring, not the label.** Labels are localised and change;
+> package ids do not. Substring matching also generalises to apps nobody enumerated — any package
+> containing "camera" gets the camera mark whether it is Google's, Samsung's or an OEM fork. Rules are
+> ordered most-specific-first, because `com.google.android.apps.messaging` contains several keys.
+>
+> **On ComfyUI, which the Director offered for this.** Not used, and the reasoning is the same one
+> recorded for the glyph sweep and accepted then: these must retint live from the active hue, stay
+> crisp at 34dp on every density, and hold one stroke weight across the whole set. Diffusion gives
+> raster approximations with inconsistent weight, needs a file per density, and would add megabytes to
+> a 274MB APK. **`reference/AppIconPackRef.png` was used as FORM reference** — its vocabulary of
+> subjects, which is genuinely what it is good for — not as art to import.
+>
+> **Two collisions caught by the geometry preview, not by eye:** `Settings` drawn as a ringed gear
+> read as a SUN at 34dp and collided with `Weather` — it is a bank of faders now, which is the more
+> honest metaphor for a field console anyway; and `Notes` and `News` were both "a rectangle full of
+> rules" — Notes gained a pencil. Preview: `comfy/app_glyph_preview.py` →
+> `renders/icon/app_glyph_preview.png`. As with the chrome glyphs, it re-plots the same normalised
+> coordinates in PIL and is **NOT a Compose render**; the Fold 6 is the judge.
+>
+> **Verification.** `test` + `assembleDebug` green; **86 unit tests, 0 failures**. One build hiccup
+> worth knowing: `bundleLibCompileToJarRelease` failed twice with a `FileSystemException` on
+> `classes.jar` — a stale Gradle daemon holding a Windows file lock, not a code fault. `./gradlew
+> --stop` plus deleting that one intermediate directory cleared it.
+>
+> **Director actions (Fold 6):** the grid is the thing to look at — confirm recognised apps show the
+> themed mark, unrecognised ones show their own silhouette in phosphor rather than vendor colour, and
+> that nothing in the tinted tier is unreadable (a very dark icon has little luminance to map, which is
+> the failure mode). Report any app whose match is plainly wrong — the rules are heuristic and easy to
+> extend once real package ids from the Fold are known.
+>
+> **Style forks — deferred to data, per Director.** The 320ms state crossfade and the AMBIENT loop
+> stay as they are for now; the call comes after **C1's battery number on the Fold 6**, which is the
+> harness built to answer exactly this. **Add C1 to the batched test round** — without it this fork
+> cannot close and will just roll to the next session again.
+>
+**Current milestone:** Fold 6 round 2 — the defect round's results are in, and both findings are
+**closed**. Hue: confirmed working from both sides and surviving restart. Voice: **never actually
+broken** — the Director's "worked once, then stopped" was on-device LLM latency, not a voice fault.
+The instrumentation from last round is what made that legible, and it stays in. One real, new defect
+came out of the same test and is fixed here: **QUARK-H2 was playing at roughly 0.3x the placeholder's
+loudness.** `test` + `assembleDebug` green locally; 86 unit tests, 0 failures.
+
+> **The voice was not broken — recording this so the next session does not go hunting.** The
+> AudioTrack use-after-release race fixed last round was a real bug and is worth having fixed, but it
+> was **not** the cause of the reported symptom, and this round did not confirm it as one. The actual
+> explanation is that on-device LLM inference takes long enough that the speech arrives well after the
+> reply reads as finished, so a second line sounds like it never came. No further voice-plumbing
+> investigation is warranted on that evidence. **If speech latency becomes the complaint, that is a
+> BRAIN latency problem, not a voice one** — look at `QuarkOnDeviceBrain`, not at the TTS path.
+>
+> **The real defect: output level (FIXED).** QUARK-H2 came out at ~0.3x the Android TTS placeholder.
+> Not a routing or stream-volume difference — both engines land on the same output — it is the samples
+> themselves: Kokoro renders well below full scale, and `playBlocking` wrote its floats to the track
+> verbatim, while Android's TTS does its own levelling on the way out. So `SherpaKokoroVoiceEngine`
+> now does the levelling it was not doing, in a new `levelise()` pass.
+>
+> **Why RMS-targeted and not a fixed multiplier.** A constant gain fixes this one model and breaks on
+> the next voice, and leaves loud and quiet lines uneven against each other. Instead: measure the
+> clip's RMS, gain toward `TARGET_RMS` (0.14, a normal speech level for float PCM), then clamp so the
+> loudest peak still lands under `PEAK_CEILING` (0.97) — so it can never clip, which on a voice reads
+> as harsh crackle and would be a worse defect than being quiet. `MAX_GAIN` (8x) stops near-silence —
+> a breath, a trailing consonant — being amplified into hiss. A clip already at level skips the pass
+> entirely.
+>
+> **It reports itself, same discipline as last round.** `VoiceEngine` gains `lastLevelInfo`, and the
+> LOG line now carries the gain actually applied: `VOICE: QUARK-H2 · TTS_START 412ms · PLAYBACK 1830ms
+> · GAIN 4.2x`. So "still too quiet" is answerable with a number instead of another guess — if the
+> gain reads near `MAX_GAIN` the ceiling wants raising; if it reads ~1.0x the samples were already hot
+> and the problem is elsewhere. Android TTS reports nothing here, correctly — it levels itself.
+>
+> **Director actions required (Fold 6):**
+> 1. Trigger several QUARK lines and judge loudness against the PLACEHOLDER identity (flip it in
+>    QUARK's config panel to A/B them back to back). They should now sit at comparable level.
+> 2. Listen for clipping or crackle on her louder lines specifically — that is the failure mode this
+>    trade-off risks, and it is the one thing worth catching early.
+> 3. Read one `VOICE:` LOG line and report the `GAIN` figure. It says how much headroom the fix is
+>    actually using.
+>
+> **Art track — THINKING plate DONE and exported.** Separate track, full detail in
+> `art/quark-avatar/PRODUCTION_LOG.md` Phase 25. SCAN *is* the THINKING state and its shipped prompt
+> literally said "brows a fraction drawn in", so this was a revision of that plate, not a new state.
+> **Director picked candidate B at denoise 0.30** — d42 and d52 were rejected as "a villain smirk".
+> Exported to `art/quark-avatar/export/state/scan_keyed.png`; the furrowed plate is recoverable from
+> commit `bf51aac`. Candidate C (tongue against the cheek) is a **negative result** — three renders
+> across two prompt formulations produced no visible change; it needs a different tool, not a higher
+> denoise. Two things worth carrying forward: the **shared crop box was undocumented and is now
+> recovered** (`--keep-base --box=121,40,900,996`, verified at IoU 0.9989 against the shipped set —
+> any future state plate must use it), and the neck-glow concern flagged last round **was measured
+> and did not hold**, so no re-render round was spent on it.
+>
+> **Correction, and the work it turned into.** This log said last round that the keyed plates were
+> "not referenced from any Kotlin or Gradle file yet". **That was wrong** — it came from grepping for
+> `keyed`, and the installed copies are RENAMED: `quark-avatar/src/main/res/drawable-nodpi/`
+> `quark_state_*.png` (bust) and `quark_body_*.png` (body), referenced from `QuarkState.kt:59-73`.
+> The plates ship. So the export alone changed nothing on device, and the work was finished properly:
+>
+> * **Bust set:** the new `scan_keyed.png` copied through to `quark_state_scan.png` — the step that
+>   was actually missing. Registration held: scan/idle silhouette IoU **0.9970**.
+> * **Body set — which is the DEFAULT presentation** (PRODUCTION_LOG Phase 18), and still carried the
+>   furrowed SCAN. Re-rendered from `QUARK_HOLOGRAM_FRONT.png` with the same `think_b` prompt at
+>   denoise 0.30 (the state prompts name the face and the accent glow, never the framing, which is
+>   why they transfer across framings), then re-keyed through `body_state_key.py`. Shared box came
+>   back **(227, 26, 793, 1024) → 566×998**, identical to the installed set, so registration is
+>   unchanged; residual spill **0.000%** on all four; scan/idle IoU **0.9958**.
+> * **Verified in the APK, not assumed:** both `quark_state_scan.png` and `quark_body_scan.png` are
+>   present inside `app-debug.apk` and byte-identical (md5) to the source files. Worth checking
+>   because the rebuilt APK came out the same byte size as the previous one — a coincidence of PNG
+>   compression, not a stale package.
+>
+> Sheets: `renders/state/state_set_after_thinking.png` (bust) and `body_set_after_thinking.png` (body).
+> The furrow is gone from both sets and SCAN still reads apart from IDLE and HAPPY in both.
+>
+> **Core Apps Polish Pass leftovers — the off-device half is done; the rest genuinely needs the
+> Fold 6.** Of the three outstanding items, two are visual/behavioural judgements that only hardware
+> can settle (icon legibility through the live AGSL CRT shader; SIGNAL decoding against a loaded
+> on-device brain). What could be checked statically was:
+>
+> * **Glyph completeness — PASS.** All **42** `Glyph` values have a real draw branch in
+>   `QuantumIcon`, and the `when` has **no `else` fallthrough** — so no glyph can silently render as
+>   nothing. That is the one legibility failure mode provable without a screen; the rest is eyes.
+> * **Idle-redraw audit — two real violations found, in FILES.** Repo-wide sweep for
+>   `rememberInfiniteTransition` / `infiniteRepeatable` / `withFrameNanos` / `while (true)`. Almost
+>   everything is correctly gated — `QuarkMascot`'s per-posture transitions exist only while that
+>   posture is active, `PulseDot` is a bounded one-shot decay, `BeaconFlag`'s blink is mounted only
+>   while Beacon is on, AUDIO's vinyl spin only while playing. **But `FileExplorerViewModel` has
+>   two unconditional `viewModelScope` loops:**
+>   * `startUptimeClock()` (`:385`) ticks **every 1s** and writes a Compose state — a 1 Hz
+>     recomposition for as long as FILES is alive, at rest.
+>   * `monitorBattery()`'s core-temperature block (`:414`) ticks **every 8s** — and it is
+>     `35 + Random.nextInt(5)`, i.e. **fabricated telemetry**, commented "to make it dynamic and
+>     rustic". That contradicts B4's whole direction (QUARK reads the real unit) and COMMS' own rule
+>     that satellite links are "a static seeded snapshot, not a ticking while(true) fake-drift loop".
+>
+>   **Both flagged, neither fixed** — per the standing "flag, don't silently lock" rule. The uptime
+>   tick is a genuine design fork (a clock arguably *should* tick; the house rule says static at
+>   rest), and the fake temperature is a behaviour change in a module this round was not scoped to.
+>   Director's call on both.
+>
+> **Disk — DONE. 2.9 GB free → 15.66 GB free, 12.76 GB reclaimed.** The machine was at 2.9 GB of
+> 921 GB. The emulator was running and holding its images open, so it was stopped first (`adb emu
+> kill`); it is down and `emulator -list-avds` confirms the remaining AVD is intact afterwards.
+>
+> * **qcow2 compaction — 5.04 GB** (`userdata-qemu.img.qcow2`, 13.90 → 8.86 GB). This is the answer
+>   to the Director's actual question, "can the cache generated from usage be compressed": **yes.**
+>   The file was 14 GB backing a 10 GB virtual disk — bigger than the disk it represents — because a
+>   qcow2 never returns freed clusters on its own and it was also carrying an internal `default_boot`
+>   snapshot. Dropped the internal snapshot, then `qemu-img convert -O qcow2 -B userdata-qemu.img` to
+>   rewrite it compactly with the backing chain preserved. Verified before swapping: `qemu-img check`
+>   clean, `corrupt: false`, virtual size and backing file both unchanged. No data loss — every app
+>   and all state in the emulator is still there.
+> * **Quick-boot snapshot — 4.03 GB** (`snapshots/default_boot/`, mostly a 4 GB `ram.img`). Pure
+>   cache; regenerates on next boot. **Cost: the next emulator start is a slow cold boot.**
+> * **Unused `Elona_arm64` AVD + its android-35 arm64 system image — 3.78 GB.** Director-approved.
+>   It had never been booted (1 file, 0 MB of its own) and was the only referrer of that image;
+>   `Pixel_10a` uses android-37.1 x86_64 and is untouched.
+>
+> **Where the remaining space actually is, so nobody re-runs this expecting more:** the compacted
+> image reports **88.55% allocated** — those 8.9 GB are genuine data inside the emulator, not slack.
+> Compaction cannot free them; only a userdata wipe can, and the Director declined that (it would
+> destroy every app installed in the emulator). **Repeat this maintenance after heavy emulator use,
+> not before.** Repo `build/` output (~0.75 GB) was deliberately left alone — it is the offline build
+> cache that makes local `assembleDebug` fast, and it costs less than it saves.
+
+---
+
+## ▶ Prior milestone (Fold 6 round 2 — Kokoro volume, THINKING plate, disk reclaim)
 **Current milestone:** Fold 6 defect round — two findings from the Core Apps Polish Pass sideload
 test. Finding 1 (QUARK's phosphor switch not reaching the docked modules) is **root-caused and
 fixed**. Finding 2 (QUARK's voice worked once, then stopped) is **not root-caused** — it could not

@@ -153,6 +153,6 @@ private fun SettingCycleRow(
         Text(label.padEnd(18), color = dimColor, fontFamily = Fonts.ChakraPetch, fontSize = 13.sp)
         Text(": $value", color = color, fontFamily = Fonts.ChakraPetch, fontSize = 13.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
-        Text("►", color = color, fontFamily = Fonts.ChakraPetch, fontSize = 13.sp)
+        QuantumIcon(Glyph.Forward, color, size = 13.dp)
     }
 }

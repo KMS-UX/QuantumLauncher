@@ -14,6 +14,11 @@ import androidx.compose.ui.unit.sp
 import com.quantumos.appshell.Fonts
 import com.quantumos.appshell.Phosphor
 import com.quantumos.audio.AudioChannel
+import com.quantumos.appshell.Glyph
+import com.quantumos.appshell.QuantumIcon
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.Alignment
 
 /*
  * AUDIO's own internal channel strip -- the "strip" of the App Shell's strip -> content -> action-
@@ -37,20 +42,39 @@ fun ChannelTabs(
     ) {
         AudioChannel.entries.forEach { ch ->
             val active = ch == current
-            val label = if (ch == AudioChannel.RECORDER && isRecording) "${ch.displayName} ●" else ch.displayName
-            Text(
-                text = if (active) "[$label]" else " $label ",
-                color = when {
-                    ch == AudioChannel.RECORDER && isRecording -> Phosphor.Warn
-                    active -> themeColor
-                    else -> dimColor
-                },
-                fontFamily = Fonts.ChakraPetch,
-                fontSize = 10.sp,
+            val recording = ch == AudioChannel.RECORDER && isRecording
+            val tint = when {
+                recording -> Phosphor.Warn
+                active -> themeColor
+                else -> dimColor
+            }
+            // The live-recording mark was a bare "●" appended to the label. It is a drawn Dot
+            // now, which means the bracket pair -- the house selection affordance -- has to sit
+            // either side of a composable rather than inside one string. The whole tab stays ONE
+            // click target: the clickable moved up to this Row, so nothing shrank.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clickable { onSelect(ch) }
-                    .padding(horizontal = 4.dp, vertical = 4.dp)
-            )
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = if (active) "[${ch.displayName}" else " ${ch.displayName}",
+                    color = tint,
+                    fontFamily = Fonts.ChakraPetch,
+                    fontSize = 10.sp,
+                )
+                if (recording) {
+                    Spacer(Modifier.width(4.dp))
+                    QuantumIcon(Glyph.Dot, Phosphor.Warn, size = 7.dp)
+                }
+                Text(
+                    text = if (active) "]" else " ",
+                    color = tint,
+                    fontFamily = Fonts.ChakraPetch,
+                    fontSize = 10.sp,
+                )
+            }
         }
     }
 }

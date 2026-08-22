@@ -56,6 +56,7 @@ fun QuarkPlateView(
     stealthDim: Float,
     framingScale: Float = 1f,
     baseOverhang: Float = 0.17f,
+    baseHeightFill: Float = 1f,
     materialise: MaterialiseFrame = MATERIALISE_SETTLED,
     modifier: Modifier = Modifier,
 ) {
@@ -107,8 +108,28 @@ fun QuarkPlateView(
         // FRAMING control that produced four pixel-identical screenshots because every setting was
         // silently clamped back to the viewport width. `requiredWidth` ignores the incoming max;
         // the caller clips what overflows.
-        val plateWidth = maxWidth * framingScale
-        val plateHeight = plateWidth / aspect
+        // C2 -- the fold.
+        //
+        // The bug: sizing purely off WIDTH assumes a tall narrow viewport. These plates are far
+        // taller than they are wide, so height is the dependent variable, and on the Fold 6's INNER
+        // display (~2160x1856) `maxWidth / aspect` asks for a BODY plate about **twice the screen
+        // height** -- her head leaves the frame entirely and the Operator is looking at a torso.
+        // Landscape does the same. Measured arithmetically, not guessed.
+        //
+        // The fix clamps the BASE size and then lets FRAMING scale that result, rather than clamping
+        // the final size. Clamping last would have made FRAMING a dead control on the inner screen --
+        // every step would hit the same ceiling and render identically, which is precisely the
+        // "four pixel-identical screenshots" defect this file already warns about a few lines down.
+        //
+        // `baseHeightFill` is the fraction of viewport height QUARK occupies at FRAMING 100%, and it
+        // is taken from what the tuned 1080x2424 screen already produces -- so on that screen the
+        // clamp does not bind at any reachable setting and the approved framing is bit-for-bit
+        // unchanged, while a wide viewport gets the SAME PROPORTIONS the Director already signed off
+        // rather than a different composition. The trailing 0.99 is a hard backstop so no
+        // combination can exceed the viewport.
+        val baseHeight = minOf(maxWidth / aspect, maxHeight * baseHeightFill)
+        val plateHeight = minOf(baseHeight * framingScale, maxHeight * 0.99f)
+        val plateWidth = plateHeight * aspect
         Image(
             painter = painter,
             contentDescription = contentDescription,

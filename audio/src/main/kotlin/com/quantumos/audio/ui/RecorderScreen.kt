@@ -52,6 +52,7 @@ import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
 import com.quantumos.appshell.QuantumIcon
 import com.quantumos.audio.AudioViewModel
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * RECORDER -- AUDIO's default/primary screen (matches the source app's already-correct
@@ -179,12 +180,14 @@ fun RecorderScreen(
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text(
-                        text = if (isRecordingState) "▲ REC ACTIVE" else "■ STANDBY",
-                        color = if (isRecordingState) Phosphor.Warn.copy(alpha = pulseAlpha) else themeColor,
+                    GlyphLabel(
+                        glyph = if (isRecordingState) Glyph.Record else Glyph.Stop,
+                        text = if (isRecordingState) "REC ACTIVE" else "STANDBY",
+                        tint = if (isRecordingState) Phosphor.Warn.copy(alpha = pulseAlpha) else themeColor,
+                        font = Fonts.ChakraPetch,
                         fontSize = 10.sp,
-                        fontFamily = Fonts.ChakraPetch,
-                        fontWeight = FontWeight.Bold
+                        iconSize = 10.dp,
+                        fontWeight = FontWeight.Bold,
                     )
                     Text(
                         text = "BUFFER: $recordingTimeState",

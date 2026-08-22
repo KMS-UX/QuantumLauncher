@@ -61,6 +61,11 @@ import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.quantumos.appshell.Glyph
+import com.quantumos.appshell.GlyphLabel
+import com.quantumos.appshell.QuantumIcon
+import com.quantumos.appshell.Fonts
+import androidx.compose.foundation.layout.offset
 
 enum class DialMode(val label: String, val desc: String) {
     EXP("EXP", "EXPOSURE PARAMETERS"),
@@ -585,30 +590,33 @@ fun CameraFeedAndDashboard(
             Box(
                 modifier = Modifier
                     .offset(
-                        x = (offset.x / androidx.compose.ui.platform.LocalDensity.current.density).dp - 24.dp,
-                        y = (offset.y / androidx.compose.ui.platform.LocalDensity.current.density).dp - 24.dp
+                        x = (offset.x / androidx.compose.ui.platform.LocalDensity.current.density).dp - 28.dp,
+                        y = (offset.y / androidx.compose.ui.platform.LocalDensity.current.density).dp - 28.dp
                     )
-                    .size(48.dp)
+                    .size(56.dp)
                     .border(1.dp, themeColor, androidx.compose.foundation.shape.CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                // Center dot
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .background(themeColor, androidx.compose.foundation.shape.CircleShape)
-                )
-                // Text label below
+                /*
+                 * The reading sits INSIDE the ring (Fold 6, Director call).
+                 *
+                 * It used to hang below the reticle on an opaque CRT plate, and that plate is the
+                 * "black square block" flagged on device: it is a filled rectangle dropped over the
+                 * live viewfinder at exactly the moment the Operator is looking at what they just
+                 * tapped, so it occluded the subject being ranged. There is also no reason for a
+                 * rangefinder to print anything outside its own reticle.
+                 *
+                 * No fill, no centre dot: the ring's own centre is the tap point, and the figure
+                 * reads against the viewfinder because it is phosphor on a scene the CRT treatment
+                 * has already darkened. The word TARGET is dropped -- a ranging reticle with a
+                 * distance in it does not need to announce that it is one, and the house voice is
+                 * terse. Ring grew 48 -> 56dp so the figure has room without crowding the border.
+                 */
                 Text(
-                    text = "TARGET: ${String.format("%.1f", simulatedSubjectDistance)}m",
+                    text = "${String.format("%.1f", simulatedSubjectDistance)}m",
                     color = themeColor,
-                    fontSize = 8.sp,
+                    fontSize = 11.sp,
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .offset(y = 12.dp)
-                        .background(Phosphor.Crt.copy(alpha = 0.85f), androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
-                        .padding(horizontal = 4.dp, vertical = 1.dp)
                 )
             }
         }
@@ -930,13 +938,16 @@ fun CameraFeedAndDashboard(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         listOf(0.7f, 1.2f, 2.0f, 5.0f, 10.0f).forEach { fd ->
+                                            // "∞" was a bare Unicode character resolved by font
+                                            // fallback. It is a drawn glyph now -- see ScaleTile.
                                             val label = when (fd) {
                                                 0.7f -> "0.7m"
                                                 1.2f -> "1.2m"
                                                 2.0f -> "2.0m"
                                                 5.0f -> "5.0m"
-                                                else -> "∞"
+                                                else -> ""
                                             }
+                                            val glyph = if (fd > 5.0f) Glyph.Infinity else null
                                             val isSelected = Math.abs(activeFocusDistance - fd) < 0.05f
                                             Box(
                                                 modifier = Modifier
@@ -947,11 +958,10 @@ fun CameraFeedAndDashboard(
                                                     .padding(vertical = 4.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(
-                                                    label,
-                                                    color = if (isSelected) Phosphor.Crt else themeColor,
-                                                    fontSize = 7.5.sp,
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                ScaleTile(
+                                                    glyph = glyph,
+                                                    label = label,
+                                                    tint = if (isSelected) Phosphor.Crt else themeColor,
                                                 )
                                             }
                                         }
@@ -1006,11 +1016,28 @@ fun CameraFeedAndDashboard(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         listOf(0.7f, 1.5f, 3.5f, 10.0f).forEach { sd ->
+                                            // These four were COLOUR EMOJI -- cherry blossom, bust
+                                            // in silhouette, bicyclist, snow-capped mountain -- i.e.
+                                            // vendor artwork in full colour, inside a phosphor
+                                            // viewfinder. The drawn set replaces them with one
+                                            // family that reads as a RAMP: the same subject mark
+                                            // receding as the distance grows.
                                             val label = when (sd) {
-                                                0.7f -> "🌸 0.7m"
-                                                1.5f -> "👤 1.5m"
-                                                3.5f -> "🚴 3.5m"
-                                                else -> "🏔️ ∞"
+                                                0.7f -> "0.7m"
+                                                1.5f -> "1.5m"
+                                                3.5f -> "3.5m"
+                                                else -> ""
+                                            }
+                                            // The far tile is FocusLandscape, not Infinity: this is
+                                            // the SUBJECT scale, so it completes the receding-figure
+                                            // ramp (macro -> portrait -> mid -> horizon). Infinity is
+                                            // reserved for the FOCUS-DISTANCE scale above, where the
+                                            // terminus is a numeric value rather than a subject.
+                                            val glyph = when (sd) {
+                                                0.7f -> Glyph.FocusMacro
+                                                1.5f -> Glyph.FocusPortrait
+                                                3.5f -> Glyph.FocusMid
+                                                else -> Glyph.FocusLandscape
                                             }
                                             val isSelected = !useSensorForSubjectDistance && Math.abs(simulatedSubjectDistance - sd) < 0.1f
                                             Box(
@@ -1025,11 +1052,11 @@ fun CameraFeedAndDashboard(
                                                     .padding(vertical = 4.dp),
                                                 contentAlignment = Alignment.Center
                                             ) {
-                                                Text(
-                                                    label,
-                                                    color = if (isSelected) Phosphor.Crt else themeColor,
-                                                    fontSize = 7.5.sp,
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                ScaleTile(
+                                                    glyph = glyph,
+                                                    label = label,
+                                                    tint = if (isSelected) Phosphor.Crt else themeColor,
+                                                    labelGlyph = if (sd > 3.5f) Glyph.Infinity else null,
                                                 )
                                             }
                                         }
@@ -1046,11 +1073,10 @@ fun CameraFeedAndDashboard(
                                                 .padding(vertical = 4.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            Text(
-                                                "📱 TILT",
-                                                color = if (isSensorSelected) Phosphor.Crt else themeColor,
-                                                fontSize = 7.5.sp,
-                                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                            ScaleTile(
+                                                glyph = Glyph.Tilt,
+                                                label = "TILT",
+                                                tint = if (isSensorSelected) Phosphor.Crt else themeColor,
                                             )
                                         }
                                     }
@@ -1186,7 +1212,7 @@ fun CameraFeedAndDashboard(
                                                             contentAlignment = Alignment.Center
                                                         ) {
                                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                                Text("⚗️", color = themeColor, fontSize = 12.sp)
+                                                                QuantumIcon(Glyph.Develop, themeColor, size = 12.dp)
                                                                 Text("DEV", color = themeColor, fontSize = 6.sp, fontWeight = FontWeight.Bold)
                                                             }
                                                         }
@@ -1215,9 +1241,15 @@ fun CameraFeedAndDashboard(
                                                         Text(String.format("%.2fN", log.latitude), color = themeColor.copy(alpha = 0.6f), fontSize = 6.sp)
                                                         Text(String.format("%.2fE", log.longitude), color = themeColor.copy(alpha = 0.6f), fontSize = 6.sp)
                                                         if (isCurrentlyDeveloping) {
-                                                            Text("⚗️ PROCESSING", color = themeColor, fontSize = 5.5.sp, fontWeight = FontWeight.Bold)
+                                                            GlyphLabel(
+                                                                Glyph.Develop, "PROCESSING", themeColor, Fonts.ChakraPetch,
+                                                                fontSize = 5.5.sp, iconSize = 6.dp, fontWeight = FontWeight.Bold,
+                                                            )
                                                         } else {
-                                                            Text("⚗️ DEVELOP", color = themeColor, fontSize = 5.5.sp, fontWeight = FontWeight.SemiBold)
+                                                            GlyphLabel(
+                                                                Glyph.Develop, "DEVELOP", themeColor, Fonts.ChakraPetch,
+                                                                fontSize = 5.5.sp, iconSize = 6.dp, fontWeight = FontWeight.SemiBold,
+                                                            )
                                                         }
                                                     }
                                                 }
@@ -1246,23 +1278,25 @@ fun CameraFeedAndDashboard(
                         }
                     }
                 }
-            }
-
-            // 3. METICULOUS VINTAGE ROTARY DIAL (Mode Swapper - Shrunken slightly to 76.dp and moved slightly inward)
+                // MODE DIAL -- mounted on this console's top-right corner.
             Box(
-                modifier = (if (isLandscape) {
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 48.dp, end = 24.dp)
-                        .size(76.dp)
-                } else {
-                    Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 4.dp)
-                        .size(76.dp)
-                })
-                .background(Phosphor.Crt.copy(alpha = 0.9f), CircleShape)
-                .border(2.dp, themeColor, CircleShape)
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    // Mounted ON this console's top-right corner (Fold 6, Director call).
+                    //
+                    // It was a SIBLING of the console aligned to CenterEnd of the whole screen,
+                    // which floated a 76dp opaque disc straight across the SENSOR ISO row and the
+                    // CORE SYMMETRY readout. Moving it inside the console Box is what makes
+                    // "attached to the corner" possible at all: as a sibling it could not know where
+                    // that corner was, because the console's height depends on the active dial mode.
+                    //
+                    // The offset pushes it out past the corner so roughly a quarter of the dial is
+                    // over the panel and the rest is clear of it -- a control emerging from the
+                    // chassis, which is the Leica-body read this module is built on.
+                    .offset(x = 30.dp, y = (-34).dp)
+                    .size(72.dp)
+                    .background(Phosphor.Crt.copy(alpha = 0.9f), CircleShape)
+                    .border(2.dp, themeColor, CircleShape)
                 .clickable {
                     // Tap on dial to cycle mode with a retro feel
                     val modes = DialMode.values()
@@ -1307,10 +1341,12 @@ fun CameraFeedAndDashboard(
                         strokeWidth = 2.dp.toPx()
                     )
 
-                    // Render tick marks of the dial
-                    val steps = 12
+                    // Tick marks: a THREE-QUARTER sweep, not a full turn. The gap faces the panel
+                    // corner the dial is mounted on, so the ring reads as a control emerging from
+                    // the chassis rather than a disc laid on top of it.
+                    val steps = 9
                     for (i in 0 until steps) {
-                        val tickAngle = (i * (360f / steps))
+                        val tickAngle = 45f + (i * (270f / (steps - 1)))
                         val tickRad = Math.toRadians(tickAngle.toDouble())
                         val tickStart = radius * 0.82f
                         val tickEnd = radius * 0.95f
@@ -1339,7 +1375,7 @@ fun CameraFeedAndDashboard(
                     Text("TAP DIAL", color = themeColor.copy(alpha = 0.5f), fontSize = 6.sp)
                 }
             }
-
+            }
 
         }
 
@@ -1551,6 +1587,34 @@ fun CameraFeedAndDashboard(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/*
+ * One tile of a viewfinder scale: an optional drawn glyph above its label.
+ *
+ * These tiles are ~7.5sp text inside a `weight(1f)` cell, so the glyph goes ABOVE the number rather
+ * than beside it -- side by side there is not enough width for both to stay legible, and the number
+ * is the thing being read. When there is no glyph this is exactly the Text it replaced.
+ */
+@Composable
+private fun ScaleTile(glyph: Glyph?, label: String, tint: Color, labelGlyph: Glyph? = null) {
+    if (glyph == null && labelGlyph == null) {
+        Text(label, color = tint, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
+    } else {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            if (glyph != null) QuantumIcon(glyph, tint, size = 9.dp)
+            when {
+                // [labelGlyph] occupies the row the NUMBER occupies on every other tile. The far
+                // subject tile has no distance to print, and leaving it blank made it the one tile
+                // in the row with a single element -- flagged on the Fold 6 as looking unfinished
+                // beside its siblings. A drawn infinity mark fills that row, so the tile keeps the
+                // two-element rhythm and says what it means.
+                labelGlyph != null -> QuantumIcon(labelGlyph, tint, size = 10.dp)
+                label.isNotEmpty() ->
+                    Text(label, color = tint, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
             }
         }
     }

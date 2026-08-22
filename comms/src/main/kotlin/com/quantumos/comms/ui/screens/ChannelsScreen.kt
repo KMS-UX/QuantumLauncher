@@ -34,6 +34,7 @@ import com.quantumos.appshell.QuantumIcon
 import com.quantumos.comms.CommsUiState
 import com.quantumos.comms.CommsViewModel
 import com.quantumos.comms.ui.components.LivePulseDot
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * The transmission-log redesign (Core Apps Fix-Pass, Decision 86): a single-column callsign log,
@@ -131,12 +132,10 @@ private fun TransmissionThread(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "◄ CHANNELS",
-                color = dim,
-                fontFamily = Fonts.ChakraPetch,
-                fontSize = 11.sp,
-                modifier = Modifier.clickable { onBack() }
+            GlyphLabel(
+                Glyph.Back, "CHANNELS", dim, Fonts.ChakraPetch,
+                fontSize = 11.sp, iconSize = 11.dp,
+                modifier = Modifier.clickable { onBack() },
             )
             Spacer(Modifier.width(14.dp))
             Text(

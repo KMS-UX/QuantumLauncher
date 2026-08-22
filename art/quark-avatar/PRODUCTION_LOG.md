@@ -1046,96 +1046,363 @@ different tool (a posed reference to edit toward, or an inpaint masked to the mo
 higher number in this script. Recorded rather than quietly dropped so nobody re-runs it in three
 months.
 
-### One thing worth watching on whichever candidate wins
+### Director's pick, and what shipped
 
-The `PRESERVE` clause holds identity, hair, headband and framing well at every denoise tried — no
-repeat of the Phase 12 WARN drift. But the **cyan neck-circuit glow varies noticeably between
-candidates**, and the prompts all ask for it to be brighter. A at d30 comes back with the weakest
-neck glow of the set, weaker than the shipped SCAN plate. That is a plate-consistency issue, not an
-expression one, and it wants a look before the winner gets keyed and exported — the four state
-plates have to sit in one set.
+**B at denoise 0.30.** d42 and d52 were rejected in the Director's words as "a villain smirk" — which
+is the same register warning this entry already flagged from the other side, confirmed from the
+chair. So the shipped plate is the one where the smirk instruction only *partly* lands: lips closed
+and set, with a faint asymmetric lift at her right corner. Not the broad half-smirk B was written
+for; a considering mouth. It is distinct from IDLE (whose mouth is fuller and softer) and from HAPPY
+(which lifts both corners), so the four plates still read apart — checked on the set sheet, not
+assumed. **The brows are relaxed and level. The furrow is gone**, which was the entire brief.
+
+Exported to `export/state/scan_keyed.png`, replacing the furrowed plate. The old one is recoverable
+from git (commit `bf51aac`) if the Director wants it back.
+
+### The neck-glow concern was measured, and it was wrong
+
+This entry originally flagged, by eye, that candidate A came back with a weaker neck glow than the
+shipped plate and that the winner would need a glow-matching re-render. **Measured, that does not
+hold**, and the re-render round was not needed. Percentage of strongly-cyan pixels in the neck band
+(`G-R > 40`, alpha-masked), and mean `G-R` across that band:
+
+| plate | glow px | mean G−R |
+|---|---|---|
+| IDLE (shipped) | 20.28% | 34.71 |
+| SCAN (shipped, old) | 39.49% | 44.99 |
+| HAPPY (shipped) | 39.54% | 42.39 |
+| WARN (shipped) | 14.17% | 26.56 |
+| **B d30 (shipped now)** | **36.49%** | **41.21** |
+| A d30 | 35.09% | 40.60 |
+| B d42 / d52 | 29.56% | 37.68 |
+
+B at d30 lands inside the SCAN/HAPPY band. A was never the outlier it looked like. Worth keeping as
+a method note: on this plate set, glow differences are visible to the eye at a magnitude the numbers
+call negligible, and the numbers are the ones to trust — a re-render round was nearly spent on an
+artefact of looking at two images side by side at different moments.
+
+### The shared crop box, recovered — write this down
+
+`chroma_key.py`'s own docstring warns that keying each state independently gives each its own tight
+bbox, so the avatar jumps by a few pixels whenever the state changes, and that a shared box is what
+makes the set register. **The box the shipped set was keyed with was not recorded anywhere.** It is:
+
+    python chroma_key.py <src.png> <dst.png> --keep-base --box=121,40,900,996
+
+Recovered empirically rather than guessed: the candidate's own natural bbox is `(121, 40, 900, 936)`
+— same width and scale as the set, but 60px shorter, because the default `BASE_CUT_FRACTION` of
+0.915 cuts at row 936 while the set was cut at 996 (≈ 0.973). Sliding the candidate's alpha mask
+against the shipped `scan_keyed.png` over a ±120px search found the registration at **IoU 0.9989**,
+which pins the box exactly. The exported plate then measures **IoU 0.9970 against `idle_keyed.png`**
+— i.e. it registers with the set. Any future state plate must use this box.
+
+### Installed — and the export was not the last step
+
+Worth writing down because it was nearly missed: the state plates ship as **renamed drawables**, not
+as the `*_keyed.png` exports. `quark-avatar/src/main/res/drawable-nodpi/quark_state_*.png` (bust) and
+`quark_body_*.png` (body), referenced from `QuarkState.kt:59-73`. Exporting `scan_keyed.png` alone
+changes nothing on device.
+
+So both sets were finished:
+
+* **Bust** — new plate copied through to `quark_state_scan.png`. scan/idle silhouette IoU **0.9970**.
+* **Body** — this is the **default presentation** (Phase 18) and still had the furrowed SCAN.
+  Re-rendered from `QUARK_HOLOGRAM_FRONT.png` with the same `think_b` prompt at denoise 0.30 and
+  re-keyed via `body_state_key.py` (its `GENERATED["scan"]` now points at the new render). The
+  recomputed shared box came back **(227, 26, 793, 1024) → 566×998** — identical to the installed
+  set, so nothing shifted; residual spill **0.000%** on all four; scan/idle IoU **0.9958**.
+* Both confirmed present and byte-identical inside `app-debug.apk`. The rebuilt APK is the same byte
+  size as the previous one — a PNG-compression coincidence, checked rather than trusted.
+
+The same prompt transferring cleanly across two framings is the Phase 12 claim holding up: the state
+prompts name the face and the accent glow, never the framing.
 
 ### Not done here
 
-The winner is **not keyed or exported**. `chroma_key.py` has not been run on any candidate and
-`export/state/scan_keyed.png` is untouched, because keying the wrong one wastes the step and the
-pick is the Director's. Once chosen: re-run at the picked denoise, key it, replace `scan_keyed.png`.
+Candidate C is not resolved and is not going to be by this pipeline (see above). Nothing else in the
+state set was touched: IDLE, HAPPY and WARN are the shipped plates, unmodified. The AGSL overlay
+shader tints the emissive accent live from `PhosphorHueRuntime`, so no per-hue variant of the new
+plate exists or is needed.
+
+Comparison sheets: `renders/state/thinking_candidates_sheet.png` (the six candidates) and
+`renders/state/state_set_after_thinking.png` (the four shipped plates as they now stand).
+
+---
+
+## Phase 26 — C2, the fold: the framing was not "untuned", it was width-driven
+
+The priority list called this "FRAMING, baseOverhang and the housing fractions are all tuned on one
+1080x2424 portrait — never looked at on either Fold screen." Looking at it, the problem is not that
+the numbers are untuned for a second screen. **The sizing rule itself only works on a tall narrow
+viewport**, and fails structurally on anything else.
+
+`QuarkPlateView` sized QUARK purely off viewport WIDTH: `plateWidth = maxWidth * framingScale`. These
+plates are much taller than they are wide, so height is the dependent variable. Computed:
+
+| viewport | BODY @100% plate height |
+|---|---|
+| 1080x2424 (the tuned screen) | 0.79 of screen — fine |
+| ~2160x1856 (Fold 6 inner) | **2.05x screen height** — head off-frame |
+| 2424x1080 (landscape) | **3.96x screen height** — torso only |
+
+On the inner display the Operator would have been looking at a chest.
+
+### Clamp the BASE, not the result
+
+The obvious fix — cap the final plate height — was written, then rejected before it shipped: it makes
+FRAMING a **dead control** on the inner screen, because both steps hit the same ceiling and render
+identically. That is precisely the "four pixel-identical screenshots" defect `QuarkPlateView` already
+carries a warning comment about, from when every setting was being silently clamped to the viewport
+width. Re-introducing it one line below that warning would have been poor.
+
+So the clamp applies to the base size and FRAMING scales the result:
+
+    baseHeight  = min(maxWidth / aspect, maxHeight * baseHeightFill)
+    plateHeight = min(baseHeight * framingScale, maxHeight * 0.99)
+
+`RenderMode.baseHeightFill` is **derived, not eyeballed**: it is what the tuned phone already produces
+at FRAMING 100% (BODY 0.786, BUST 0.547), rounded a hair up so float equality cannot make the clamp
+bind there. BODY 0.80, BUST 0.56.
+
+### Verified across three viewports, at every reachable setting
+
+Not just the defaults. A first attempt used 0.86/0.76 and **silently clamped BODY@125%** — a framing
+the Director can reach from the control — on the very screen it was supposed to leave alone. Caught by
+computing all four mode×framing combinations rather than checking the default one:
+
+* **Tuned phone: all four unchanged**, bit for bit.
+* **Fold inner / landscape:** QUARK is drawn at the SAME PROPORTION the Director already approved
+  (0.80 / 0.56 of height at 100%), not a different composition — and FRAMING still moves her
+  (0.80 -> 0.99 on the inner screen).
+
+### Not done, flagged
+
+**No `FoldingFeature` / hinge awareness.** On the inner display QUARK is centred, which puts her
+across the hinge. That is a separate problem from the overflow fixed here and a look call on
+hardware. Also untouched: the App Shell chrome (nameplate, channel strip, action rail) has had no
+adaptive pass at all — C2 named the avatar's framing, and that is what this is.
+
+**Deliberately no `WindowSizeClass` dependency.** The priority list suggested one. A continuous clamp
+against the actual measured viewport handles the fold's intermediate and table-top postures, landscape,
+and any future aspect, with no new dependency to resolve — size-class buckets would answer a coarser
+question than the one that was actually broken. Flagged as a deviation from the written plan.
+
+---
+
+## Phase 27 — identity: the trigger goes hologram, the badge comes on-palette
+
+Two pieces of Director reference art landed this round: `reference/QUARKICON_HOLOGRAM.png` (the
+hologram trigger this log has been expecting since Phase 22) and
+`reference/QuantumLauncherIcon_reference.png` (the app badge).
+
+### The trigger swap was measured, not judged
+
+`QuarkTriggerService.IrisView` maps the source luminance→hue through a ColorMatrix, so "does this art
+work as the trigger" is not a taste question -- it is whether the source's LUMINANCE survives being
+collapsed to one channel and shown at 52dp. Both candidates were run through the real matrix at the
+deployed size in all three hues:
+
+| source | coverage | luma spread | std | mean saturation |
+|---|---|---|---|---|
+| current `QUARKIcon` | 76.6% | 176.0 | 58.6 | 0.541 |
+| hologram (new) | 65.6% | 170.3 | 56.4 | **0.709** |
+
+Equivalent under tint; the hologram is better at 78px because its ring geometry and bracket ticks are
+cleaner while the current art's finer internal detail muds. Installed.
+
+**This log's own prediction was wrong and is corrected here.** Phase 22's priority list said a
+hologram source "would drop the tint hack". It does not. The hologram is *more* saturated than the
+art it replaces (0.709 vs 0.541) -- hologram blue is itself a saturated colour -- and it must render
+green and amber as well as cyan regardless. The luminance→hue mapping stays. The win is legibility.
+
+The previous badge is retained at `export/trigger/quark_trigger_classic_256.png`: the Director wants
+a coloured cosmetic/theme pack later, and that art is its natural starting point.
+
+### The badge: flagged first, then rebuilt
+
+The reference is the Director's composition and it is kept -- Q-ring lockup, segmented arcs and
+bracket ticks, hexagon ground, circuit traces inside the ring. What could not ship as delivered:
+measured mean saturation **0.603**, running cyan->magenta->purple over chrome with an Earth-blue
+horizon, against a phosphor-only house rule; app-store gloss against a "used-future" register; a
+strapline illegible at icon size; and its own rounded-square badge, which Android would double-mask.
+Raised with the Director rather than quietly shipped, per this track's standing rule. Their call:
+re-render on-palette.
+
+Also flagged, deliberately not "fixed" in art: the reference strapline reads **QUANTUMOIS PROJECT**,
+not QUANTUMOS. The strapline is dropped from the badge, so the typo never ships -- but the source art
+still carries it.
+
+### Two stages, because diffusion is not exact
+
+* `comfy/app_icon_repalette.py` -- Flux 2 Klein edit, **importing `graph()` from
+  `flux2_state_plates.py`** rather than copying it, so this pipeline still has one graph. Denoise is
+  the whole story again: **0.62 left the chrome, the planet, every line of text and the frame
+  intact**; 0.88 is what actually re-palettes. Higher is safe here in a way it never is on the
+  plates -- there is no facial identity to protect, only a composition.
+* `comfy/app_icon_finish.py` -- everything that has to be exact: crop off the render's own badge
+  frame, re-derive every pixel as luminance x the **exact** locked token, fit the lockup to the
+  66/108dp adaptive safe zone. Result: **0 off-token pixels**, and the Q stays readable under both
+  circle and squircle masks down to 48px.
+
+GREEN ships as `ic_launcher_foreground.png`. AMBER and CYAN are exported to `export/icon/` for the
+theme pack. The old placeholder vector foreground was deleted -- keeping it would have been a
+same-name resource collision against the new nodpi PNG.
+
+Sheets: `renders/icon/app_icon_result.png`, `renders/icon/app_icon_masked_preview.png`,
+`renders/trigger_hologram_compare.png`.
+
+### Where ComfyUI belongs, and where it does not
+
+The Director asked whether ComfyUI should be the icon pipeline. Split answer, recorded so it does not
+get re-litigated: **yes for illustrative badges** -- app icon, trigger medallion, anything painterly
+-- now proven twice. **No for the ~36 UI line glyphs**: those need exact geometry, uniform stroke
+weight, legibility at 12-20dp and live retinting from `PhosphorHueRuntime`. Diffusion gives raster
+approximations with inconsistent stroke weight and no vector. `QuantumIcon`'s Canvas/Path discipline
+stays the route there.
+
+---
+
+## Phase 28 — the badge is centred on what the eye sees, not on its bounding box
+
+Director, end of session: after the strapline and planet came off, the Q sat high with "~20%
+emptiness at the bottom".
+
+### The box was already perfectly centred
+
+Measured on the shipped file before touching anything: ink rows **83..348 in a 432 canvas, centre
+216 — exactly the canvas centre**. So the obvious reading (the fit routine got the maths wrong) was
+wrong, and nudging it by hand would have been fixing a symptom.
+
+What the box did not account for: the bottom third of it is **near-invisible**. The re-palette left
+faint low-alpha residue in the region the wordmark and planet used to occupy — hexagon texture and
+arc ghosts, real ink to `np.where`, nothing to the eye. The BRIGHT mark spanned only rows **90..276,
+centre 183** — 33px above where the numbers said it was centred. The Director was reading the mark;
+the code was reading the bounding box.
+
+### Extent and position are now measured separately
+
+`app_icon_finish.py`'s `fit_safe_zone()` uses two thresholds: the **full-ink box sets the SCALE**, so
+nothing is clipped and the faint arcs still fit the safe zone, and the **bright-ink centroid sets the
+POSITION**, so the lockup lands where it is looked at. Offset clamped so the whole artwork stays on
+the canvas.
+
+**One trap worth recording, because the first attempt fell in it.** The bright set has to be measured
+**after** the downscale, not before. Measured on the full-size render the bright region looks
+centred (bcy/height = 0.504); measured on the 267px art that actually ships it is at 0.376. LANCZOS
+averaging the faint hexagon field toward black at ~3x reduction is the difference — most of that
+field drops below the threshold while the ring survives intact. Measure the pixels that ship.
+
+Result: bright mark **centre_y 216, delta +0** from the canvas centre, 28% clear above and below.
+The full-ink box now sits +32 off centre, which is correct and intended — the faint residue trails
+below the mark and some of it falls outside the mask, which is exactly where it should go. All three
+hues regenerated, **0 off-token pixels** each; verified in `app-debug.apk` by md5 against the source.
+Sheet: `renders/icon/app_icon_centred.png`.
 
 ---
 
 ## ▶ RESUME HERE — next session
 
-**State:** the A and B arc is complete (A1–A3, B1–B4). QUARK lives in the OS: the floating trigger
-opens the Assistant View and that view IS her, full-screen, reading and driving the real engine. The
-first Fold 6 pass has happened and its fixes are in the APK that was handed over.
+**State.** Three Fold 6 rounds have landed since the last resume block, and the identity/icon work is
+now complete end to end. What shipped, newest first:
 
-**You are returning with Fold 6 test results.** Start there — everything below is subordinate to
-what that pass says.
+* **Badge centring** (Phase 28) — above.
+* **Fold 6 round 3** — six defects fixed: RADIO's Material controls replaced with the house idiom
+  (new shared `SteppedSlider` in `:app-shell`), RADIO's carrier-wave meter no longer drawing outside
+  its own canvas (and its needle now shares the arc's pivot), the doubled ring removed from the
+  floating trigger, CAM's focus reading moved inside its reticle, CAM's mode dial mounted on the
+  console corner as a 3/4 dial, and `Glyph.Infinity` redrawn as a real lemniscate.
+* **APPS-grid icon pack** — 25 drawn marks matched by package id, with unrecognised apps falling back
+  to their own icon put through the phosphor luminance map. The grid was the last large off-palette
+  surface in the OS.
+* **The Glyph Sweep** — 40 font-fallback marks across 10 modules replaced with drawn glyphs; verified
+  40 → 0 and still 0 after the RADIO restyle.
+* **Phases 25–27** — THINKING plate (Director's pick: candidate B at denoise 0.30, both bust and body
+  sets), hologram trigger art, app badge re-paletted from the Director's reference.
+
+Full code-side detail lives in `BUILD_LOG.md`'s RESUME HERE; this file keeps the art-track reasoning.
+
+**Everything above is compile-verified and green** (`test` + `assembleDebug`, 86 unit tests, 0
+failures) **and none of it is on-device-verified beyond the round that prompted it.** The Fold 6 is
+still the judge.
 
 ---
 
-### 1. Triage the new Fold 6 results first
+### 1. The batched Fold 6 pass — this is the next session's first job
 
-Re-test specifically what Phase 24 changed, since none of it has been seen on hardware yet:
+It has been deferred three times now and the backlog of unverified work is the largest it has been.
+In rough priority:
 
-- system bars gone on **every** surface, and still gone after folding/unfolding and after returning
-  from another app (the `onWindowFocusChanged` re-hide is the part most likely to be wrong on a
-  foldable)
-- `[ HOLSTER ]` / `[ DEPLOY ]` in the QUARK header
-- `QUARK ▾` → **// VOICE** → `MODEL` row: should read `NOT IMPORTED` in red with the four missing
-  files listed
+1. **RADIO** — does it now read as the same OS as the other modules? And do the stepped bars tune
+   and set volume comfortably by drag? They quantise, so they will feel notchier than the Material
+   pills did. That is intended; whether 32 segments (carrier) and 20 (volume) is the right grain is a
+   feel call only the hand can make.
+2. **CAM** — tap to focus and confirm nothing is occluded; check the corner dial clears both the
+   SENSOR ISO row and the CORE SYMMETRY label; look at the ∞ tiles in both scales.
+3. **The floating trigger against a LIGHT wallpaper as well as a dark one.** The CRT-ground disc is
+   now the only thing separating her from the background, since her ring is gone.
+4. **The APPS grid** — recognised apps should show a themed mark, unrecognised ones their own
+   silhouette in phosphor rather than vendor colour. The failure mode to watch is a very dark icon:
+   little luminance to map means little to see. Report any app whose match is plainly wrong; the
+   rules are heuristic and trivial to extend once real package ids from the Fold are known.
+5. **Icon legibility at 12–20dp across all three hues.** This check finally means something — before
+   the sweep it was testing Android's emoji font, not house art.
+6. **C1's battery number.** Two house-style departures (the 320ms state crossfade, the AMBIENT loop)
+   have been waiting on it for three sessions. Without it that fork rolls again.
 
-### 2. The open defect: phosphor sync — needs a repro, not a guess
+### 2. Then, in rough priority
 
-**Still unreproduced.** Ruled out by inspection (no multi-process; CONFIG exposes the shared flow;
-all nine modules pass `themeColor`; nav threads the hue through) and by testing all three paths on
-the emulator (CONFIG→all, Vitality→all, and cold-launch after `force-stop` — all correct, value
-persisted).
-
-**What is needed to fix it:** which surface the hue was changed FROM, which module showed the wrong
-colour, and whether that module had been opened *before* or *after* the change. With that it is
-likely a short fix. Without it, any change risks breaking a path that currently works.
-
-*(If it turns out to be "the module was already open in the background", the fix is a lifecycle
-resubscribe. If it is "only after the process was killed", look at `SettingsStore` write timing.)*
-
-### 3. The voice model — probably just needs importing
-
-The sherpa native libraries are in the APK for arm64 and the panel now reports exactly what is
-missing. Most likely QUARK-H2 has simply never had its Kokoro model imported. Import it via
-`QUARK ▾` → `[ IMPORT VOICE MODEL ]` and confirm `MODEL: READY`. If it still does not speak with a
-model present, that is a genuinely new bug and worth a session.
-
-### 4. C1 — one command, the moment the Fold 6 is on USB
-
-    python art/quark-avatar/tools/c1_field_measure.py
-
-Produces the AMBIENT battery A/B and frame costs, and refuses to fabricate on an emulator. **This is
-the largest unretired risk on the track** — every number in Phases 15–23 came from a desktop VM.
-Its output decides whether AMBIENT ships on by default.
-
-*It drives CONFIG's dev-preview row, which is therefore load-bearing for measurement — do not retire
-that row without giving the harness another way onto an instrumented surface.*
-
-### 5. Then, in rough priority
-
-- **C2 — the fold.** `FRAMING`, `baseOverhang` and the housing fractions are all tuned on one
-  1080×2424 portrait. The Fold 6 has two very different screens and this has never been looked at
-  on either. A `WindowSizeClass` pass, testable on a resizable emulator.
-- **`QuarkModelConfig.DOWNLOAD_URL` is `""`.** `[ ACQUIRE WEIGHTS ]` cannot download until it is
-  filled in; `PICK FILE` / `IMPORT FILE` work today. A Director decision about where the ~2.6 GB is
+- **The hinge.** C2 fixed the avatar's framing overflow on the inner display, but there is no
+  `FoldingFeature` awareness anywhere: QUARK is centred, which puts her across the fold. Separate
+  problem from the overflow, and a look call on hardware.
+- **The App Shell chrome has had no adaptive pass at all** — nameplate, channel strip, action rail.
+  C2 was scoped to the avatar's framing, which is what it named.
+- **`QuarkModelConfig.DOWNLOAD_URL` is still `""`.** `[ ACQUIRE WEIGHTS ]` cannot download until it
+  is filled in; PICK FILE / IMPORT FILE work today. A Director decision about where ~2.6 GB is
   served from, not something to guess in code.
-- **The two live house-style departures** — the 320 ms state crossfade (style says stepped) and the
-  AMBIENT loop (style says zero idle redraw). Both were asked for, both are behind controls, and
-  both should be confirmed or reverted deliberately rather than drifting into the shipping default.
-  C1's battery number settles the second one.
-- **A hologram version of the trigger icon**, which the Director has flagged as coming. The current
-  badge is the full-colour art phosphor-tinted at draw time; a hologram source would drop the tint
-  hack.
+- **Two dead-vocabulary items.** `Glyph.Shutter` (CAM's shutter is a bespoke Canvas dial) and the
+  `AppGlyph` pack's unreachable entries. The first wants a ruling like `ModeToggle` got; the second
+  is inherent to a third-party pack and is why it is a separate enum.
+- **The QUANTUMOIS typo** is still on `reference/QuantumLauncherIcon_reference.png`. The badge drops
+  the strapline so it never ships, but the source art carries it.
+- **`QuantumLauncherIconRef_NoText` / `_Hologram`** arrived after the badge was already built from
+  the older reference. Both are better sources — no strapline to crop, and the hologram has alpha.
+  Re-running the badge from `_NoText` would drop the frame-cropping step entirely. Not done because
+  the current badge came out clean; worth an hour if the badge is ever revisited.
+- **`AppIconPackRef` has 56 subjects; the pack uses 25.** The rest (Crypto, Stocks, Hotel, Meditation
+  …) have no counterpart in a field multi-tool. If the Director wants broader coverage, extend
+  `PACKAGE_RULES` from real Fold 6 package ids rather than guessing at categories.
 
-### Standing rules set this session
+### 3. Standing notes for whoever picks this up
 
-- **Ship the APK after any major or significant change** for a Fold 6 sideload pass — do not wait to
+- **Local Gradle works** — `JAVA_HOME=C:\Program Files\AdoptOpenJDK\jdk-17.0.0.20-hotspot`, NOT
+  Android Studio's JBR (Java 25, which Gradle 8.9 cannot run on and which fails with a bare,
+  unreadable `25.0.2`). Several earlier sessions wrongly concluded local builds were impossible.
+- **The geometry previews are NOT Compose renders.** `comfy/glyph_geometry_preview.py` and
+  `comfy/app_glyph_preview.py` re-plot the same normalised coordinates in PIL. They are good at
+  catching shape mistakes (they caught `Infinity` reading as "oo", `Settings` reading as a sun, and
+  `Notes`/`News` being the same rectangle) and prove nothing about how Compose draws them.
+- **The state plates ship as RENAMED drawables**, not as the `*_keyed.png` exports:
+  `quark-avatar/src/main/res/drawable-nodpi/quark_state_*.png` and `quark_body_*.png`. Exporting a
+  keyed plate alone changes nothing on device — this was nearly missed once.
+- **The shared crop box for state plates is `--keep-base --box=121,40,900,996`.** It was undocumented
+  and had to be recovered by mask alignment. Any future plate must use it.
+- **ComfyUI's split:** right for illustrative badges (app icon, trigger medallion), wrong for UI
+  glyphs (they need live retinting, exact geometry and uniform stroke weight at 12–40dp). Recorded so
+  it is not re-litigated.
+
+### 4. Standing rules
+
+- **Ship the APK after any major or significant change** for a Fold 6 sideload pass -- do not wait to
   be asked. Recorded in `CLAUDE.md`. The first hardware pass found three defects that nine phases of
   emulator verification had missed.
 - **Nothing is committed.** The Director commits personally.
+- **Flag design forks, do not lock them silently.** Proportion, palette and look calls go to the
+  Director. This session alone that rule caught the app-icon reference's palette conflict, the
+  denoise pick for the THINKING plate, and the FRAMING behaviour on the fold.
+- **Verify with a decisive test, not a plausible fix.** The habit paid for itself repeatedly: the
+  "voice is broken" report was latency and not a voice fault; the neck-glow concern dissolved when
+  measured; the badge's dead space was a bounding box counting invisible ink, not a centring bug.
+
+*(The former resume list -- triage of the Phase 24 hardware pass, the phosphor-sync repro, the voice
+model import, the first C1 run -- is retired: every item in it has since been closed. See Phases
+25-28 and `BUILD_LOG.md` for what replaced them.)*

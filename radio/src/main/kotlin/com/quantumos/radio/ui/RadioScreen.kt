@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -50,6 +49,7 @@ import com.quantumos.radio.ui.components.PresetListColumn
 import com.quantumos.radio.ui.components.SignalStaticCanvas
 import com.quantumos.radio.ui.components.VitalityDropdownConsole
 import com.quantumos.radio.ui.components.VolumeAndStatusCard
+import androidx.compose.foundation.shape.CutCornerShape
 
 /*
  * RadioScreen -- the docked module's main content, replacing the standalone app's RadioAppContent.
@@ -110,7 +110,9 @@ fun RadioScreen(
                 Row(
                     modifier = Modifier
                         .clickable { isVitalityOpen = !isVitalityOpen }
-                        .border(1.dp, themeColor.copy(alpha = 0.6f), RoundedCornerShape(12.dp))
+                        // CutCornerShape, not a 12dp rounded pill: the pill is Material's shape
+                        // language and nothing else in the OS uses one (Fold 6 call).
+                        .border(1.dp, themeColor.copy(alpha = 0.6f), CutCornerShape(4.dp))
                         .background(if (isVitalityOpen) themeColor.copy(alpha = 0.15f) else Color.Transparent)
                         .padding(horizontal = 10.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically

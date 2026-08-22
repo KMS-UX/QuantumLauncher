@@ -42,6 +42,7 @@ import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.QuantumIcon
 import com.quantumos.files.viewmodel.FileExplorerViewModel
 import com.quantumos.files.viewmodel.FileItem
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * ExplorerView -- ported from the standalone app's ExplorerView (same domain logic, restyled onto
@@ -198,7 +199,10 @@ fun ExplorerView(
 
                 if (path.isNotEmpty()) {
                     TextButton(onClick = { viewModel.navigateUp() }) {
-                        Text("UP ◄", color = primaryColor, fontFamily = Fonts.ChakraPetch, fontSize = 11.sp)
+                        GlyphLabel(
+                            Glyph.Back, "UP", primaryColor, Fonts.ChakraPetch,
+                            fontSize = 11.sp, iconSize = 11.dp, trailing = true,
+                        )
                     }
                 }
             }

@@ -11,7 +11,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,9 +23,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -55,6 +51,8 @@ import com.quantumos.radio.RadioPreset
 import com.quantumos.radio.RadioViewModel
 import kotlinx.coroutines.delay
 import java.util.Locale
+import com.quantumos.appshell.GlyphLabel
+import com.quantumos.appshell.SteppedSlider
 
 /*
  * RADIO's field-tool controls -- ported from the standalone app's MechanicalTuningDial,
@@ -92,16 +90,25 @@ fun BandSelectionRow(
         QuantumIcon(Glyph.TunerDial, tint = color, size = 18.dp)
         RadioBand.entries.forEach { band ->
             val isSelected = band == selectedBand
-            Button(
-                onClick = { onBandSelected(band) },
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent,
-                    contentColor = color
-                ),
-                border = BorderStroke(1.dp, if (isSelected) color else color.copy(alpha = 0.2f)),
-                shape = CutCornerShape(4.dp),
-                contentPadding = PaddingValues(vertical = 10.dp)
+            // Box + border + clickable, NOT a Material Button (Fold 6: "the design language seems
+            // to differ from the other main modules"). The shape was already CutCornerShape, but a
+            // Material3 Button brings its own ripple, elevation, minimum height and content padding
+            // -- none of which any other QuantumOS module uses -- and that is what made RADIO read
+            // as a different app. Every other selection affordance in the OS is a bordered box.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .border(
+                        BorderStroke(1.dp, if (isSelected) color else color.copy(alpha = 0.2f)),
+                        CutCornerShape(4.dp),
+                    )
+                    .background(
+                        if (isSelected) color.copy(alpha = 0.2f) else Color.Transparent,
+                        CutCornerShape(4.dp),
+                    )
+                    .clickable { onBandSelected(band) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -155,11 +162,26 @@ fun AnalogReceptionMeter(
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(55.dp)
+                .height(76.dp)
         ) {
+            /*
+             * Geometry derived from the box, not from a magic multiplier (Fold 6: the scale was
+             * drawn OVER the "RECEPTION CARRIER WAVE" caption).
+             *
+             * The old maths put the pivot 8dp BELOW the canvas and the radius at 1.3x its height,
+             * so the top of the arc landed at `height + 8 - 1.3*height` = about 8dp ABOVE the
+             * canvas -- outside its own bounds, on top of the label. Compose does not clip a Canvas
+             * by default, so it drew there happily.
+             *
+             * Now the pivot sits just inside the bottom edge and the radius is whatever leaves room
+             * for the tick marks (which extend radius + 4dp) plus a margin. The gauge cannot escape
+             * its box at any size, and the pivot is shared by the arc, the ticks and the needle --
+             * previously the needle hung off a pivot 8dp above the arc's own centre, so it never
+             * quite pointed at the scale it was reading.
+             */
             val cx = size.width / 2f
-            val cy = size.height + 8.dp.toPx()
-            val radius = size.height * 1.3f
+            val cy = size.height - 6.dp.toPx()
+            val radius = size.height - 18.dp.toPx()
 
             // scale path
             drawArc(
@@ -188,15 +210,16 @@ fun AnalogReceptionMeter(
                 )
             }
 
-            // Pointer Needle
+            // Pointer needle -- same pivot as the arc and the ticks, so it reads against the
+            // scale instead of beside it.
             val needleRad = Math.toRadians((animatedNeedleAngle - 90f).toDouble())
-            val needleLength = radius * 0.95f
+            val needleLength = radius * 0.88f
             val needleX = cx + needleLength * Math.cos(needleRad).toFloat()
             val needleY = cy + needleLength * Math.sin(needleRad).toFloat()
 
             drawLine(
                 color = color,
-                start = Offset(cx, cy - 8.dp.toPx()),
+                start = Offset(cx, cy),
                 end = Offset(needleX, needleY),
                 strokeWidth = 2.dp.toPx(),
                 cap = StrokeCap.Round
@@ -204,8 +227,8 @@ fun AnalogReceptionMeter(
 
             drawCircle(
                 color = color,
-                radius = 5.dp.toPx(),
-                center = Offset(cx, cy - 8.dp.toPx())
+                radius = 4.dp.toPx(),
+                center = Offset(cx, cy)
             )
         }
 
@@ -328,24 +351,22 @@ fun MechanicalTuningDial(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Slider
-        Slider(
-            value = currentFreqDouble.toFloat(),
-            onValueChange = {
+        // Carrier position -- the house stepped bar, not a Material Slider. See SteppedSlider.
+        SteppedSlider(
+            value = ((currentFreqDouble - minFreq) / (maxFreq - minFreq)).toFloat(),
+            onValueChange = { fraction ->
+                val freq = minFreq + fraction * (maxFreq - minFreq)
                 val formatted = when (band) {
-                    RadioBand.FM -> String.format(Locale.US, "%.1f", it)
-                    RadioBand.AM -> it.toInt().toString()
-                    RadioBand.WX -> String.format(Locale.US, "%.2f", it)
+                    RadioBand.FM -> String.format(Locale.US, "%.1f", freq)
+                    RadioBand.AM -> freq.toInt().toString()
+                    RadioBand.WX -> String.format(Locale.US, "%.2f", freq)
                 }
                 onFrequencyChanged(formatted)
             },
-            valueRange = minFreq.toFloat()..maxFreq.toFloat(),
+            color = color,
+            dimColor = color,
+            segments = 32,
             modifier = Modifier.fillMaxWidth(),
-            colors = SliderDefaults.colors(
-                thumbColor = color,
-                activeTrackColor = color,
-                inactiveTrackColor = color.copy(alpha = 0.2f)
-            )
         )
 
         Row(
@@ -358,40 +379,38 @@ fun MechanicalTuningDial(
                 RadioBand.WX -> 0.01
             }
 
-            Button(
-                onClick = {
-                    val prev = (currentFreqDouble - step).coerceAtLeast(minFreq)
-                    val formatted = when (band) {
-                        RadioBand.FM -> String.format(Locale.US, "%.1f", prev)
-                        RadioBand.AM -> prev.toInt().toString()
-                        RadioBand.WX -> String.format(Locale.US, "%.2f", prev)
+            Box(
+                modifier = Modifier
+                    .border(BorderStroke(1.dp, color.copy(alpha = 0.5f)), CutCornerShape(4.dp))
+                    .clickable {
+                        val prev = (currentFreqDouble - step).coerceAtLeast(minFreq)
+                        val formatted = when (band) {
+                            RadioBand.FM -> String.format(Locale.US, "%.1f", prev)
+                            RadioBand.AM -> prev.toInt().toString()
+                            RadioBand.WX -> String.format(Locale.US, "%.2f", prev)
+                        }
+                        onFrequencyChanged(formatted)
                     }
-                    onFrequencyChanged(formatted)
-                },
-                border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
-                shape = CutCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Text("◀ TUNE -", color = color, fontFamily = Fonts.ChakraPetch, fontSize = 11.sp)
+                GlyphLabel(Glyph.TriangleLeft, "TUNE -", color, Fonts.ChakraPetch, fontSize = 11.sp, iconSize = 10.dp)
             }
 
-            Button(
-                onClick = {
-                    val next = (currentFreqDouble + step).coerceAtMost(maxFreq)
-                    val formatted = when (band) {
-                        RadioBand.FM -> String.format(Locale.US, "%.1f", next)
-                        RadioBand.AM -> next.toInt().toString()
-                        RadioBand.WX -> String.format(Locale.US, "%.2f", next)
+            Box(
+                modifier = Modifier
+                    .border(BorderStroke(1.dp, color.copy(alpha = 0.5f)), CutCornerShape(4.dp))
+                    .clickable {
+                        val next = (currentFreqDouble + step).coerceAtMost(maxFreq)
+                        val formatted = when (band) {
+                            RadioBand.FM -> String.format(Locale.US, "%.1f", next)
+                            RadioBand.AM -> next.toInt().toString()
+                            RadioBand.WX -> String.format(Locale.US, "%.2f", next)
+                        }
+                        onFrequencyChanged(formatted)
                     }
-                    onFrequencyChanged(formatted)
-                },
-                border = BorderStroke(1.dp, color.copy(alpha = 0.5f)),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
-                shape = CutCornerShape(4.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
-                Text("TUNE + ▶", color = color, fontFamily = Fonts.ChakraPetch, fontSize = 11.sp)
+                GlyphLabel(Glyph.TriangleRight, "TUNE +", color, Fonts.ChakraPetch, fontSize = 11.sp, iconSize = 10.dp, trailing = true)
             }
         }
     }
@@ -421,15 +440,12 @@ fun VolumeAndStatusCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Slider(
-            value = volume.toFloat(),
-            onValueChange = { onVolumeChanged(it.toInt()) },
-            valueRange = 0f..100f,
-            colors = SliderDefaults.colors(
-                thumbColor = color,
-                activeTrackColor = color,
-                inactiveTrackColor = color.copy(alpha = 0.2f)
-            )
+        SteppedSlider(
+            value = volume / 100f,
+            onValueChange = { onVolumeChanged((it * 100f).toInt()) },
+            color = color,
+            dimColor = color,
+            segments = 20,
         )
 
         Row(

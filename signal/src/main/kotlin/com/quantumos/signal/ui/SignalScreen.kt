@@ -48,6 +48,7 @@ import com.quantumos.core.FieldDecodeResult
 import com.quantumos.signal.GaugeReading
 import com.quantumos.signal.SignalSensors
 import com.quantumos.signal.SignalViewModel
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * SignalScreen -- SIGNAL's main content (Task Brief §2). Four segmented gauges (cellular/wifi/GPS/
@@ -106,12 +107,10 @@ fun SignalScreen(
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.weight(1f))
-            Text(
-                "PHOSPHOR ⟳",
-                color = themeColorDim,
-                fontFamily = Fonts.ChakraPetch,
-                fontSize = 11.sp,
-                modifier = Modifier.clickable { onCycleTheme() }
+            GlyphLabel(
+                Glyph.Cycle, "PHOSPHOR", themeColorDim, Fonts.ChakraPetch,
+                fontSize = 11.sp, iconSize = 11.dp, trailing = true,
+                modifier = Modifier.clickable { onCycleTheme() },
             )
         }
         Spacer(Modifier.height(4.dp))

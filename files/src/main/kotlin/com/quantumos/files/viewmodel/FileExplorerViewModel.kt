@@ -20,13 +20,13 @@ import com.quantumos.quarkbrain.QuarkBrainProvider
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.random.Random
 
 /*
  * FileExplorerViewModel -- ported from the standalone QuantumFiles repo's viewmodel of the same
@@ -98,6 +98,7 @@ class FileExplorerViewModel @JvmOverloads constructor(
     var coreTemperature by mutableStateOf(37)
         private set
     var uptimeString by mutableStateOf("00:00:00")
+    private var uptimeJob: Job? = null
         private set
     var readinessScore by mutableStateOf(100)
         private set
@@ -143,7 +144,6 @@ class FileExplorerViewModel @JvmOverloads constructor(
     init {
         setupDirectories()
         navigateToDir("")
-        startUptimeClock()
         monitorBattery()
         logTerminal("QuantumOS FILES access system loaded.")
         logTerminal("Terminal initialized. Type 'help' for field protocols.")
@@ -380,8 +380,17 @@ class FileExplorerViewModel @JvmOverloads constructor(
     }
 
     // --- Device vitals logic ---
-    private fun startUptimeClock() {
-        viewModelScope.launch {
+    /*
+     * The uptime readout ticks ONLY while FILES is actually in front -- FilesActivity drives this
+     * from onResume/onPause. It writes a Compose state every second, so left unconditional (as it
+     * was) it forced a 1 Hz recomposition for as long as this ViewModel lived, including while the
+     * Operator was looking at a completely different module -- against the house rule that the unit
+     * is static at rest with zero idle redraw. Gated rather than deleted: a clock the Operator is
+     * LOOKING at should tick; one nobody is looking at should not exist.
+     */
+    fun startVitals() {
+        if (uptimeJob?.isActive == true) return
+        uptimeJob = viewModelScope.launch {
             while (true) {
                 val ms = SystemClock.elapsedRealtime()
                 val sec = (ms / 1000) % 60
@@ -393,6 +402,12 @@ class FileExplorerViewModel @JvmOverloads constructor(
         }
     }
 
+    /** Stop the uptime tick when FILES goes to the background. Idempotent. */
+    fun stopVitals() {
+        uptimeJob?.cancel()
+        uptimeJob = null
+    }
+
     private fun monitorBattery() {
         val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val receiver = object : BroadcastReceiver() {
@@ -402,21 +417,23 @@ class FileExplorerViewModel @JvmOverloads constructor(
                     val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
                     if (level != -1 && scale != -1) {
                         batteryLevel = (level * 100 / scale.toFloat()).toInt()
-                        recalculateReadiness()
                     }
+                    // Real thermal reading, from the same broadcast, in tenths of a degree C --
+                    // the exact source and conversion QuantumRuntime.readBattery() already uses, so
+                    // FILES and the launcher cannot disagree about the unit's temperature. This
+                    // replaces a `35 + Random.nextInt(5)` loop that invented a number every 8s "to
+                    // make it dynamic and rustic": fabricated telemetry, contradicting both B4
+                    // (QUARK reads the real unit) and COMMS' own rule that vitals are a static
+                    // seeded snapshot, not a ticking while(true) fake-drift loop. Being broadcast-
+                    // driven it also costs nothing at rest, which the loop did not.
+                    val rawTemp = it.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1)
+                    if (rawTemp > 0) coreTemperature = (rawTemp / 10f).toInt()
+                    recalculateReadiness()
                 }
             }
         }
         context.registerReceiver(receiver, filter)
 
-        // Simulate core temperature slight fluctuations to make it dynamic and rustic.
-        viewModelScope.launch {
-            while (true) {
-                coreTemperature = 35 + Random.nextInt(5) // Ranges 35C to 39C
-                recalculateReadiness()
-                delay(8000)
-            }
-        }
     }
 
     private fun recalculateReadiness() {

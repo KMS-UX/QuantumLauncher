@@ -134,6 +134,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Locale
+import com.quantumos.appshell.GlyphLabel
+import com.quantumos.appshell.AppIcon
+import com.quantumos.appshell.appGlyphFor
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 
 /*
  * QuantumOS — UI LAYER (Compose). Depends on com.quantumos.core for all logic and
@@ -519,7 +524,7 @@ private fun BootSplash(
                     PleaseStandbyCard(subline = "BRINGING UP HOME…", color = color, dimColor = dimColor, font = font)
                 }
                 else -> {
-                    Text("◈", color = dimColor, fontFamily = font, fontSize = 28.sp)
+                    QuantumIcon(Glyph.Diamond, dimColor, size = 28.dp)
                 }
             }
         }
@@ -936,7 +941,10 @@ private fun InstrumentOfflineOverlay(
             Spacer(Modifier.height(10.dp))
             Text("MODULE NOT YET DEPLOYED", color = dimColor, fontFamily = font, fontSize = 12.sp)
             Spacer(Modifier.height(24.dp))
-            Text("◄ TAP TO RETURN, OPERATOR", color = dimColor, fontFamily = font, fontSize = 11.sp)
+            GlyphLabel(
+                Glyph.Back, "TAP TO RETURN, OPERATOR", dimColor, font,
+                fontSize = 11.sp, iconSize = 11.dp,
+            )
         }
     }
 }
@@ -953,12 +961,14 @@ private fun AtomMark(open: Boolean, color: Color, dimColor: Color, font: FontFam
         }
     }
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onClick() }.padding(4.dp)) {
-        Text(
-            text = "⚛",                       // ⚛ atom mark
-            color = if (open) color else dimColor,
-            fontFamily = font,
-            fontSize = 22.sp,
-            modifier = Modifier.rotate(spin)
+        // Drawn, not a platform emoji. This is the most prominent brand mark on Home and it
+        // was a Text("⚛") resolved by font fallback -- so what actually rendered was whatever the
+        // device substituted, in whatever colour that font chose, ignoring the active hue.
+        QuantumIcon(
+            Glyph.Atom,
+            if (open) color else dimColor,
+            modifier = Modifier.rotate(spin),
+            size = 22.dp,
         )
         Spacer(Modifier.width(6.dp))
         Text(
@@ -978,11 +988,13 @@ private fun BeaconFlag(font: FontFamily) {
     LaunchedEffect(Unit) {
         while (true) { delay(450); on = !on }
     }
-    Text(
-        text = "⚑ BEACON",                    // ⚑ flag
-        color = if (on) Phosphor.Warn else Color.Transparent,
-        fontFamily = font,
+    GlyphLabel(
+        glyph = Glyph.Beacon,
+        text = "BEACON",
+        tint = if (on) Phosphor.Warn else Color.Transparent,
+        font = font,
         fontSize = 12.sp,
+        iconSize = 12.dp,
         fontWeight = FontWeight.Bold
     )
 }
@@ -1012,12 +1024,15 @@ private fun QuarkTriggerControl(
                 .border(BorderStroke(1.dp, color))
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
-            Text(
-                text = "QUARK TRIGGER // GRANT OVERLAY ►",
-                color = color,
-                fontFamily = font,
+            GlyphLabel(
+                glyph = Glyph.Forward,
+                text = "QUARK TRIGGER // GRANT OVERLAY",
+                tint = color,
+                font = font,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
+                iconSize = 12.dp,
+                trailing = true,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -1103,7 +1118,10 @@ private fun VitalityPanel(
                 label = "POWER",
                 filled = ((vitality.batteryPercentage.coerceIn(0, 100) + 5) / 10),
                 total = 10,
-                value = "${vitality.batteryPercentage}%${if (vitality.isCharging) " ⚡" else ""}",
+                // Charging is shown by the gauge's own trailing glyph now, not a "⚡" in the
+                // value string -- see SegmentedGauge's trailingGlyph parameter.
+                value = "${vitality.batteryPercentage}%",
+                trailingGlyph = if (vitality.isCharging) Glyph.Charge else null,
                 color = color, dimColor = dimColor, font = font
             )
             SegmentedGauge(
@@ -1173,7 +1191,7 @@ private fun VitalityPanel(
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text("▲ STOW", color = dimColor, fontFamily = font, fontSize = 12.sp)
+                GlyphLabel(Glyph.CaretUp, "STOW", dimColor, font, fontSize = 12.sp, iconSize = 11.dp)
             }
         }
     }
@@ -1208,12 +1226,15 @@ private fun ActionCell(
             Text(title, color = edge, fontFamily = font, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = if (active) "[●] $status" else "[ ] $status",
-            color = if (active) color else dimColor,
-            fontFamily = font,
-            fontSize = 10.sp
-        )
+        // "[●]" / "[ ]" -- the bracket pair is the house state affordance and stays as text;
+        // only the fill mark inside it becomes drawn, so an unlit cell keeps its exact spacing.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("[", color = if (active) color else dimColor, fontFamily = font, fontSize = 10.sp)
+            Box(Modifier.size(7.dp), contentAlignment = Alignment.Center) {
+                if (active) QuantumIcon(Glyph.Dot, color, size = 7.dp)
+            }
+            Text("] $status", color = if (active) color else dimColor, fontFamily = font, fontSize = 10.sp)
+        }
     }
 }
 
@@ -1237,7 +1258,10 @@ private fun LockOverlay(
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (secured) {
-                Text("◼ DEVICE SECURED", color = color, fontFamily = font, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                GlyphLabel(
+                    Glyph.Lock, "DEVICE SECURED", color, font,
+                    fontSize = 18.sp, iconSize = 16.dp, fontWeight = FontWeight.Bold,
+                )
                 Spacer(Modifier.height(12.dp))
                 Text("TAP TO UNSEAL, OPERATOR", color = dimColor, fontFamily = font, fontSize = 12.sp)
             } else {
@@ -1448,9 +1472,14 @@ private fun PageNavButton(
                     if (forward) "NEXT PAGE" else "PREV PAGE",
                     color = if (enabled) color else dimColor, fontFamily = font, fontSize = 8.sp, fontWeight = FontWeight.Bold
                 )
-                Text(
-                    if (forward) "FORWARD ▶" else "◀ BACKWARD",
-                    color = dimColor, fontFamily = font, fontSize = 7.sp
+                GlyphLabel(
+                    glyph = if (forward) Glyph.TriangleRight else Glyph.TriangleLeft,
+                    text = if (forward) "FORWARD" else "BACKWARD",
+                    tint = dimColor,
+                    font = font,
+                    fontSize = 7.sp,
+                    iconSize = 7.dp,
+                    trailing = forward,
                 )
             }
             Spacer(Modifier.width(3.dp))
@@ -1512,14 +1541,27 @@ private fun AppCell(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-            if (iconBitmap != null) {
-                Image(
+            // Three tiers, in order of how well we can honour the house palette:
+            //
+            //  1. A themed mark from the pack, when the package is recognised. Drawn, so it carries
+            //     the active hue exactly like the rest of the OS chrome.
+            //  2. The app's REAL icon, mapped luminance -> active hue. Unrecognised apps stay
+            //     recognisable -- their silhouette is intact -- without a single off-palette pixel.
+            //     Same ColorMatrix treatment QuarkTriggerService already uses on her badge.
+            //  3. The registration diamond, only when the PackageManager gave us no icon at all.
+            //
+            // What this replaces: every cell drew the vendor's own full-colour art at 40dp. It was
+            // the largest off-palette surface in the OS, and no amount of chrome around it helped.
+            val themed = remember(app.packageName) { appGlyphFor(app.packageName) }
+            when {
+                themed != null -> AppIcon(themed, color, size = 34.dp)
+                iconBitmap != null -> Image(
                     bitmap = iconBitmap,
                     contentDescription = null,
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(40.dp),
+                    colorFilter = phosphorFilter(color),
                 )
-            } else {
-                Text("◈", color = dimColor, fontFamily = font, fontSize = 22.sp)
+                else -> QuantumIcon(Glyph.Diamond, dimColor, size = 22.dp)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -1657,3 +1699,31 @@ private fun Drawable.toBitmapCompat(): Bitmap? = runCatching {
     draw(canvas)
     bmp
 }.getOrNull()
+
+/*
+ * Map any bitmap to luminance x the active phosphor, so a third-party icon can sit in the grid
+ * without bringing its vendor's palette with it. Identical maths to QuarkTriggerService.phosphorMatrix
+ * -- the ITU luma weights, alpha untouched so the icon's own silhouette is what shows.
+ *
+ * Alpha deliberately passes through: these are adaptive icons with their own shapes, and flattening
+ * them to a square would lose the one cue that tells two unrecognised apps apart at 40dp.
+ */
+private fun phosphorFilter(hue: Color): ColorFilter {
+    val r = hue.red
+    val g = hue.green
+    val b = hue.blue
+    return ColorFilter.colorMatrix(
+        ColorMatrix(
+            floatArrayOf(
+                LUMA_R * r, LUMA_G * r, LUMA_B * r, 0f, 0f,
+                LUMA_R * g, LUMA_G * g, LUMA_B * g, 0f, 0f,
+                LUMA_R * b, LUMA_G * b, LUMA_B * b, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f,
+            )
+        )
+    )
+}
+
+private const val LUMA_R = 0.299f
+private const val LUMA_G = 0.587f
+private const val LUMA_B = 0.114f

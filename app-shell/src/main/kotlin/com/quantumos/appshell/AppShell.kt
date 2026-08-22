@@ -43,6 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.quantumos.core.NavigationChannel
 import com.quantumos.core.PhosphorHue
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 
 /*
  * QuantumOS — shared App Shell chrome (App Shell Integration, Phase 3). Extracted from the
@@ -229,12 +234,9 @@ fun NameplateHeader(channelName: String, color: Color, dimColor: Color, font: Fo
             fontSize = 12.sp
         )
         Spacer(Modifier.width(12.dp))
-        Text(
-            text = "[⊕]",
-            color = dimColor,
-            fontFamily = font,
-            fontSize = 11.sp
-        )
+        // Registration mark. Was a bare "[⊕]" -- a font-fallback glyph standing in for the
+        // nameplate's alignment target. Drawn now, so it is house art and carries the active hue.
+        QuantumIcon(Glyph.Crosshair, dimColor, size = 11.dp)
     }
 }
 
@@ -327,13 +329,23 @@ fun SegmentedGauge(
     value: String,
     color: Color,
     dimColor: Color,
-    font: FontFamily
+    font: FontFamily,
+    /**
+     * Optional mark drawn after the value -- the POWER gauge's charging bolt is the first caller.
+     * It exists because that bolt used to be a " ⚡" appended to the value STRING, i.e. a
+     * font-fallback glyph inside a number. A gauge is the right place to own its own status mark.
+     */
+    trailingGlyph: Glyph? = null,
 ) {
     androidx.compose.foundation.layout.Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             Text(label.padEnd(10), color = dimColor, fontFamily = font, fontSize = 12.sp)
             Spacer(Modifier.weight(1f))
             Text(value, color = color, fontFamily = font, fontSize = 12.sp)
+            if (trailingGlyph != null) {
+                Spacer(Modifier.width(4.dp))
+                QuantumIcon(trailingGlyph, color, size = 11.dp)
+            }
         }
         Spacer(Modifier.height(3.dp))
         Row(Modifier.fillMaxWidth()) {
@@ -345,6 +357,71 @@ fun SegmentedGauge(
                         .background(if (i < filled) color else dimColor.copy(alpha = 0.22f))
                 )
                 if (i < total - 1) Spacer(Modifier.width(2.dp))
+            }
+        }
+    }
+}
+
+/*
+ * SteppedSlider -- the house's interactive bar, and the replacement for Material3 `Slider`.
+ *
+ * Why it exists (Fold 6: "the design language seems to differ from the other main modules"): RADIO
+ * was driving its tuning and volume with stock `Slider`s, which draw a fully-rounded pill track and
+ * a round floating thumb. That is Material's vocabulary, not this one -- CLAUDE.md rules out
+ * Material-default controls, and the house says motion is "stepped, not interpolated". Two rounded
+ * pills were the loudest thing on the screen and the reason the module read as a different app.
+ *
+ * This is the same segment language [SegmentedGauge] already uses for every readout in the OS, made
+ * interactive: discrete blocks, quantised to a segment on tap AND on drag, so the value can never
+ * land between steps and there is no thumb to interpolate. One vocabulary for showing a level and
+ * for setting one.
+ *
+ * [value] and the [onValueChange] callback are normalised 0..1 so the control knows nothing about
+ * frequencies or percentages -- the caller owns its own units.
+ */
+@Composable
+fun SteppedSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    color: Color,
+    dimColor: Color,
+    modifier: Modifier = Modifier,
+    segments: Int = 24,
+    height: Dp = 14.dp,
+) {
+    val clamped = value.coerceIn(0f, 1f)
+    // Round rather than truncate: at the top of the range truncation leaves the last segment dark
+    // even at 100%, which reads as "not quite maxed" on a control that is maxed.
+    val filled = kotlin.math.round(clamped * segments).toInt().coerceIn(0, segments)
+
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
+
+        fun emit(x: Float) {
+            val raw = (x / widthPx).coerceIn(0f, 1f)
+            // Quantise to a segment edge, so tapping anywhere inside a block selects that block.
+            onValueChange(kotlin.math.round(raw * segments) / segments.toFloat())
+        }
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(height)
+                .pointerInput(segments, widthPx) {
+                    detectTapGestures { emit(it.x) }
+                }
+                .pointerInput(segments, widthPx) {
+                    detectHorizontalDragGestures { change, _ -> emit(change.position.x) }
+                }
+        ) {
+            repeat(segments) { i ->
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .background(if (i < filled) color else dimColor.copy(alpha = 0.22f))
+                )
+                if (i < segments - 1) Spacer(Modifier.width(2.dp))
             }
         }
     }

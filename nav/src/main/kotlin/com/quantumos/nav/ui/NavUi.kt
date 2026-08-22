@@ -51,6 +51,7 @@ import com.quantumos.core.PhosphorHue
 import com.quantumos.nav.GpsReadout
 import com.quantumos.nav.core.NavCoordinates
 import com.quantumos.nav.core.SectorPresets
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * QuantumOS Nav — docked into the launcher's shared App Shell (App Shell Integration, Phase 3).
@@ -227,10 +228,10 @@ private fun ControlRail(
             Text("COORDINATE ENTRY", color = dim, fontFamily = font, fontSize = 10.sp, letterSpacing = 1.sp)
             Spacer(Modifier.weight(1f))
             // Live phosphor switch — the same field capability as the launcher's Vitality panel.
-            Text(
-                "[PHOSPHOR ►]",
-                color = color, fontFamily = font, fontSize = 10.sp,
-                modifier = Modifier.clickable { onCyclePhosphor() }.padding(4.dp)
+            GlyphLabel(
+                Glyph.Phosphor, "PHOSPHOR", color, font,
+                fontSize = 10.sp, iconSize = 11.dp,
+                modifier = Modifier.clickable { onCyclePhosphor() }.padding(4.dp),
             )
         }
         Spacer(Modifier.height(8.dp))

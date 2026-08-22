@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +40,7 @@ import com.quantumos.appshell.Fonts
 import com.quantumos.appshell.Glyph
 import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.QuantumIcon
+import androidx.compose.foundation.clickable
 
 /*
  * RADIO's own local "vitals" quick-actions console -- the same shape as the standalone app's
@@ -137,9 +137,12 @@ fun VitalityDropdownConsole(
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp
                 )
-                IconButton(onClick = onClose) {
-                    QuantumIcon(Glyph.Close, tint = color, size = 16.dp)
-                }
+                // Plain clickable icon: IconButton wraps its content in Material's 48dp target
+                // box with a ripple, which is a different control language from the rest of the OS.
+                QuantumIcon(
+                    Glyph.Close, tint = color, size = 16.dp,
+                    modifier = Modifier.clickable { onClose() }.padding(4.dp),
+                )
             }
 
             Box(
@@ -190,14 +193,17 @@ fun VitalityDropdownConsole(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    onClick = onStealthToggle,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (stealthMode) color.copy(alpha = 0.25f) else Color.Transparent
-                    ),
-                    border = BorderStroke(1.dp, color),
-                    shape = CutCornerShape(4.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(BorderStroke(1.dp, color), CutCornerShape(4.dp))
+                        .background(
+                            if (stealthMode) color.copy(alpha = 0.25f) else Color.Transparent,
+                            CutCornerShape(4.dp),
+                        )
+                        .clickable { onStealthToggle() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         QuantumIcon(Glyph.Stealth, tint = color, size = 16.dp)
@@ -211,12 +217,13 @@ fun VitalityDropdownConsole(
                     }
                 }
 
-                Button(
-                    onClick = onCycleTheme,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                    border = BorderStroke(1.dp, color),
-                    shape = CutCornerShape(4.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .border(BorderStroke(1.dp, color), CutCornerShape(4.dp))
+                        .clickable { onCycleTheme() }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         QuantumIcon(Glyph.Phosphor, tint = color, size = 16.dp)
@@ -228,12 +235,14 @@ fun VitalityDropdownConsole(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Button(
-                onClick = onClose,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = color.copy(alpha = 0.15f)),
-                border = BorderStroke(1.dp, color),
-                shape = CutCornerShape(4.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(BorderStroke(1.dp, color), CutCornerShape(4.dp))
+                    .background(color.copy(alpha = 0.15f), CutCornerShape(4.dp))
+                    .clickable { onClose() }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     "STOW CONSOLE",

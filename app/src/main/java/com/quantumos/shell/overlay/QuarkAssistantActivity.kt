@@ -81,6 +81,8 @@ import com.quantumos.appshell.crtShader
 import com.quantumos.shell.ui.QuantumRuntime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.quantumos.appshell.GlyphLabel
+import com.quantumos.appshell.SegmentedGauge
 
 /*
  * QuantumOS — QUARK Assistant View. Full-screen phosphor surface: a large central reactive presence
@@ -309,10 +311,10 @@ class QuarkAssistantActivity : ComponentActivity() {
                     ) {
                         // ----- header: stow · title (triple-tap = diagnostics) · caption -----
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                "◄ STOW",
-                                color = dimColor, fontFamily = font, fontSize = 12.sp,
-                                modifier = Modifier.clickable { close() }.padding(4.dp)
+                            GlyphLabel(
+                                Glyph.Back, "STOW", dimColor, font,
+                                fontSize = 12.sp, iconSize = 12.dp,
+                                modifier = Modifier.clickable { close() }.padding(4.dp),
                             )
                             Spacer(Modifier.width(10.dp))
                             // Terse and mechanical, per the house voice. DEPLOY is the way back, so
@@ -330,13 +332,18 @@ class QuarkAssistantActivity : ComponentActivity() {
                             )
                             Spacer(Modifier.weight(1f))
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    if (quarkConfigOpen) "QUARK ▴" else "QUARK ▾",
-                                    color = color, fontFamily = font, fontSize = 16.sp,
+                                GlyphLabel(
+                                    glyph = if (quarkConfigOpen) Glyph.CaretUp else Glyph.CaretDown,
+                                    text = "QUARK",
+                                    tint = color,
+                                    font = font,
+                                    fontSize = 16.sp,
+                                    iconSize = 12.dp,
+                                    trailing = true,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier
                                         .clickable { quarkConfigOpen = !quarkConfigOpen }
-                                        .padding(4.dp)
+                                        .padding(4.dp),
                                 )
                             }
                             Spacer(Modifier.weight(1f))
@@ -627,7 +634,10 @@ private fun ModelAcquisitionPanel(
                         Text(
                             "Tap ACQUIRE WEIGHTS to download, or PICK FILE to import what you already " +
                             "have:\ngemma-4-E2B-it.litertlm\n" +
-                            "Source: HuggingFace → google/gemma-4-E2B-it",
+                            // "//" not an arrow: this is prose, not a control, and the house
+                            // microcopy already uses // as its separator everywhere else. An icon
+                            // here would be wrong; a font-fallback arrow was merely fragile.
+                            "Source: HuggingFace // google/gemma-4-E2B-it",
                             color = dimColor, fontFamily = font, fontSize = 11.sp
                         )
                     }
@@ -637,10 +647,17 @@ private fun ModelAcquisitionPanel(
                         val mbTotal = readyState.total / (1024 * 1024)
                         Text("ACQUIRING QUARK — $pct%", color = color, fontFamily = font, fontSize = 12.sp)
                         // Discrete phosphor progress bar — 20 segments, stepped not smooth.
+                        // Was built from "█"/"░" block characters, i.e. a bar whose segment shape,
+                        // width and gap were all decided by whichever font the device fell back to.
+                        // SegmentedGauge is the house renderer for exactly this and is already
+                        // shared by the Vitality panel and SIGNAL's link gauges.
                         val filled = (readyState.fraction * 20).toInt().coerceIn(0, 20)
-                        Text(
-                            "█".repeat(filled) + "░".repeat(20 - filled) + "  $pct%",
-                            color = color, fontFamily = font, fontSize = 13.sp
+                        SegmentedGauge(
+                            label = "TRANSFER",
+                            filled = filled,
+                            total = 20,
+                            value = "$pct%",
+                            color = color, dimColor = dimColor, font = font,
                         )
                         Text("$mbRead MB / $mbTotal MB TRANSFERRED", color = dimColor, fontFamily = font, fontSize = 11.sp)
                         Text("PLEASE STANDBY", color = dimColor, fontFamily = font, fontSize = 11.sp)

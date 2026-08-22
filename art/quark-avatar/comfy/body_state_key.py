@@ -39,7 +39,10 @@ DRAWABLE = os.path.join(ROOT, "quark-avatar", "src", "main", "res", "drawable-no
 
 IDLE_SOURCE = os.path.join(ART, "reference", "QUARK_HOLOGRAM_FRONT.png")
 GENERATED = {
-    "scan": "quark_state_scan_00002_.png",
+    # SCAN re-rendered Phase 25 with the `think_b` prompt at denoise 0.30 -- the Director's pick for
+    # the THINKING plate, replacing the furrowed-brow original. Same prompt as the bust set, which is
+    # why it transfers: the state prompts name the face and the accent glow, never the framing.
+    "scan": "quark_state_think_b_d30_00001_.png",
     "happy": "quark_state_happy_00002_.png",
     "warn": "quark_state_warn_00003_.png",
 }

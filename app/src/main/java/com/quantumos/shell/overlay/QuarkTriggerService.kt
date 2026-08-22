@@ -228,7 +228,6 @@ class QuarkTriggerService : Service() {
     // The art survives that treatment: its luminance spans the full 0..255, so the face, the ring
     // ticks and the wordmark stay legible as monochrome rather than flattening into a disc.
     private class IrisView(context: Context) : View(context) {
-        private var bright: Int = DEFAULT_HUE_COLOR
 
         private val icon: Bitmap? = runCatching {
             BitmapFactory.decodeResource(context.resources, com.quantumos.shell.R.drawable.quark_trigger)
@@ -243,13 +242,20 @@ class QuarkTriggerService : Service() {
             style = Paint.Style.FILL
             color = CRT_GROUND
         }
-        // Kept from the placeholder: a thin bright ring is what makes a floating control read as a
-        // control at 52dp, where the art alone is a small picture.
-        private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-
+        /*
+         * The drawn ring is GONE (Fold 6, Director call).
+         *
+         * It dates from the placeholder art, where a bright ring was the only thing making a small
+         * picture read as a control at 52dp. The hologram badge that replaced that art carries its
+         * own heavy HUD ring, so ours stacked a second boundary on top of it -- which is exactly the
+         * "thick boundary line" the Director flagged, and why the previous build looked cleaner: the
+         * old art's ring was far lighter, so the doubling barely showed.
+         *
+         * The CRT-ground disc stays: it is what makes the badge read against a light wallpaper, and
+         * it is now drawn at the full radius rather than inset to leave room for a ring that no
+         * longer exists.
+         */
         fun setHue(color: Int) {
-            bright = color
-            ringPaint.color = bright
             iconPaint.colorFilter = ColorMatrixColorFilter(phosphorMatrix(color))
             invalidate()
         }
@@ -274,14 +280,11 @@ class QuarkTriggerService : Service() {
             val cx = width / 2f
             val cy = height / 2f
             val r = minOf(cx, cy)
-            val stroke = r * 0.08f
-            canvas.drawCircle(cx, cy, r - stroke, groundPaint)
+            canvas.drawCircle(cx, cy, r, groundPaint)
             icon?.let {
                 dst.set(0f, 0f, width.toFloat(), height.toFloat())
                 canvas.drawBitmap(it, null, dst, iconPaint)
             }
-            ringPaint.strokeWidth = stroke
-            canvas.drawCircle(cx, cy, r - stroke / 2f, ringPaint)
         }
     }
 

@@ -56,6 +56,7 @@ import com.quantumos.appshell.Phosphor
 import com.quantumos.appshell.PleaseStandbyCard
 import com.quantumos.appshell.QuantumIcon
 import com.quantumos.audio.AudioViewModel
+import com.quantumos.appshell.GlyphLabel
 
 /*
  * PLAYER -- AUDIO's secondary screen (field recorder first, per the module identity; player second).
@@ -103,12 +104,17 @@ fun PlayerScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "DECK: " + if (isPlayingState) "▲ PLAYING" else "■ STANDBY",
-                            color = themeColor,
+                        // The deck state mark reuses the transport glyphs the rail already
+                        // uses for the same two states, so PLAYING here and PLAY there are one
+                        // vocabulary rather than a triangle that merely resembles one.
+                        GlyphLabel(
+                            glyph = if (isPlayingState) Glyph.Play else Glyph.Stop,
+                            text = "DECK: " + if (isPlayingState) "PLAYING" else "STANDBY",
+                            tint = themeColor,
+                            font = Fonts.ChakraPetch,
                             fontSize = 10.sp,
-                            fontFamily = Fonts.ChakraPetch,
-                            fontWeight = FontWeight.Bold
+                            iconSize = 10.dp,
+                            fontWeight = FontWeight.Bold,
                         )
                         Row(
                             modifier = Modifier
@@ -117,11 +123,14 @@ fun PlayerScreen(
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "MODE: $viewMode ⇅",
-                                color = themeColor,
+                            GlyphLabel(
+                                glyph = Glyph.Swap,
+                                text = "MODE: $viewMode",
+                                tint = themeColor,
+                                font = Fonts.ChakraPetch,
                                 fontSize = 9.sp,
-                                fontFamily = Fonts.ChakraPetch,
+                                iconSize = 9.dp,
+                                trailing = true,
                                 fontWeight = FontWeight.Bold
                             )
                         }

@@ -116,6 +116,7 @@ fun QuarkProjection(
                     stealthDim = 1f - stealth * (1f - STEALTH_FIGURE_DIM),
                     framingScale = framingScale,
                     baseOverhang = renderMode.baseOverhang,
+                    baseHeightFill = renderMode.baseHeightFill,
                     materialise = materialise,
                     modifier = Modifier.fillMaxSize(),
                 )

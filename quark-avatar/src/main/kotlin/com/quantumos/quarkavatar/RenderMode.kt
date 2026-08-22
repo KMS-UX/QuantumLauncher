@@ -57,7 +57,29 @@ enum class RenderMode(
      * it needs the larger step to fill the housing the way the body does at the smaller one.
      */
     val defaultFramingIndex: Int,
+    /**
+     * Fraction of the VIEWPORT height QUARK occupies at FRAMING 100% (C2 -- the fold).
+     *
+     * Why this exists: FRAMING sizes QUARK off the viewport's WIDTH, and these plates are much
+     * taller than they are wide, so height is the dependent variable. That works on the one screen
+     * this was ever tuned on -- 1080x2424 -- and breaks everywhere else. On the Fold 6's INNER
+     * display (~2160x1856) the same width-driven maths asks for a BODY plate roughly **twice the
+     * screen height**: her head leaves the frame entirely. Landscape does the same.
+     *
+     * These values are DERIVED, not chosen by eye: they are what the tuned phone screen already
+     * produces at FRAMING 100% (BODY 0.786, BUST 0.547), rounded a hair UP so the clamp cannot bind
+     * there through float equality. Two consequences worth stating: on the tuned screen nothing
+     * changes at any reachable FRAMING setting, and on a wide screen QUARK is drawn at the SAME
+     * PROPORTION the Director already approved rather than in a different composition.
+     */
+    val baseHeightFill: Float,
 ) {
-    PLATE_BODY("BODY (full figure, native art)", baseOverhang = 0.08f, defaultFramingIndex = 0),
-    PLATE_BUST("BUST (close, native art)", baseOverhang = 0.05f, defaultFramingIndex = 1);
+    PLATE_BODY(
+        "BODY (full figure, native art)",
+        baseOverhang = 0.08f, defaultFramingIndex = 0, baseHeightFill = 0.80f,
+    ),
+    PLATE_BUST(
+        "BUST (close, native art)",
+        baseOverhang = 0.05f, defaultFramingIndex = 1, baseHeightFill = 0.56f,
+    );
 }

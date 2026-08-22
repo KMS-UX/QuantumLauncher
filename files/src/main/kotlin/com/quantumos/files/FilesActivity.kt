@@ -3,9 +3,9 @@ package com.quantumos.files
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import com.quantumos.appshell.engageFieldUnitDisplay
 import com.quantumos.appshell.hideSystemBars
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.quantumos.appshell.Phosphor
 import com.quantumos.files.ui.components.AppShell
 import com.quantumos.files.ui.screens.FilesScreen
@@ -20,6 +20,22 @@ import com.quantumos.files.viewmodel.FileExplorerViewModel
  * explicit and tappable. Mirrors OpticsActivity's structure.
  */
 class FilesActivity : ComponentActivity() {
+
+    // Held at Activity level (not fetched inside setContent) so onResume/onPause can reach it. The
+    // uptime readout writes a Compose state every second; ticking it while FILES is not in front
+    // is idle redraw in a module the Operator is not even looking at -- see startVitals().
+    private val viewModel: FileExplorerViewModel by viewModels()
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.startVitals()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        viewModel.stopVitals()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         // A transient reveal, a fold/unfold or coming back from another app all leave
@@ -32,11 +48,10 @@ class FilesActivity : ComponentActivity() {
 
         engageFieldUnitDisplay()
         setContent {
-            val viewModel: FileExplorerViewModel = viewModel()
-
-            // The ViewModel owns activeHue (default GREEN) -- this docked module's hue is not yet
-            // synced with the launcher's live selection (known, pre-existing limitation shared with
-            // Optics/Nav). Phosphor.bright/dim is the single token source; never hardcode hues here.
+            // activeHue is driven by PhosphorHueRuntime, the one process-wide source of truth (Core
+            // Apps Polish Pass, Item 2) -- the ViewModel collects it rather than owning it, so a hue
+            // change made anywhere lands here live. Phosphor.bright/dim is the single token source;
+            // never hardcode hues here.
             val currentThemeColor = Phosphor.bright(viewModel.activeHue)
             val currentThemeColorDim = Phosphor.dim(viewModel.activeHue)
 
